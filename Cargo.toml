@@ -1,0 +1,39 @@
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+description = "GuestJS is a Rust library for executing guest JavaScript code transparently."
+repository = "https://github.com/wizrds/guestjs"
+license = "ISC"
+readme = "README.md"
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/guestjs-macros",
+    "crates/guestjs-core",
+    "crates/guestjs-llrt",
+    "crates/guestjs",
+]
+exclude = [
+    "crates/guestjs-test",
+]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+
+async-trait = { version = "0.1" }
+futures = { version = "0.3" }
+
+thiserror = { version = "2" }
+proc-macro-crate = { version = "3.5" }
+
+bytes = { version = "1" }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+
+rquickjs = { version = "0.12", features = ["full-async"] }
+rquickjs-serde = { version = "0.6" }
+oxc = { version = "0.140", features = ["transformer", "codegen", "semantic"] }
+
+tokio = { version = "1" }

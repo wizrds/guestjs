@@ -1,0 +1,31 @@
+[package]
+name = "guestjs"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[dependencies]
+guestjs-macros = { path = "../guestjs-macros", version = "0.0.0", default-features = false }
+guestjs-core = { path = "../guestjs-core", version = "0.0.0", default-features = false }
+guestjs-llrt = { path = "../guestjs-llrt", version = "0.0.0", optional = true }
+
+async-trait = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[features]
+default = []
+llrt-buffer = ["dep:guestjs-llrt", "guestjs-llrt/buffer"]
+llrt-console = ["dep:guestjs-llrt", "guestjs-llrt/console"]
+llrt-fetch = ["dep:guestjs-llrt", "guestjs-llrt/fetch"]
+llrt-fs = ["dep:guestjs-llrt", "guestjs-llrt/fs"]
+typescript = ["guestjs-core/typescript"]

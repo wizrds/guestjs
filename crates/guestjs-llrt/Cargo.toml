@@ -1,0 +1,31 @@
+[package]
+name = "guestjs-llrt"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[dependencies]
+guestjs-core = { path = "../guestjs-core", version = "0.0.0" }
+
+llrt_modules = { git = "https://github.com/awslabs/llrt", rev = "101ae49", default-features = false, features = ["path", "timers"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[features]
+default = []
+buffer = ["llrt_modules/buffer"]
+console = ["llrt_modules/console"]
+fetch = [
+    "llrt_modules/abort",
+    "llrt_modules/buffer",
+    "llrt_modules/fetch",
+    "llrt_modules/stream-web",
+    "llrt_modules/tls-ring",
+    "llrt_modules/url",
+]
+fs = ["llrt_modules/buffer", "llrt_modules/fs"]

@@ -1,0 +1,19 @@
+{
+    "name": "guestjs",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": "..",
+		"args": {
+			"VARIANT": "1.95.0-bookworm"
+		}
+    },
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"rust-lang.rust-analyzer"
+			]
+		}
+	},
+	"postCreateCommand": "prek install --install-hooks && prek install --install-hooks --commit-msg",
+	"remoteUser": "dev"
+}

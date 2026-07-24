@@ -1,0 +1,52 @@
+name: release
+
+on:
+  push:
+    tags: ["*"]
+
+jobs:
+  make-release:
+    if: |
+      !contains(github.event.head_commit.message, '[skip-ci]') &&
+      github.repository == 'wizrds/guestjs'
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.43.3
+
+      - name: Extract changelog for release
+        id: changelog
+        run: |
+          TAG=$(task version:current)
+          PREV_VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -n 2 | tail -n 1 | sed -E 's/^## \[([^]]+)\].*/\1/')
+          
+          awk -v tag="$TAG" '
+            # Start when we hit the current version header
+            $0 ~ "^## \\[" tag "\\]" { printing=1; next }
+
+            # Stop when we hit the next version header
+            printing && $0 ~ "^## \\[" { exit }
+
+            printing
+          ' CHANGELOG.md > release_notes.md
+          
+          echo "Release notes for $TAG:"
+          cat release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          body_path: release_notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

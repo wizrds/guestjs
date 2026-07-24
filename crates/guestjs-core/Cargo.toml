@@ -1,0 +1,30 @@
+[package]
+name = "guestjs-core"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+thiserror = { workspace = true }
+
+bytes = { workspace = true }
+
+rquickjs = { workspace = true }
+rquickjs-serde = { workspace = true }
+oxc = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[features]
+default = []
+typescript = ["oxc"]

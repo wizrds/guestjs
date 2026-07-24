@@ -1,0 +1,19 @@
+[package]
+name = "guestjs-macros"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"
+proc-macro-crate = { workspace = true }
+darling = "0.23"
+heck = "0.5"
