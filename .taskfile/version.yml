@@ -13,7 +13,7 @@ tasks:
     desc: Print the version
     deps: [devtools:install]
     cmds:
-      - svu current --tag.prefix='' --tag.pattern='{{.STABLE_SEMVER_GLOB}}' {{.CLI_ARGS}} 2> /dev/null || echo "0.0.0"
+      - svu current --tag.prefix='' --tag.pattern='{{.STABLE_SEMVER_GLOB}}' {{.CLI_ARGS}} || echo "0.0.0"
 
   next:
     desc: Get the next version given SemVer
