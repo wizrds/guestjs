@@ -20,7 +20,7 @@ tasks:
     deps: [devtools:install]
     cmds:
       - |
-        NEXT=$(svu next --v0 --tag.prefix='' --tag.pattern='{{.STABLE_SEMVER_GLOB}}' {{.CLI_ARGS}})
+        NEXT=$(svu next --v0 --tag.prefix='' --tag.pattern='{{.STABLE_SEMVER_GLOB}}' {{.CLI_ARGS}} || echo "0.1.0")
         if [ -n "{{.PRE_RELEASE}}" ]; then
           NEXT="$NEXT-{{.PRE_RELEASE}}"
         fi
