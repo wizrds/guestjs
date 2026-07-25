@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.1.1](https://github.com/wizrds/guestjs/compare/0.1.0..0.1.1) - 2026-07-25
+
+### Bug Fixes
+
+- Add support for bounded execution control  - ([822999b](https://github.com/wizrds/guestjs/commit/822999b1af258de9a0df848c269494a5fe1101f5)) - Timothy Pogue
+---
 ## [0.1.0] - 2026-07-24
 
 ### Features
