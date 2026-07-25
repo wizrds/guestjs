@@ -27,6 +27,73 @@
 //! enabled, the configured transpiler receives the module name and source before guest-module
 //! evaluation.
 //!
+//! # Execution control
+//!
+//! Execution controls configured through
+//! [`RuntimeBuilder`](crate::runtime::RuntimeBuilder) apply to every guest created by the runtime:
+//!
+//! ```ignore
+//! use std::time::Duration;
+//!
+//! use guestjs::prelude::*;
+//!
+//! let cancellation = Cancellation::new();
+//! let runtime = Runtime::builder()
+//!     .memory_limit(64 * 1024 * 1024)
+//!     .max_stack_size(512 * 1024)
+//!     .gc_threshold(8 * 1024 * 1024)
+//!     .execution_timeout(Duration::from_millis(50))
+//!     .cancellation(cancellation.clone())
+//!     .gc_after(128)
+//!     .build()
+//!     .await?;
+//! let guest = runtime
+//!     .guest()
+//!     .build()
+//!     .await?;
+//!
+//! assert!(matches!(
+//!     guest
+//!         .eval::<()>("while (true) {}")
+//!         .await,
+//!     Err(Error::Timeout),
+//! ));
+//!
+//! cancellation.cancel();
+//!
+//! assert!(matches!(
+//!     guest
+//!         .eval::<i32>("1 + 1")
+//!         .await,
+//!     Err(Error::Cancelled),
+//! ));
+//!
+//! runtime.run_gc().await;
+//! ```
+//!
+//! [`RuntimeBuilder::memory_limit`](crate::runtime::RuntimeBuilder::memory_limit) limits engine
+//! allocation, [`RuntimeBuilder::max_stack_size`](crate::runtime::RuntimeBuilder::max_stack_size)
+//! limits the engine call stack, and
+//! [`RuntimeBuilder::gc_threshold`](crate::runtime::RuntimeBuilder::gc_threshold) sets the
+//! allocation threshold that triggers engine garbage collection.
+//! [`RuntimeBuilder::gc_after`](crate::runtime::RuntimeBuilder::gc_after) runs garbage collection
+//! after the configured number of guest executions.
+//! [`Runtime::run_gc`](crate::runtime::Runtime::run_gc) requests a collection immediately.
+//!
+//! [`RuntimeBuilder::execution_timeout`](crate::runtime::RuntimeBuilder::execution_timeout) bounds
+//! the time QuickJS spends executing each guest operation.
+//! [`RuntimeBuilder::cancellation`](crate::runtime::RuntimeBuilder::cancellation) accepts any
+//! [`CancelSignal`](crate::execution::CancelSignal).
+//! [`Cancellation`](crate::execution::Cancellation) is a clonable, one-way signal that can stop an
+//! active operation or reject a later operation. The `tokio` feature implements
+//! [`CancelSignal`](crate::execution::CancelSignal) for Tokio cancellation tokens.
+//!
+//! [`RuntimeBuilder::interrupt_handler`](crate::runtime::RuntimeBuilder::interrupt_handler)
+//! installs a custom synchronous interrupt condition. Returning `true` stops the current
+//! execution with [`Error::Interrupted`](crate::errors::Error::Interrupted). Policy-driven
+//! interrupts are reported as [`Error::Timeout`](crate::errors::Error::Timeout) or
+//! [`Error::Cancelled`](crate::errors::Error::Cancelled).
+//!
 //! # Plain Rust data
 //!
 //! Deriving [`ToGuest`](crate::marshal::ToGuest) uses a type's

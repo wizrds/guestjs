@@ -2,6 +2,7 @@
 extern crate self as guestjs_core;
 
 pub mod errors;
+pub mod execution;
 pub mod handle;
 pub mod host;
 pub mod marshal;

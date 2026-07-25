@@ -41,6 +41,18 @@ pub enum Error {
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
 
+    /// An interrupted guest execution.
+    #[error("execution interrupted")]
+    Interrupted,
+
+    /// A guest execution that exceeded its time budget.
+    #[error("execution timed out")]
+    Timeout,
+
+    /// A cancelled guest execution.
+    #[error("execution cancelled")]
+    Cancelled,
+
     /// An unexpected error with no more specific category.
     #[error("unexpected error: {message}")]
     Unexpected {
@@ -133,6 +145,26 @@ impl Error {
         }
     }
 
+    /// Creates an [`Error::Interrupted`](crate::errors::Error::Interrupted).
+    pub fn interrupted() -> Self {
+        Self::Interrupted
+    }
+
+    /// Creates an [`Error::Timeout`](crate::errors::Error::Timeout).
+    pub fn timeout() -> Self {
+        Self::Timeout
+    }
+
+    /// Creates an [`Error::Cancelled`](crate::errors::Error::Cancelled).
+    pub fn cancelled() -> Self {
+        Self::Cancelled
+    }
+
+    /// Returns whether this is an [`Error::Interrupted`](crate::errors::Error::Interrupted).
+    pub fn is_interrupt(&self) -> bool {
+        matches!(self, Self::Interrupted)
+    }
+
     /// Creates an error for building an owned handle on a detached scope.
     pub fn detached_scope() -> Self {
         Self::unexpected("cannot build an owned guest handle on detached scope")
@@ -161,7 +193,14 @@ impl From<rquickjs::CaughtError<'_>> for Error {
             rquickjs::CaughtError::Error(error) => {
                 Self::sourced_engine(error.to_string(), Some(error))
             }
+            rquickjs::CaughtError::Exception(error)
+                if error
+                    .as_value()
+                    .is_uncatchable_error() =>
+                Self::interrupted(),
             rquickjs::CaughtError::Exception(error) => Self::guest_exception(error.to_string()),
+            rquickjs::CaughtError::Value(value) if value.is_uncatchable_error() =>
+                Self::interrupted(),
             rquickjs::CaughtError::Value(value) => Self::guest_exception(format!("{value:?}")),
         }
     }

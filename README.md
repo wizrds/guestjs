@@ -13,6 +13,7 @@ The library provides:
 - scope-bound handles for composing operations inside one guest entry;
 - serde-backed conversion for ordinary Rust data;
 - macros for defining Rust host classes and host modules;
+- runtime limits, timeouts, cancellation, and garbage-collection controls;
 - runtime-global and guest-local capability binding;
 - an explicit native-module escape hatch for rquickjs integrations; and
 - selective LLRT modules for buffers, console, filesystem access, and fetch.
@@ -42,6 +43,7 @@ features = [
     "llrt-console",
     "llrt-fetch",
     "llrt-fs",
+    "tokio",
 ]
 ```
 
@@ -52,6 +54,7 @@ features = [
 | `llrt-console` | Provides LLRT console globals and modules. |
 | `llrt-fetch` | Provides LLRT fetch and its required web globals. |
 | `llrt-fs` | Provides LLRT `fs`, `fs/promises`, and Node-prefixed aliases. |
+| `tokio` | Accepts `tokio_util::sync::CancellationToken` as a cancellation signal. |
 
 ## Quick start
 
@@ -197,6 +200,65 @@ async fn build_isolated_guest(
 
 Dropping a guest releases its guest-local registry bindings after its owned descendants are also
 dropped. Owned handles retain the context required for later re-entry.
+
+### Execution control
+
+Execution controls are configured once on `RuntimeBuilder` and apply to every guest created by the
+runtime:
+
+```rust
+use std::time::Duration;
+
+use guestjs::prelude::*;
+
+let cancellation = Cancellation::new();
+let runtime = Runtime::builder()
+    .memory_limit(64 * 1024 * 1024)
+    .max_stack_size(512 * 1024)
+    .gc_threshold(8 * 1024 * 1024)
+    .execution_timeout(Duration::from_millis(50))
+    .cancellation(cancellation.clone())
+    .gc_after(128)
+    .build()
+    .await?;
+let guest = runtime
+    .guest()
+    .build()
+    .await?;
+
+assert!(matches!(
+    guest
+        .eval::<()>("while (true) {}")
+        .await,
+    Err(Error::Timeout),
+));
+
+cancellation.cancel();
+
+assert!(matches!(
+    guest
+        .eval::<i32>("1 + 1")
+        .await,
+    Err(Error::Cancelled),
+));
+
+runtime.run_gc().await;
+```
+
+`memory_limit` caps engine allocation, `max_stack_size` caps the engine call stack, and
+`gc_threshold` sets the allocation threshold that triggers engine garbage collection. `gc_after`
+runs garbage collection after the configured number of guest executions. `Runtime::run_gc`
+requests a collection immediately.
+
+`execution_timeout` bounds the time QuickJS spends executing each guest operation.
+`RuntimeBuilder::cancellation` accepts any `CancelSignal`. `Cancellation` is a clonable, one-way
+signal that can stop an active operation or reject a later operation. The `tokio` feature also lets
+`RuntimeBuilder::cancellation` accept
+`tokio_util::sync::CancellationToken`.
+
+`RuntimeBuilder::interrupt_handler` installs a custom synchronous interrupt condition. Returning
+`true` stops the current execution with `Error::Interrupted`. Policy-driven interrupts are reported
+as `Error::Timeout` or `Error::Cancelled`.
 
 ## Owned and scope-bound handles
 
@@ -942,7 +1004,10 @@ All GuestJS operations return `guestjs::Error`. Its categories distinguish:
 - JavaScript engine failures;
 - guest exceptions;
 - host/guest conversion failures;
-- transpilation failures; and
+- transpilation failures;
+- interrupted executions;
+- timed-out executions;
+- cancelled executions; and
 - unexpected internal or contract failures.
 
 Host callable errors may use an application-specific type as long as it converts into
