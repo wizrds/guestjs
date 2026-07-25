@@ -205,8 +205,8 @@ impl Accessor {
 }
 
 enum StaticMember {
-    Constant(StaticConstant),
-    Method(Callable),
+    Constant(Box<StaticConstant>),
+    Method(Box<Callable>),
     Hook(StaticsHook),
 }
 
@@ -285,11 +285,11 @@ impl HostClassMacro {
                                     .into());
                                 }
 
-                                constructor = Some(callable);
+                                constructor = Some(*callable);
                             }
                             CallableKind::Getter | CallableKind::Setter => {
                                 if let Some(index) = accessor_indices.get(callable.name()) {
-                                    accessors[*index].insert(callable)?;
+                                    accessors[*index].insert(*callable)?;
                                 } else {
                                     Self::insert_name(
                                         &mut prototype_names,
@@ -302,7 +302,7 @@ impl HostClassMacro {
                                         callable.name().to_owned(),
                                         accessors.len(),
                                     );
-                                    accessors.push(Accessor::new(callable));
+                                    accessors.push(Accessor::new(*callable));
                                 }
                             }
                             CallableKind::AsyncMethod | CallableKind::Method => {
@@ -313,7 +313,7 @@ impl HostClassMacro {
                                     "prototype member",
                                 )?;
 
-                                methods.push(callable);
+                                methods.push(*callable);
                             }
                             CallableKind::Iterable => {
                                 Self::insert_symbol(
@@ -322,7 +322,7 @@ impl HostClassMacro {
                                     callable.span(),
                                 )?;
 
-                                methods.push(callable);
+                                methods.push(*callable);
                             }
                             CallableKind::Symbol(symbol) => {
                                 Self::insert_symbol(
@@ -331,7 +331,7 @@ impl HostClassMacro {
                                     callable.span(),
                                 )?;
 
-                                methods.push(callable);
+                                methods.push(*callable);
                             }
                             CallableKind::StaticMethod => {
                                 Self::insert_name(
@@ -379,7 +379,7 @@ impl HostClassMacro {
                         "static member",
                     )?;
 
-                    statics.push(StaticMember::Constant(constant));
+                    statics.push(StaticMember::Constant(Box::new(constant)));
                 }
                 _ => {}
             }

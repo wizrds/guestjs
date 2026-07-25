@@ -10,6 +10,7 @@ readme.workspace = true
 [dependencies]
 async-trait = { workspace = true }
 futures = { workspace = true }
+tokio-util = { version = "0.7", default-features = false, optional = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -23,8 +24,9 @@ rquickjs-serde = { workspace = true }
 oxc = { workspace = true, optional = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 
 [features]
 default = []
+tokio = ["dep:tokio-util"]
 typescript = ["oxc"]

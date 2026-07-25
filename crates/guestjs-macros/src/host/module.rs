@@ -146,8 +146,8 @@ impl ModuleConstant {
 }
 
 enum ModuleMember {
-    Constant(ModuleConstant),
-    Function(ModuleFunction),
+    Constant(Box<ModuleConstant>),
+    Function(Box<ModuleFunction>),
     Hook(ModuleHook),
 }
 
@@ -265,7 +265,7 @@ impl HostModuleMacro {
                         continue;
                     };
 
-                    ModuleMember::Constant(constant)
+                    ModuleMember::Constant(Box::new(constant))
                 }
                 ImplItem::Type(value_type) => {
                     Self::reject_unsupported_member(

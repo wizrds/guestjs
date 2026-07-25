@@ -61,27 +61,50 @@ type MethodResult<'js> = Result<Value<'js>, Error>;
 type MethodFuture<'js> = Pin<Box<dyn Future<Output = MethodResult<'js>> + 'js>>;
 type GetterSpec<C> = Box<dyn for<'js> Fn(&C, &Scope<'js>) -> MethodResult<'js>>;
 type SetterSpec<C> = Box<dyn for<'js> Fn(&mut C, &Scope<'js>, Value<'js>) -> Result<(), Error>>;
+type RefMethod<C> = Box<
+    dyn for<'js> Fn(&C, &Scope<'js>, Args<'js>) -> MethodResult<'js>,
+>;
+type MutMethod<C> = Box<
+    dyn for<'js> Fn(&mut C, &Scope<'js>, Args<'js>) -> MethodResult<'js>,
+>;
+type AsyncRefMethod<C> = Box<
+    dyn for<'js> Fn(
+        &C,
+        &Scope<'js>,
+        Args<'js>,
+    ) -> Result<MethodFuture<'js>, Error>,
+>;
+type AsyncMutMethod<C> = Box<
+    dyn for<'js> Fn(
+        &mut C,
+        &Scope<'js>,
+        Args<'js>,
+    ) -> Result<MethodFuture<'js>, Error>,
+>;
+type AccessorSpec<C> = (
+    String,
+    Option<GetterSpec<C>>,
+    Option<SetterSpec<C>>,
+);
 
 enum MethodSpec<C> {
-    Ref(Box<dyn for<'js> Fn(&C, &Scope<'js>, Args<'js>) -> MethodResult<'js>>),
-    Mut(Box<dyn for<'js> Fn(&mut C, &Scope<'js>, Args<'js>) -> MethodResult<'js>>),
-    AsyncRef(Box<dyn for<'js> Fn(&C, &Scope<'js>, Args<'js>) -> Result<MethodFuture<'js>, Error>>),
-    AsyncMut(
-        Box<dyn for<'js> Fn(&mut C, &Scope<'js>, Args<'js>) -> Result<MethodFuture<'js>, Error>>,
-    ),
+    Ref(RefMethod<C>),
+    Mut(MutMethod<C>),
+    AsyncRef(AsyncRefMethod<C>),
+    AsyncMut(AsyncMutMethod<C>),
 }
 
 /// A host class definition.
 pub struct ClassSpec<C> {
     methods: Vec<(String, MethodSpec<C>)>,
-    accessors: Vec<(String, Option<GetterSpec<C>>, Option<SetterSpec<C>>)>,
+    accessors: Vec<AccessorSpec<C>>,
     symbols: Vec<(WellKnownSymbol, MethodSpec<C>)>,
     statics: Namespace,
 }
 
 struct ClassParts<C> {
     methods: Vec<(String, MethodSpec<C>)>,
-    accessors: Vec<(String, Option<GetterSpec<C>>, Option<SetterSpec<C>>)>,
+    accessors: Vec<AccessorSpec<C>>,
     symbols: Vec<(WellKnownSymbol, MethodSpec<C>)>,
     statics: Namespace,
 }
@@ -518,7 +541,7 @@ impl<C: HostClass> HostInstance<C> {
 
         spec.into_parts()
             .statics
-            .apply(scope, &**constructor)?;
+            .apply(scope, &constructor)?;
 
         Ok(constructor.into_value())
     }

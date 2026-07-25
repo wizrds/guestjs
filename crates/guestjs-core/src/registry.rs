@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, hash_map::Entry},
+    rc::Rc,
     sync::Arc,
 };
 
@@ -212,20 +213,11 @@ impl GuestRegistry {
     }
 }
 
+#[derive(Default)]
 struct RegistryState {
     next_guest: u64,
     contexts: HashMap<ContextKey, GuestId>,
     guests: HashMap<GuestId, GuestRegistry>,
-}
-
-impl Default for RegistryState {
-    fn default() -> Self {
-        Self {
-            next_guest: 0,
-            contexts: HashMap::new(),
-            guests: HashMap::new(),
-        }
-    }
 }
 
 impl RegistryState {
@@ -382,14 +374,14 @@ impl ModuleRegistry {
     }
 }
 
-pub(crate) struct RegistryHandle(Arc<ModuleRegistry>);
+pub(crate) struct RegistryHandle(Rc<ModuleRegistry>);
 
 impl RegistryHandle {
-    pub(crate) fn new(registry: Arc<ModuleRegistry>) -> Self {
+    pub(crate) fn new(registry: Rc<ModuleRegistry>) -> Self {
         Self(registry)
     }
 
-    pub(crate) fn registry(&self) -> Arc<ModuleRegistry> {
+    pub(crate) fn registry(&self) -> Rc<ModuleRegistry> {
         self.0.clone()
     }
 }
@@ -399,11 +391,11 @@ unsafe impl<'js> JsLifetime<'js> for RegistryHandle {
 }
 
 pub(crate) struct ModuleResolver {
-    registry: Arc<ModuleRegistry>,
+    registry: Rc<ModuleRegistry>,
 }
 
 impl ModuleResolver {
-    pub(crate) fn new(registry: Arc<ModuleRegistry>) -> Self {
+    pub(crate) fn new(registry: Rc<ModuleRegistry>) -> Self {
         Self { registry }
     }
 }
@@ -423,11 +415,11 @@ impl Resolver for ModuleResolver {
 }
 
 pub(crate) struct ModuleLoader {
-    registry: Arc<ModuleRegistry>,
+    registry: Rc<ModuleRegistry>,
 }
 
 impl ModuleLoader {
-    pub(crate) fn new(registry: Arc<ModuleRegistry>) -> Self {
+    pub(crate) fn new(registry: Rc<ModuleRegistry>) -> Self {
         Self { registry }
     }
 }
@@ -996,9 +988,12 @@ mod tests {
 
     #[test]
     fn native_definition_loads_in_distinct_contexts() {
-        let registry = Arc::new(ModuleRegistry::new(vec![LibraryBinding::Native(
-            NativeModule::new("native", FirstNative),
-        )]));
+        let registry = Rc::new(
+            ModuleRegistry::new(vec![LibraryBinding::Native(NativeModule::new(
+                "native",
+                FirstNative,
+            ))]),
+        );
         let runtime = JsRuntime::new().unwrap();
         let first = JsContext::full(&runtime).unwrap();
         let second = JsContext::full(&runtime).unwrap();
@@ -1037,9 +1032,12 @@ mod tests {
 
     #[test]
     fn loader_rejects_another_guests_private_route() {
-        let registry = Arc::new(ModuleRegistry::new(vec![LibraryBinding::Native(
-            NativeModule::new("native", FirstNative),
-        )]));
+        let registry = Rc::new(
+            ModuleRegistry::new(vec![LibraryBinding::Native(NativeModule::new(
+                "native",
+                FirstNative,
+            ))]),
+        );
         let runtime = JsRuntime::new().unwrap();
         let first = JsContext::full(&runtime).unwrap();
         let second = JsContext::full(&runtime).unwrap();

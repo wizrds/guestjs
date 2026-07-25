@@ -1,6 +1,8 @@
 use std::{
     ops::Deref,
-    sync::{Arc, Weak},
+    rc::{Rc, Weak},
+    sync::Arc,
+    time::Duration,
 };
 
 use rquickjs::{
@@ -9,6 +11,7 @@ use rquickjs::{
 
 use crate::{
     errors::Error,
+    execution::{CancelSignal, ExecutionPolicy},
     handle::{BoundModule, Module, Object},
     host::{HostLibrary, HostModuleAdapter},
     marshal::FromGuest,
@@ -26,7 +29,8 @@ use crate::transpiler::OxcTranspiler;
 #[derive(Clone)]
 pub struct Runtime {
     inner: AsyncRuntime,
-    registry: Arc<ModuleRegistry>,
+    registry: Rc<ModuleRegistry>,
+    policy: ExecutionPolicy,
     transpiler: Option<Arc<dyn Transpiler>>,
 }
 
@@ -40,6 +44,11 @@ impl Runtime {
     pub fn guest(&self) -> GuestBuilder<'_> {
         GuestBuilder { runtime: self, bindings: Vec::new() }
     }
+
+    /// Runs a garbage-collection cycle.
+    pub async fn run_gc(&self) {
+        self.inner.run_gc().await;
+    }
 }
 
 /// Configures and constructs a [`Runtime`](crate::runtime::Runtime).
@@ -47,6 +56,12 @@ impl Runtime {
 pub struct RuntimeBuilder {
     bindings: Vec<LibraryBinding>,
     memory_limit: Option<usize>,
+    max_stack_size: Option<usize>,
+    gc_threshold: Option<usize>,
+    timeout: Option<Duration>,
+    cancellation: Option<Arc<dyn CancelSignal>>,
+    gc_after: Option<u32>,
+    interrupt_handler: Option<Box<dyn FnMut() -> bool + Send + 'static>>,
     transpiler: Option<Arc<dyn Transpiler>>,
 }
 
@@ -73,6 +88,48 @@ impl RuntimeBuilder {
         self
     }
 
+    /// Limits the engine call-stack size in bytes.
+    pub fn max_stack_size(mut self, bytes: usize) -> Self {
+        self.max_stack_size = Some(bytes);
+        self
+    }
+
+    /// Sets the allocation threshold that triggers garbage collection.
+    pub fn gc_threshold(mut self, bytes: usize) -> Self {
+        self.gc_threshold = Some(bytes);
+        self
+    }
+
+    /// Sets the time budget for each guest execution.
+    pub fn execution_timeout(mut self, budget: Duration) -> Self {
+        self.timeout = Some(budget);
+        self
+    }
+
+    /// Sets the cancellation signal for guest executions.
+    pub fn cancellation<S>(mut self, signal: S) -> Self
+    where
+        S: CancelSignal,
+    {
+        self.cancellation = Some(Arc::new(signal));
+        self
+    }
+
+    /// Sets the number of guest executions between garbage collections.
+    pub fn gc_after(mut self, executions: u32) -> Self {
+        self.gc_after = Some(executions);
+        self
+    }
+
+    /// Sets the engine interrupt handler.
+    pub fn interrupt_handler<F>(mut self, handler: F) -> Self
+    where
+        F: FnMut() -> bool + Send + 'static,
+    {
+        self.interrupt_handler = Some(Box::new(handler));
+        self
+    }
+
     /// Sets the transpiler applied to source before it is loaded.
     pub fn transpiler<T>(mut self, transpiler: T) -> Self
     where
@@ -91,7 +148,28 @@ impl RuntimeBuilder {
             inner.set_memory_limit(bytes).await;
         }
 
-        let registry = Arc::new(ModuleRegistry::new(self.bindings));
+        if let Some(bytes) = self.max_stack_size {
+            inner.set_max_stack_size(bytes).await;
+        }
+
+        if let Some(bytes) = self.gc_threshold {
+            inner.set_gc_threshold(bytes).await;
+        }
+
+        let policy = ExecutionPolicy::new(self.timeout, self.cancellation, self.gc_after);
+
+        inner
+            .set_interrupt_handler(Some({
+                let policy = policy.clone();
+                let mut user = self.interrupt_handler;
+
+                Box::new(move || {
+                    policy.should_abort() || user.as_mut().is_some_and(|handler| handler())
+                })
+            }))
+            .await;
+
+        let registry = Rc::new(ModuleRegistry::new(self.bindings));
 
         inner
             .set_loader(ModuleResolver::new(registry.clone()), ModuleLoader::new(registry.clone()))
@@ -100,6 +178,7 @@ impl RuntimeBuilder {
         Ok(Runtime {
             inner,
             registry,
+            policy,
             transpiler: self.transpiler.or_else(|| {
                 if cfg!(feature = "typescript") {
                     Some(Arc::new(OxcTranspiler))
@@ -137,9 +216,11 @@ impl GuestBuilder<'_> {
     /// Builds the configured guest.
     pub async fn build(self) -> Result<Guest, Error> {
         let Self { runtime, bindings } = self;
+
         let inner = AsyncContext::full(&runtime.inner)
             .await
             .map_err(|error| Error::sourced_engine(error.to_string(), Some(error)))?;
+
         let registration = inner
             .async_with(async move |ctx| {
                 if ctx
@@ -157,13 +238,16 @@ impl GuestBuilder<'_> {
                     .register_guest(&ctx, bindings)
             })
             .await?;
-        let id = registration.id();
-        let context = Arc::new(GuestContext {
-            inner,
-            id,
-            registry: Arc::downgrade(&runtime.registry),
-            transpiler: runtime.transpiler.clone(),
-        });
+
+        let context = Rc::new(
+            GuestContext {
+                inner,
+                id: registration.id(),
+                registry: Rc::downgrade(&runtime.registry),
+                policy: runtime.policy.clone(),
+                transpiler: runtime.transpiler.clone(),
+            },
+        );
 
         Scope::with(&context, async move |scope| {
             for initializer in registration.into_initializers() {
@@ -183,6 +267,7 @@ pub struct GuestContext {
     inner: AsyncContext,
     id: GuestId,
     registry: Weak<ModuleRegistry>,
+    policy: ExecutionPolicy,
     transpiler: Option<Arc<dyn Transpiler>>,
 }
 
@@ -214,7 +299,7 @@ impl Deref for GuestContext {
 /// An isolated guest execution environment.
 #[derive(Clone)]
 pub struct Guest {
-    context: Arc<GuestContext>,
+    context: Rc<GuestContext>,
 }
 
 impl Guest {
@@ -289,11 +374,11 @@ impl Guest {
 #[derive(Clone)]
 pub struct Scope<'js> {
     ctx: Ctx<'js>,
-    parent: Option<Arc<GuestContext>>,
+    parent: Option<Rc<GuestContext>>,
 }
 
 impl<'js> Scope<'js> {
-    pub(crate) fn new(ctx: Ctx<'js>, parent: Arc<GuestContext>) -> Self {
+    pub(crate) fn new(ctx: Ctx<'js>, parent: Rc<GuestContext>) -> Self {
         Self { ctx, parent: Some(parent) }
     }
 
@@ -301,14 +386,26 @@ impl<'js> Scope<'js> {
         Self { ctx, parent: None }
     }
 
-    pub(crate) async fn with<F, R>(context: &Arc<GuestContext>, f: F) -> Result<R, Error>
+    pub(crate) async fn with<F, R>(context: &Rc<GuestContext>, f: F) -> Result<R, Error>
     where
         F: for<'a> AsyncFnOnce(Scope<'a>) -> Result<R, Error>,
         R: 'static,
     {
-        context
-            .async_with(async move |ctx| f(Scope::new(ctx, context.clone())).await)
-            .await
+        context.policy.begin()?;
+
+        let result = context.policy.classify(
+            context
+                .async_with(async move |ctx| f(Scope::new(ctx, context.clone())).await)
+                .await,
+        );
+
+        context.policy.disarm();
+
+        if context.policy.should_gc() {
+            context.runtime().run_gc().await;
+        }
+
+        result
     }
 
     /// Returns the live engine context.
@@ -317,7 +414,7 @@ impl<'js> Scope<'js> {
     }
 
     /// Returns the owning context when the scope supports re-entry.
-    pub fn parent(&self) -> Option<&Arc<GuestContext>> {
+    pub fn parent(&self) -> Option<&Rc<GuestContext>> {
         self.parent.as_ref()
     }
 
@@ -375,19 +472,25 @@ impl<'js> Scope<'js> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::Duration,
     };
 
     use rquickjs::{
         Ctx, Error as JsError,
         module::{Declarations, Exports as JsExports, ModuleDef},
     };
+    #[cfg(feature = "tokio")]
+    use tokio_util::sync::CancellationToken;
 
     use super::{Runtime, Scope};
     use crate::{
         errors::Error,
+        execution::Cancellation,
         handle::Function,
         host::{Exports, HostLibrary, HostModule},
         native::{NativeInitializer, NativeLibrary, NativeModule},
@@ -534,6 +637,175 @@ mod tests {
                 .unwrap(),
             2,
         );
+    }
+
+    #[tokio::test]
+    async fn execution_timeout_unwinds_an_infinite_loop() {
+        assert!(matches!(
+            Runtime::builder()
+                .execution_timeout(Duration::from_millis(50))
+                .build()
+                .await
+                .unwrap()
+                .guest()
+                .build()
+                .await
+                .unwrap()
+                .eval::<()>("while (true) {}")
+                .await,
+            Err(Error::Timeout),
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_precancelled_runtime_refuses_to_execute() {
+        let cancellation = Cancellation::new();
+        let guest = Runtime::builder()
+            .cancellation(cancellation.clone())
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        cancellation.cancel();
+
+        assert!(matches!(
+            guest
+                .eval::<i32>("1 + 1")
+                .await,
+            Err(Error::Cancelled),
+        ));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cancellation_from_another_thread_interrupts_execution() {
+        let cancellation = Cancellation::new();
+        let guest = Runtime::builder()
+            .cancellation(cancellation.clone())
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        let cancellation_task = tokio::spawn({
+            let cancellation = cancellation.clone();
+
+            async move {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+
+                cancellation.cancel();
+            }
+        });
+
+        assert!(matches!(
+            guest
+                .eval::<()>("while (true) {}")
+                .await,
+            Err(Error::Cancelled),
+        ));
+
+        cancellation_task.await.unwrap();
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_tokio_cancellation_token_interrupts_execution() {
+        let token = CancellationToken::new();
+        let guest = Runtime::builder()
+            .cancellation(token.clone())
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        let cancellation_task = tokio::spawn({
+            let token = token.clone();
+
+            async move {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+
+                token.cancel();
+            }
+        });
+
+        assert!(matches!(
+            guest
+                .eval::<()>("while (true) {}")
+                .await,
+            Err(Error::Cancelled),
+        ));
+
+        cancellation_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn max_stack_size_bounds_deep_recursion() {
+        assert!(
+            Runtime::builder()
+                .max_stack_size(64 * 1024)
+                .build()
+                .await
+                .unwrap()
+                .guest()
+                .build()
+                .await
+                .unwrap()
+                .eval::<i32>(
+                    "(function recurse(n) { return recurse(n + 1); })(0)",
+                )
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn gc_after_collects_without_disturbing_results() {
+        let guest = Runtime::builder()
+            .gc_after(1)
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        for _ in 0..4 {
+            assert_eq!(
+                guest
+                    .eval::<i32>("1 + 1")
+                    .await
+                    .unwrap(),
+                2,
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_raw_interrupt_handler_aborts_execution() {
+        assert!(matches!(
+            Runtime::builder()
+                .interrupt_handler(|| true)
+                .build()
+                .await
+                .unwrap()
+                .guest()
+                .build()
+                .await
+                .unwrap()
+                .eval::<()>("while (true) {}")
+                .await,
+            Err(Error::Interrupted),
+        ));
     }
 
     #[tokio::test]

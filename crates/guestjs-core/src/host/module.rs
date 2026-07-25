@@ -1,6 +1,6 @@
 use std::{
     ops::{Deref, DerefMut},
-    sync::Arc,
+    rc::Rc,
 };
 
 use rquickjs::{
@@ -67,7 +67,7 @@ impl DerefMut for Exports {
 pub(crate) struct HostModuleAdapter;
 
 impl HostModuleAdapter {
-    fn registry(ctx: &Ctx<'_>) -> JsResult<Arc<ModuleRegistry>> {
+    fn registry(ctx: &Ctx<'_>) -> JsResult<Rc<ModuleRegistry>> {
         Ok(ctx
             .userdata::<RegistryHandle>()
             .ok_or_else(|| Exception::throw_message(ctx, "module registry is not installed"))?
@@ -130,7 +130,7 @@ impl ModuleDef for HostModuleAdapter {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{rc::Rc, sync::Arc};
 
     use rquickjs::{
         Context as JsContext, Runtime as JsRuntime,
@@ -196,8 +196,9 @@ mod tests {
 
     #[test]
     fn host_adapter_builds_registered_exports() {
-        let registry =
-            Arc::new(ModuleRegistry::new(vec![LibraryBinding::Host(Arc::new(ValueHost))]));
+        let registry = Rc::new(
+            ModuleRegistry::new(vec![LibraryBinding::Host(Arc::new(ValueHost))]),
+        );
         let runtime = JsRuntime::new().unwrap();
         let context = JsContext::full(&runtime).unwrap();
 
