@@ -1057,12 +1057,10 @@ export function advance() {
                 )
             });
             tools.async_function("delayedProduct", |scope, args| {
-                Ok(
-                    (|left, right| async move { Ok(left * right) })(
-                        args.get::<i32>(scope, 0)?,
-                        args.get::<i32>(scope, 1)?,
-                    ),
-                )
+                let left = args.get::<i32>(scope, 0)?;
+                let right = args.get::<i32>(scope, 1)?;
+
+                Ok(async move { Ok(left * right) })
             });
             tools.property("writable", 1);
             tools.accessor::<_, _, _, i32>(

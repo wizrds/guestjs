@@ -1,6 +1,7 @@
 use std::{
     ops::Deref,
-    sync::{Arc, Weak},
+    rc::{Rc, Weak},
+    sync::Arc,
     time::Duration,
 };
 
@@ -28,7 +29,7 @@ use crate::transpiler::OxcTranspiler;
 #[derive(Clone)]
 pub struct Runtime {
     inner: AsyncRuntime,
-    registry: Arc<ModuleRegistry>,
+    registry: Rc<ModuleRegistry>,
     policy: ExecutionPolicy,
     transpiler: Option<Arc<dyn Transpiler>>,
 }
@@ -168,7 +169,7 @@ impl RuntimeBuilder {
             }))
             .await;
 
-        let registry = Arc::new(ModuleRegistry::new(self.bindings));
+        let registry = Rc::new(ModuleRegistry::new(self.bindings));
 
         inner
             .set_loader(ModuleResolver::new(registry.clone()), ModuleLoader::new(registry.clone()))
@@ -238,13 +239,15 @@ impl GuestBuilder<'_> {
             })
             .await?;
 
-        let context = Arc::new(GuestContext {
-            inner,
-            id: registration.id(),
-            registry: Arc::downgrade(&runtime.registry),
-            policy: runtime.policy.clone(),
-            transpiler: runtime.transpiler.clone(),
-        });
+        let context = Rc::new(
+            GuestContext {
+                inner,
+                id: registration.id(),
+                registry: Rc::downgrade(&runtime.registry),
+                policy: runtime.policy.clone(),
+                transpiler: runtime.transpiler.clone(),
+            },
+        );
 
         Scope::with(&context, async move |scope| {
             for initializer in registration.into_initializers() {
@@ -296,7 +299,7 @@ impl Deref for GuestContext {
 /// An isolated guest execution environment.
 #[derive(Clone)]
 pub struct Guest {
-    context: Arc<GuestContext>,
+    context: Rc<GuestContext>,
 }
 
 impl Guest {
@@ -371,11 +374,11 @@ impl Guest {
 #[derive(Clone)]
 pub struct Scope<'js> {
     ctx: Ctx<'js>,
-    parent: Option<Arc<GuestContext>>,
+    parent: Option<Rc<GuestContext>>,
 }
 
 impl<'js> Scope<'js> {
-    pub(crate) fn new(ctx: Ctx<'js>, parent: Arc<GuestContext>) -> Self {
+    pub(crate) fn new(ctx: Ctx<'js>, parent: Rc<GuestContext>) -> Self {
         Self { ctx, parent: Some(parent) }
     }
 
@@ -383,7 +386,7 @@ impl<'js> Scope<'js> {
         Self { ctx, parent: None }
     }
 
-    pub(crate) async fn with<F, R>(context: &Arc<GuestContext>, f: F) -> Result<R, Error>
+    pub(crate) async fn with<F, R>(context: &Rc<GuestContext>, f: F) -> Result<R, Error>
     where
         F: for<'a> AsyncFnOnce(Scope<'a>) -> Result<R, Error>,
         R: 'static,
@@ -411,7 +414,7 @@ impl<'js> Scope<'js> {
     }
 
     /// Returns the owning context when the scope supports re-entry.
-    pub fn parent(&self) -> Option<&Arc<GuestContext>> {
+    pub fn parent(&self) -> Option<&Rc<GuestContext>> {
         self.parent.as_ref()
     }
 

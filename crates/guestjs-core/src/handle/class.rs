@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use rquickjs::{
     CatchResultExt, Constructor as JsConstructor, Object as JsObject, Persistent, Value,
@@ -16,13 +16,13 @@ use crate::{
 #[derive(Clone)]
 pub struct Class {
     value: Persistent<JsConstructor<'static>>,
-    context: Arc<GuestContext>,
+    context: Rc<GuestContext>,
 }
 
 impl Class {
     pub(crate) fn new(
         value: Persistent<JsConstructor<'static>>,
-        context: Arc<GuestContext>,
+        context: Rc<GuestContext>,
     ) -> Self {
         Self { value, context }
     }

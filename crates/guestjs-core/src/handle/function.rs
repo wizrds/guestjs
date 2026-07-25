@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use rquickjs::{
     CatchResultExt, Function as JsFunction, Persistent, Value, function::Args as JsArgs,
@@ -14,11 +14,11 @@ use crate::{
 #[derive(Clone)]
 pub struct Function {
     value: Persistent<JsFunction<'static>>,
-    context: Arc<GuestContext>,
+    context: Rc<GuestContext>,
 }
 
 impl Function {
-    pub(crate) fn new(value: Persistent<JsFunction<'static>>, context: Arc<GuestContext>) -> Self {
+    pub(crate) fn new(value: Persistent<JsFunction<'static>>, context: Rc<GuestContext>) -> Self {
         Self { value, context }
     }
 

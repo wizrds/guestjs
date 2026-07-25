@@ -2,7 +2,7 @@ use std::{
     future::{Future, IntoFuture},
     marker::PhantomData,
     pin::Pin,
-    sync::Arc,
+    rc::Rc,
 };
 
 use rquickjs::{CatchResultExt, Persistent, Promise as JsPromise, Value};
@@ -16,12 +16,12 @@ use crate::{
 /// An owned guest promise awaited outside a scope.
 pub struct Promise<T> {
     value: Persistent<JsPromise<'static>>,
-    context: Arc<GuestContext>,
+    context: Rc<GuestContext>,
     _result: PhantomData<fn() -> T>,
 }
 
 impl<T> Promise<T> {
-    pub(crate) fn new(value: Persistent<JsPromise<'static>>, context: Arc<GuestContext>) -> Self {
+    pub(crate) fn new(value: Persistent<JsPromise<'static>>, context: Rc<GuestContext>) -> Self {
         Self { value, context, _result: PhantomData }
     }
 

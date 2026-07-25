@@ -576,7 +576,7 @@ impl Parameter {
 }
 
 pub(super) enum ClassMethod {
-    Callable(Callable),
+    Callable(Box<Callable>),
     Statics(StaticsHook),
 }
 
@@ -627,16 +627,20 @@ impl ClassMethod {
             )?)));
         }
 
-        Ok(Some(Self::Callable(Callable::new(
-            method,
-            options,
-            rename_all,
-        )?)))
+        Ok(
+            Some(Self::Callable(Box::new(
+                Callable::new(
+                    method,
+                    options,
+                    rename_all,
+                )?,
+            ))),
+        )
     }
 }
 
 pub(super) enum ModuleMethod {
-    Function(ModuleFunction),
+    Function(Box<ModuleFunction>),
     Hook(ModuleHook),
 }
 
@@ -670,11 +674,15 @@ impl ModuleMethod {
         }
 
         if options.function.is_present() {
-            return Ok(Some(Self::Function(ModuleFunction::new(
-                method,
-                options.name,
-                rename_all,
-            )?)));
+            return Ok(
+                Some(Self::Function(Box::new(
+                    ModuleFunction::new(
+                        method,
+                        options.name,
+                        rename_all,
+                    )?,
+                ))),
+            );
         }
 
         if options.object.is_present() {
@@ -1931,7 +1939,7 @@ mod tests {
                 .unwrap()
                 .unwrap()
             {
-                ClassMethod::Callable(callable) => callable,
+                ClassMethod::Callable(callable) => *callable,
                 ClassMethod::Statics(_) => panic!("expected a callable"),
             }
         }
