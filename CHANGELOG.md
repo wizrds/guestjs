@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.1.2](https://github.com/wizrds/guestjs/compare/0.1.1..0.1.2) - 2026-07-26
+
+### Bug Fixes
+
+- Make host class constructors optional - ([ab581e7](https://github.com/wizrds/guestjs/commit/ab581e7f85db089d8ea99e9a00b39bc24257a9ee)) - Timothy Pogue
+---
 ## [0.1.1](https://github.com/wizrds/guestjs/compare/0.1.0..0.1.1) - 2026-07-25
 
 ### Bug Fixes
