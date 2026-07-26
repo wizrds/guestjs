@@ -2,8 +2,8 @@ use darling::{FromMeta, util::Flag};
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
-    FnArg, GenericArgument, Generics, Ident, ImplItemFn, Pat, PatType, Path, PathArguments,
-    ReturnType, Type, TypeParamBound, TypePath, spanned::Spanned,
+    AngleBracketedGenericArguments, FnArg, GenericArgument, Generics, Ident, ImplItemFn, Pat,
+    PatType, Path, PathArguments, ReturnType, Type, TypeParamBound, TypePath, spanned::Spanned,
 };
 
 use crate::host::{
@@ -1396,7 +1396,7 @@ impl Callable {
                         #future_error: Into<#crate_path::errors::Error>
                     ));
 
-                if !TypeShape::is_target(&future.value, target) {
+                if !TypeShape::mentions_target(&future.value, target) {
                     let future_value = &future.value;
 
                     generics
@@ -1411,7 +1411,7 @@ impl Callable {
             | CallableKind::Method
             | CallableKind::StaticMethod
             | CallableKind::Symbol(_)
-                if !TypeShape::is_target(&self.result, target) =>
+                if !TypeShape::mentions_target(&self.result, target) =>
             {
                 let result = &self.result;
 
@@ -1912,6 +1912,126 @@ impl TypeShape {
         Self::is_self(value_type) || value_type == target
     }
 
+    fn mentions_target(value_type: &Type, target: &Type) -> bool {
+        if Self::is_target(value_type, target) {
+            return true;
+        }
+
+        match value_type {
+            Type::Array(array) => Self::mentions_target(array.elem.as_ref(), target),
+            Type::BareFn(function) => {
+                function
+                    .inputs
+                    .iter()
+                    .any(|input| Self::mentions_target(&input.ty, target))
+                    || match &function.output {
+                        ReturnType::Default => false,
+                        ReturnType::Type(_, output) => {
+                            Self::mentions_target(output.as_ref(), target)
+                        }
+                    }
+            }
+            Type::Group(group) => Self::mentions_target(group.elem.as_ref(), target),
+            Type::ImplTrait(value) => value
+                .bounds
+                .iter()
+                .any(|bound| Self::bound_mentions_target(bound, target)),
+            Type::Paren(paren) => Self::mentions_target(paren.elem.as_ref(), target),
+            Type::Path(path) => {
+                path.qself
+                    .as_ref()
+                    .is_some_and(|qself| Self::mentions_target(qself.ty.as_ref(), target))
+                    || Self::path_mentions_target(&path.path, target)
+            }
+            Type::Ptr(pointer) => Self::mentions_target(pointer.elem.as_ref(), target),
+            Type::Reference(reference) => {
+                Self::mentions_target(reference.elem.as_ref(), target)
+            }
+            Type::Slice(slice) => Self::mentions_target(slice.elem.as_ref(), target),
+            Type::TraitObject(value) => value
+                .bounds
+                .iter()
+                .any(|bound| Self::bound_mentions_target(bound, target)),
+            Type::Tuple(tuple) => tuple
+                .elems
+                .iter()
+                .any(|element| Self::mentions_target(element, target)),
+            _ => false,
+        }
+    }
+
+    fn path_mentions_target(path: &Path, target: &Type) -> bool {
+        path.segments.iter().any(|segment| {
+            Self::path_arguments_mention_target(&segment.arguments, target)
+        })
+    }
+
+    fn path_arguments_mention_target(
+        arguments: &PathArguments,
+        target: &Type,
+    ) -> bool {
+        match arguments {
+            PathArguments::None => false,
+            PathArguments::AngleBracketed(arguments) => {
+                Self::angle_arguments_mention_target(arguments, target)
+            }
+            PathArguments::Parenthesized(arguments) => {
+                arguments
+                    .inputs
+                    .iter()
+                    .any(|input| Self::mentions_target(input, target))
+                    || match &arguments.output {
+                        ReturnType::Default => false,
+                        ReturnType::Type(_, output) => {
+                            Self::mentions_target(output.as_ref(), target)
+                        }
+                    }
+            }
+        }
+    }
+
+    fn angle_arguments_mention_target(
+        arguments: &AngleBracketedGenericArguments,
+        target: &Type,
+    ) -> bool {
+        arguments.args.iter().any(|argument| match argument {
+            GenericArgument::Type(value_type) => {
+                Self::mentions_target(value_type, target)
+            }
+            GenericArgument::AssocType(binding) => {
+                binding.generics.as_ref().is_some_and(|arguments| {
+                    Self::angle_arguments_mention_target(arguments, target)
+                }) || Self::mentions_target(&binding.ty, target)
+            }
+            GenericArgument::AssocConst(binding) => binding
+                .generics
+                .as_ref()
+                .is_some_and(|arguments| {
+                    Self::angle_arguments_mention_target(arguments, target)
+                }),
+            GenericArgument::Constraint(constraint) => {
+                constraint.generics.as_ref().is_some_and(|arguments| {
+                    Self::angle_arguments_mention_target(arguments, target)
+                }) || constraint
+                    .bounds
+                    .iter()
+                    .any(|bound| Self::bound_mentions_target(bound, target))
+            }
+            GenericArgument::Const(_) | GenericArgument::Lifetime(_) => false,
+            _ => false,
+        })
+    }
+
+    fn bound_mentions_target(bound: &TypeParamBound, target: &Type) -> bool {
+        match bound {
+            TypeParamBound::Trait(bound) => {
+                Self::path_mentions_target(&bound.path, target)
+            }
+            TypeParamBound::Lifetime(_) => false,
+            _ => false,
+        }
+    }
+
     fn is_unit(value_type: &Type) -> bool {
         matches!(value_type, Type::Tuple(tuple) if tuple.elems.is_empty())
     }
@@ -1927,7 +2047,7 @@ impl TypeShape {
 #[cfg(test)]
 mod tests {
     use quote::ToTokens;
-    use syn::{ImplItemFn, parse_quote};
+    use syn::{Generics, ImplItemFn, Type, parse_quote};
 
     use crate::host::callable::{Callable, CallableKind, ClassMethod};
 
@@ -1942,6 +2062,21 @@ mod tests {
                 ClassMethod::Callable(callable) => *callable,
                 ClassMethod::Statics(_) => panic!("expected a callable"),
             }
+        }
+
+        fn predicates(
+            method: &mut ImplItemFn,
+            target: &Type,
+        ) -> String {
+            let mut generics = Generics::default();
+
+            Self::parse(method).add_predicates(
+                &mut generics,
+                &parse_quote!(crate),
+                target,
+            );
+
+            generics.where_clause.to_token_stream().to_string()
         }
     }
 
@@ -2003,6 +2138,82 @@ mod tests {
         assert!(output.contains("get_borrow_mut :: < Point > (scope , 4"));
         assert!(output.contains("get :: < Function > (scope , 5"));
         assert!(output.contains("get_rest :: < i32 > (scope , 6"));
+    }
+
+    #[test]
+    fn skips_only_target_referential_result_predicates() {
+        let target = parse_quote!(Point);
+        let mut direct = parse_quote! {
+            #[guestjs(method)]
+            fn children(&self) -> Result<Vec<Self>, DomainError> {
+                Ok(Vec::new())
+            }
+        };
+        let mut nested = parse_quote! {
+            #[guestjs(method)]
+            fn parent(&self) -> Result<Option<Vec<Self>>, DomainError> {
+                Ok(None)
+            }
+        };
+        let mut concrete = parse_quote! {
+            #[guestjs(method)]
+            fn wrapped(&self) -> Result<MyBox<Point>, DomainError> {
+                todo!()
+            }
+        };
+        let mut asynchronous = parse_quote! {
+            #[guestjs(async_method)]
+            fn descendants(
+                &self,
+            ) -> Result<
+                impl Future<Output = Result<Vec<Self>, FutureError>> + 'static,
+                DomainError,
+            > {
+                todo!()
+            }
+        };
+        let mut foreign = parse_quote! {
+            #[guestjs(method)]
+            fn documents(&self) -> Result<Vec<Document>, DomainError> {
+                Ok(Vec::new())
+            }
+        };
+
+        assert!(
+            !CallableFixture::predicates(
+                &mut direct,
+                &target,
+            )
+            .contains("ToGuest"),
+        );
+        assert!(
+            !CallableFixture::predicates(
+                &mut nested,
+                &target,
+            )
+            .contains("ToGuest"),
+        );
+        assert!(
+            !CallableFixture::predicates(
+                &mut concrete,
+                &target,
+            )
+            .contains("ToGuest"),
+        );
+        assert!(
+            !CallableFixture::predicates(
+                &mut asynchronous,
+                &target,
+            )
+            .contains("ToGuest"),
+        );
+        assert!(
+            CallableFixture::predicates(
+                &mut foreign,
+                &target,
+            )
+            .contains("ToGuest"),
+        );
     }
 
     #[test]
