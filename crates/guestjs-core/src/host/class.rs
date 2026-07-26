@@ -27,7 +27,11 @@ pub trait HostClass: Sized + 'static {
     const NAME: &'static str;
 
     /// Constructs an instance.
-    fn construct<'js>(scope: &Scope<'js>, args: Args<'js>) -> Result<Self, Error>;
+    fn construct<'js>(_scope: &Scope<'js>, _args: Args<'js>) -> Result<Self, Error> {
+        Err(Error::unexpected(
+            format!("host class {} cannot be constructed", Self::NAME),
+        ))
+    }
 
     /// Defines the class.
     fn build(spec: &mut ClassSpec<Self>);
@@ -733,6 +737,14 @@ mod tests {
         }
     }
 
+    struct HostOnly;
+
+    impl HostClass for HostOnly {
+        const NAME: &'static str = "HostOnly";
+
+        fn build(_spec: &mut ClassSpec<Self>) {}
+    }
+
     struct MathHost;
 
     impl MathHost {
@@ -762,6 +774,7 @@ mod tests {
         fn build(&self, exports: &mut Exports) {
             exports.class::<Vector2>();
             exports.class::<Counter>();
+            exports.class::<HostOnly>();
             exports.function("magnitude", |scope, args| {
                 let vector = args.get_borrow::<Vector2>(scope, 0)?;
 
@@ -832,6 +845,23 @@ mod tests {
             .await
             .unwrap(),
             5.0,
+        );
+    }
+
+    #[tokio::test]
+    async fn host_class_without_constructor_rejects_construction() {
+        assert!(
+            MathHost::module(
+                "import { HostOnly } from \"@host/math\";\n\
+                 export function run() { return new HostOnly(); }",
+            )
+            .await
+            .function("run")
+            .await
+            .unwrap()
+            .call::<_, ()>(())
+            .await
+            .is_err(),
         );
     }
 

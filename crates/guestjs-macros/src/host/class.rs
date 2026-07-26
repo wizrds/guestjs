@@ -241,7 +241,7 @@ pub(crate) struct HostClassMacro {
     item: ItemImpl,
     name: String,
     crate_path: Path,
-    constructor: Callable,
+    constructor: Option<Callable>,
     methods: Vec<Callable>,
     accessors: Vec<Accessor>,
     statics: Vec<StaticMember>,
@@ -386,12 +386,7 @@ impl HostClassMacro {
         }
 
         Ok(Self {
-            constructor: constructor.ok_or_else(|| {
-                syn::Error::new(
-                    item.impl_token.span(),
-                    "a host class requires exactly one constructor",
-                )
-            })?,
+            constructor,
             name: match options.name {
                 Some(name) => name,
                 None => Self::default_name(&item)?,
@@ -522,7 +517,10 @@ impl HostClassMacro {
             .make_where_clause()
             .predicates
             .push(syn::parse_quote!(#target: 'static));
-        constructor.add_predicates(&mut generics, &crate_path, target);
+
+        if let Some(constructor) = &constructor {
+            constructor.add_predicates(&mut generics, &crate_path, target);
+        }
 
         for method in &methods {
             method.add_predicates(&mut generics, &crate_path, target);
@@ -537,17 +535,28 @@ impl HostClassMacro {
         }
 
         let (impl_generics, _, where_clause) = generics.split_for_impl();
-        let scope = if constructor.uses_scope() {
-            quote!(scope)
-        } else {
-            quote!(_scope)
-        };
-        let args = if constructor.uses_args() {
-            quote!(args)
-        } else {
-            quote!(_args)
-        };
-        let construct = constructor.construct(&crate_path);
+        let constructor = constructor.map(|constructor| {
+            let scope = if constructor.uses_scope() {
+                quote!(scope)
+            } else {
+                quote!(_scope)
+            };
+            let args = if constructor.uses_args() {
+                quote!(args)
+            } else {
+                quote!(_args)
+            };
+            let construct = constructor.construct(&crate_path);
+
+            quote! {
+                fn construct<'js>(
+                    #scope: &#crate_path::runtime::Scope<'js>,
+                    #args: #crate_path::host::Args<'js>,
+                ) -> Result<Self, #crate_path::errors::Error> {
+                    #construct
+                }
+            }
+        });
         let registrations = methods
             .iter()
             .map(|method| method.registration(&crate_path));
@@ -580,12 +589,7 @@ impl HostClassMacro {
             {
                 const NAME: &'static str = #name;
 
-                fn construct<'js>(
-                    #scope: &#crate_path::runtime::Scope<'js>,
-                    #args: #crate_path::host::Args<'js>,
-                ) -> Result<Self, #crate_path::errors::Error> {
-                    #construct
-                }
+                #constructor
 
                 fn build(
                     #spec: &mut #crate_path::host::ClassSpec<Self>,
@@ -605,6 +609,28 @@ mod tests {
     use syn::parse_quote;
 
     use crate::host::class::HostClassMacro;
+
+    #[test]
+    fn generates_class_without_constructor() {
+        let output = HostClassMacro::new(
+            quote!(crate_path = crate),
+            parse_quote! {
+                impl Session {
+                    #[guestjs(method)]
+                    fn id(&self) -> Result<String, Error> {
+                        Ok(self.id.clone())
+                    }
+                }
+            },
+        )
+        .unwrap()
+        .expand()
+        .to_string();
+
+        assert!(output.contains("impl crate :: host :: HostClass for Session"));
+        assert!(output.contains("spec . method (\"id\""));
+        assert!(!output.contains("fn construct"));
+    }
 
     #[test]
     fn generates_constructor_and_receiver_specific_registrations() {
@@ -891,13 +917,6 @@ mod tests {
 
     #[test]
     fn rejects_invalid_class_definitions() {
-        assert!(
-            HostClassMacro::new(
-                quote!(name = "Missing", crate_path = crate),
-                parse_quote!(impl Missing {}),
-            )
-            .is_err(),
-        );
         assert!(
             HostClassMacro::new(
                 quote!(name = "Duplicate", crate_path = crate),
