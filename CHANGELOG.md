@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.1.3](https://github.com/wizrds/guestjs/compare/0.1.2..0.1.3) - 2026-07-26
+
+### Bug Fixes
+
+- Fix host class macro generic container handling - ([ea4c74f](https://github.com/wizrds/guestjs/commit/ea4c74fbfb9b586d6e2483a8e4da24c0ce7f1e0b)) - Timothy Pogue
+---
 ## [0.1.2](https://github.com/wizrds/guestjs/compare/0.1.1..0.1.2) - 2026-07-26
 
 ### Bug Fixes
