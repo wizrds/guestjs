@@ -42,10 +42,7 @@ pub fn derive_to_guest(input: TokenStream) -> TokenStream {
 /// Defines a host class.
 #[proc_macro_attribute]
 pub fn host_class(args: TokenStream, input: TokenStream) -> TokenStream {
-    match HostClassMacro::new(
-        args.into(),
-        parse_macro_input!(input as ItemImpl),
-    ) {
+    match HostClassMacro::new(args.into(), parse_macro_input!(input as ItemImpl)) {
         Ok(class) => class.expand(),
         Err(error) => error.write_errors(),
     }
@@ -55,10 +52,7 @@ pub fn host_class(args: TokenStream, input: TokenStream) -> TokenStream {
 /// Defines a host module.
 #[proc_macro_attribute]
 pub fn host_module(args: TokenStream, input: TokenStream) -> TokenStream {
-    match HostModuleMacro::new(
-        args.into(),
-        parse_macro_input!(input as ItemImpl),
-    ) {
+    match HostModuleMacro::new(args.into(), parse_macro_input!(input as ItemImpl)) {
         Ok(module) => module.expand(),
         Err(error) => error.write_errors(),
     }

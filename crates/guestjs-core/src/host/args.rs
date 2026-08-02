@@ -67,11 +67,7 @@ impl<'js> Args<'js> {
     }
 
     /// Returns arguments from an index.
-    pub fn get_rest<T>(
-        &self,
-        scope: &Scope<'js>,
-        index: usize,
-    ) -> Result<Vec<T::Bound<'js>>, Error>
+    pub fn get_rest<T>(&self, scope: &Scope<'js>, index: usize) -> Result<Vec<T::Bound<'js>>, Error>
     where
         T: FromGuestBound,
     {
@@ -93,11 +89,7 @@ impl<'js> Args<'js> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        host::args::Args,
-        marshal::ToGuestBound,
-        runtime::Runtime,
-    };
+    use crate::{host::args::Args, marshal::ToGuestBound, runtime::Runtime};
 
     #[tokio::test]
     async fn returns_arguments_from_starting_index() {

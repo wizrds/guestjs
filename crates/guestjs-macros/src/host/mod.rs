@@ -6,10 +6,7 @@ mod class;
 mod module;
 mod naming;
 
-pub(crate) use crate::host::{
-    class::HostClassMacro,
-    module::HostModuleMacro,
-};
+pub(crate) use crate::host::{class::HostClassMacro, module::HostModuleMacro};
 
 #[derive(Debug)]
 pub(crate) enum HostMacroError {

@@ -16,7 +16,8 @@ The library provides:
 - runtime limits, timeouts, cancellation, and garbage-collection controls;
 - runtime-global and guest-local capability binding;
 - an explicit native-module escape hatch for rquickjs integrations; and
-- selective LLRT modules for buffers, console, filesystem access, and fetch.
+- selective LLRT modules and globals for buffers, console, filesystem access, fetch, timers, URL,
+  operating-system information, and environment variables.
 
 GuestJS does not provide package resolution, filesystem source loading, or complete Node.js
 compatibility. Applications remain responsible for choosing module source and deciding which host
@@ -43,6 +44,10 @@ features = [
     "llrt-console",
     "llrt-fetch",
     "llrt-fs",
+    "llrt-os",
+    "llrt-process-env",
+    "llrt-timers",
+    "llrt-url",
     "tokio",
 ]
 ```
@@ -54,6 +59,10 @@ features = [
 | `llrt-console` | Provides LLRT console globals and modules. |
 | `llrt-fetch` | Provides LLRT fetch and its required web globals. |
 | `llrt-fs` | Provides LLRT `fs`, `fs/promises`, and Node-prefixed aliases. |
+| `llrt-os` | Provides LLRT `os` and `node:os` modules. |
+| `llrt-process-env` | Provides a host environment snapshot through `process.env`. |
+| `llrt-timers` | Provides LLRT timer globals plus `timers` and `node:timers` modules. |
+| `llrt-url` | Provides LLRT URL globals plus `url` and `node:url` modules. |
 | `tokio` | Accepts `tokio_util::sync::CancellationToken` as a cancellation signal. |
 
 ## Quick start
@@ -262,9 +271,9 @@ as `Error::Timeout` or `Error::Cancelled`.
 
 ## Owned and scope-bound handles
 
-Owned handles such as `Module`, `Function`, `Object`, `Class`, `Instance`, and `Promise<T>` can be
-retained outside a guest scope. Their operations are asynchronous because each operation enters the
-guest context.
+Owned handles such as `Module`, `Function`, `Object`, `Class`, `Instance`, `Promise<T>`, and
+`Awaitable<T>` can be retained outside a guest scope. Their operations are asynchronous because
+each operation enters the guest context.
 
 `Guest::scope` enters the context once. Operations inside the callback return bound handles tied to
 that live scope, and most operations become synchronous:
@@ -344,8 +353,8 @@ assert_eq!(
 
 The `Function` descriptor in the facade becomes `Function` outside a scope and
 `BoundFunction<'js>` inside one. The same projection applies recursively, so `Promise<Function>`
-becomes an owned promise outside a scope and a bound promise resolving to a bound function inside
-one.
+and `Awaitable<Function>` become owned handles outside a scope and bound handles resolving to bound
+functions inside one.
 
 Use `into_owned` when a bound handle must outlive the scope callback. Promotion requires a scope
 with an owning guest context; detached host callbacks cannot create owned guest handles.
@@ -875,6 +884,8 @@ async fn build_shared_llrt_runtime() -> Result<Runtime, Error> {
             Llrt::builder()
                 .buffer()
                 .console()
+                .timers()
+                .url()
                 .build(),
         )
         .build()
@@ -890,6 +901,8 @@ async fn build_isolated_llrt_guest(
             Llrt::builder()
                 .fs()
                 .fetch()
+                .os()
+                .process_env()
                 .build(),
         )
         .build()
@@ -903,7 +916,15 @@ Capabilities are explicit:
 - `.console()` adds console globals plus the `console` and `node:console` modules;
 - `.fs()` adds `fs`, `fs/promises`, `node:fs`, and `node:fs/promises`;
 - `.fetch()` installs LLRT's fetch initializer together with its abort, stream, buffer, and URL
-  prerequisites.
+  prerequisites;
+- `.timers()` adds timer globals plus the `timers` and `node:timers` modules;
+- `.url()` adds `URL` and `URLSearchParams` globals plus the `url` and `node:url` modules;
+- `.os()` adds the `os` and `node:os` modules; and
+- `.process_env()` snapshots host environment variables under `globalThis.process.env`.
+
+The environment adapter exposes only `process.env`. It does not provide the complete Node.js or
+LLRT process API, including process termination, signals, identity mutation, arguments, or
+current-directory functions.
 
 Runtime-global LLRT libraries are reusable across guest contexts. Guest-local LLRT libraries do
 not grant the same modules to other guests:
@@ -1028,22 +1049,31 @@ impl From<GeometryError> for guestjs::Error {
 }
 ```
 
-A function returning a JavaScript promise uses `Promise<T>` as its successful descriptor:
+A function which must return a JavaScript promise uses `Promise<T>` as its successful descriptor.
+Use `Awaitable<T>` when the guest may return either `T` directly or a promise resolving to `T`:
 
 ```rust
 guestjs::guest_module! {
     module Jobs {
         fn start() -> Promise<String>;
+
+        fn status() -> Awaitable<String>;
     }
 }
 
 async fn start_job(jobs: &Jobs) -> Result<String, Error> {
     jobs.start().await?.await
 }
+
+async fn read_status(jobs: &Jobs) -> Result<String, Error> {
+    jobs.status().await?.await
+}
 ```
 
-The first `?` reports export lookup, invocation, and promise-handle conversion errors. The second
-reports promise rejection and conversion of the resolved value.
+`Promise<T>` rejects a direct JavaScript value when the handle is created. `Awaitable<T>` accepts a
+direct value or promise and normalizes both when awaited. In either example, the first `?` reports
+export lookup, invocation, and handle conversion errors. The second reports promise rejection and
+conversion of the final value.
 
 ## License
 

@@ -196,9 +196,8 @@ mod tests {
 
     #[test]
     fn host_adapter_builds_registered_exports() {
-        let registry = Rc::new(
-            ModuleRegistry::new(vec![LibraryBinding::Host(Arc::new(ValueHost))]),
-        );
+        let registry =
+            Rc::new(ModuleRegistry::new(vec![LibraryBinding::Host(Arc::new(ValueHost))]));
         let runtime = JsRuntime::new().unwrap();
         let context = JsContext::full(&runtime).unwrap();
 

@@ -11,12 +11,13 @@
 //! specifier wins.
 //!
 //! Owned handles such as [`Module`](crate::handle::Module),
-//! [`Function`](crate::handle::Function), and [`Promise`](crate::handle::Promise) retain their
-//! guest context and enter it for each asynchronous operation.
+//! [`Function`](crate::handle::Function), [`Promise`](crate::handle::Promise), and
+//! [`Awaitable`](crate::handle::Awaitable) retain their guest context and enter it for each
+//! asynchronous operation.
 //! [`Guest::scope`](crate::runtime::Guest::scope) enters the context once and supplies a
 //! [`Scope`](crate::runtime::Scope). Module loading and descendant operations inside that callback
 //! return bound handles tied to the live scope. Functions, objects, classes, instances, and
-//! promises remain bound automatically as operations return further guest values.
+//! promise-like values remain bound automatically as operations return further guest values.
 //!
 //! JavaScript source can be loaded through
 //! [`Guest::guest_module`](crate::runtime::Guest::guest_module) for an owned module or
@@ -166,9 +167,11 @@
 //! # Running guest code
 //!
 //! Owned operations are useful when values must be retained independently. A
-//! [`Promise<T>`](crate::handle::Promise) is awaited like a Rust future and produces the owned form
-//! of `T`. [`guest_module!`](crate::guest_module) defines typed owned and bound access to an
-//! already-loaded module. It does not load source, select a guest, or grant module authority.
+//! [`Promise<T>`](crate::handle::Promise) requires a JavaScript promise.
+//! [`Awaitable<T>`](crate::handle::Awaitable) accepts either a direct `T` or a promise resolving to
+//! `T`. Both are awaited like Rust futures and produce the owned form of `T`.
+//! [`guest_module!`](crate::guest_module) defines typed owned and bound access to an already-loaded
+//! module. It does not load source, select a guest, or grant module authority.
 //! Function and value declarations name their successful guest value; generated methods return
 //! [`Result`](std::result::Result) with [`Error`](crate::errors::Error) for lookup, invocation, and
 //! conversion failures:
@@ -200,6 +203,8 @@
 //!         fn multiplier(
 //!             factor: i32,
 //!         ) -> Promise<Function>;
+//!
+//!         fn status() -> Awaitable<String>;
 //!
 //!         value answer: i32;
 //!         value settings: Object;
@@ -248,6 +253,10 @@
 //!     return value => value * factor;
 //! }
 //!
+//! export function status() {
+//!     return "complete";
+//! }
+//!
 //! export const answer = 42;
 //! export const settings = {
 //!     unit: "px",
@@ -278,6 +287,10 @@
 //!     42,
 //! );
 //! assert_eq!(math.answer().await?, 42);
+//! assert_eq!(
+//!     math.status().await?.await?,
+//!     "complete",
+//! );
 //! assert_eq!(math.settings().await?.get::<String>("unit").await?, "px");
 //! assert_eq!(
 //!     math.counter()
@@ -329,10 +342,12 @@
 //! current tuple conversion contract. Within a live scope, requesting the semantic descriptor
 //! [`Function`](crate::handle::Function) returns a bound function, and requesting
 //! [`Promise<Function>`](crate::handle::Promise) returns a bound promise whose resolved function is
-//! also bound. Bound handles implement the scoped argument conversions, so a result can be passed
-//! directly into a later bound call. A value that must outlive the callback is explicitly promoted
-//! with [`BoundFunction::into_owned`](crate::handle::BoundFunction::into_owned). Each generated
-//! function or value method performs a fresh export lookup; values are not cached by the facade.
+//! also bound, while [`Awaitable<Function>`](crate::handle::Awaitable) accepts either a direct bound
+//! function or a promise resolving to one. Bound handles implement the scoped argument conversions,
+//! so a result can be passed directly into a later bound call. A value that must outlive the
+//! callback is explicitly promoted with
+//! [`BoundFunction::into_owned`](crate::handle::BoundFunction::into_owned). Each generated function
+//! or value method performs a fresh export lookup; values are not cached by the facade.
 //!
 //! # Host classes and modules
 //!
@@ -395,8 +410,10 @@
 //! [`NativeLibrary`](crate::native::NativeLibrary), which is registered with
 //! [`RuntimeBuilder::bind_native`](crate::runtime::RuntimeBuilder::bind_native) or
 //! [`GuestBuilder::bind_native`](crate::runtime::GuestBuilder::bind_native).
-//! The `llrt-buffer`, `llrt-console`, `llrt-fs`, and `llrt-fetch` features expose their
-//! corresponding [`Llrt`](crate::llrt::Llrt) builder methods:
+//!
+//! The `llrt-buffer`, `llrt-console`, `llrt-fetch`, `llrt-fs`, `llrt-os`, `llrt-process-env`,
+//! `llrt-timers`, and `llrt-url` features expose their corresponding
+//! [`Llrt`](crate::llrt::Llrt) builder methods:
 //!
 //! ```ignore
 //! use guestjs::{llrt::Llrt, prelude::*};
@@ -406,6 +423,8 @@
 //!         Llrt::builder()
 //!             .buffer()
 //!             .console()
+//!             .timers()
+//!             .url()
 //!             .build(),
 //!     )
 //!     .build()
@@ -417,14 +436,19 @@
 //!         Llrt::builder()
 //!             .fs()
 //!             .fetch()
+//!             .os()
+//!             .process_env()
 //!             .build(),
 //!     )
 //!     .build()
 //!     .await?;
 //! ```
 //!
-//! This adapter does not provide package or filesystem source resolution or complete Node
-//! compatibility. A complete host class and host module can be defined together:
+//! > `process_env` exposes only a host environment snapshot at `globalThis.process.env`. It does not
+//! > provide the complete Node.js or LLRT process API. This adapter does not provide package or
+//! > filesystem source resolution or complete Node compatibility.
+//!
+//! A complete host class and host module can be defined together:
 //!
 //! ```ignore
 //! use std::future::Future;
@@ -653,6 +677,10 @@ pub mod prelude;
     feature = "llrt-console",
     feature = "llrt-fetch",
     feature = "llrt-fs",
+    feature = "llrt-os",
+    feature = "llrt-process-env",
+    feature = "llrt-timers",
+    feature = "llrt-url",
 ))]
 pub mod llrt {
     pub use guestjs_llrt::{Llrt, LlrtBuilder};
@@ -663,11 +691,7 @@ pub use guestjs_macros::*;
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        cell::Cell,
-        future::Future,
-        rc::Rc,
-    };
+    use std::{cell::Cell, future::Future, rc::Rc};
 
     use crate::{
         errors::Error,
@@ -679,12 +703,7 @@ mod tests {
     };
 
     #[derive(
-        Debug,
-        PartialEq,
-        serde::Serialize,
-        serde::Deserialize,
-        crate::ToGuest,
-        crate::FromGuest,
+        Debug, PartialEq, serde::Serialize, serde::Deserialize, crate::ToGuest, crate::FromGuest,
     )]
     struct Request {
         #[serde(rename = "userId")]
@@ -890,10 +909,7 @@ export function advance() {
         }
 
         #[guestjs(method)]
-        fn combine(
-            &self,
-            #[guestjs(borrow)] other: &MacroPoint,
-        ) -> Result<i32, HostClassError> {
+        fn combine(&self, #[guestjs(borrow)] other: &MacroPoint) -> Result<i32, HostClassError> {
             Ok(self.value + other.value)
         }
 
@@ -930,10 +946,7 @@ export function advance() {
         }
 
         #[guestjs(method)]
-        fn has_scope(
-            &self,
-            #[guestjs(scope)] _scope: &Scope<'_>,
-        ) -> Result<bool, HostClassError> {
+        fn has_scope(&self, #[guestjs(scope)] _scope: &Scope<'_>) -> Result<bool, HostClassError> {
             Ok(true)
         }
 
@@ -1003,25 +1016,15 @@ export function advance() {
 
     struct MacroHost;
 
-    #[crate::host_module(
-        name = "@host/macro",
-        classes(MacroPoint),
-        rename_all = "camelCase",
-    )]
+    #[crate::host_module(name = "@host/macro", classes(MacroPoint), rename_all = "camelCase")]
     impl MacroHost {
         #[guestjs(function)]
-        fn add_values(
-            left: i32,
-            right: i32,
-        ) -> Result<i32, HostClassError> {
+        fn add_values(left: i32, right: i32) -> Result<i32, HostClassError> {
             Ok(left + right)
         }
 
         #[guestjs(function, name = "delayedProduct")]
-        async fn multiply(
-            left: i32,
-            right: i32,
-        ) -> Result<i32, HostClassError> {
+        async fn multiply(left: i32, right: i32) -> Result<i32, HostClassError> {
             Ok(left * right)
         }
     }
@@ -1031,11 +1034,7 @@ export function advance() {
         count: Rc<Cell<i32>>,
     }
 
-    #[crate::host_module(
-        name = "@host/complete",
-        classes(MacroPoint),
-        rename_all = "camelCase",
-    )]
+    #[crate::host_module(name = "@host/complete", classes(MacroPoint), rename_all = "camelCase")]
     impl CompleteMacroHost {
         #[guestjs(default)]
         const FALLBACK: &'static str = "fallback";
@@ -1044,17 +1043,12 @@ export function advance() {
         const API_VERSION: i32 = 2;
 
         #[guestjs(object, name = "tools")]
-        fn build_tools(
-            &self,
-            tools: &mut Namespace,
-        ) {
+        fn build_tools(&self, tools: &mut Namespace) {
             let getter_count = self.count.clone();
             let setter_count = self.count.clone();
 
             tools.function("add", |scope, args| {
-                Ok(
-                    args.get::<i32>(scope, 0)? + args.get::<i32>(scope, 1)?,
-                )
+                Ok(args.get::<i32>(scope, 0)? + args.get::<i32>(scope, 1)?)
             });
             tools.async_function("delayedProduct", |scope, args| {
                 let left = args.get::<i32>(scope, 0)?;
@@ -1076,10 +1070,7 @@ export function advance() {
         }
 
         #[guestjs(build)]
-        fn add_conditional(
-            &self,
-            exports: &mut Exports,
-        ) {
+        fn add_conditional(&self, exports: &mut Exports) {
             if self.conditional {
                 exports.constant("conditional", true);
             }
@@ -1113,20 +1104,10 @@ export function normalize(request) {
                 .function("normalize")
                 .await
                 .unwrap()
-                .call::<_, Request>(
-                    (
-                        Request {
-                            user_id: 42,
-                            note: None,
-                        },
-                    ),
-                )
+                .call::<_, Request>((Request { user_id: 42, note: None },),)
                 .await
                 .unwrap(),
-            Request {
-                user_id: 42,
-                note: None,
-            },
+            Request { user_id: 42, note: None },
         );
     }
 
@@ -1146,10 +1127,7 @@ export function normalize(request) {
                 .eval::<Response>(r#"({ userId: 42, status: "ready" })"#)
                 .await
                 .unwrap(),
-            Response {
-                user_id: 42,
-                status: Status::Ready,
-            },
+            Response { user_id: 42, status: Status::Ready },
         );
         assert_eq!(
             guest
@@ -1164,10 +1142,7 @@ export function normalize(request) {
                 })
                 .await
                 .unwrap(),
-            Response {
-                user_id: 7,
-                status: Status::Ready,
-            },
+            Response { user_id: 7, status: Status::Ready },
         );
         assert_eq!(
             guest
@@ -1191,10 +1166,7 @@ export function normalize(request) {
                 .unwrap()
                 .eval::<Response>(r#"({ userId: "invalid", status: "ready" })"#)
                 .await,
-            Err(Error::Conversion {
-                source: Some(_),
-                ..
-            }),
+            Err(Error::Conversion { source: Some(_), .. }),
         ));
     }
 
@@ -1339,10 +1311,7 @@ export async function exercise() {
                 .build()
                 .await
                 .unwrap()
-                .guest_module(
-                    "runtime-host-module.js",
-                    GENERATED_HOST_MODULE_SOURCE,
-                )
+                .guest_module("runtime-host-module.js", GENERATED_HOST_MODULE_SOURCE,)
                 .await
                 .unwrap()
                 .function("exercise")
@@ -1369,10 +1338,7 @@ export async function exercise() {
                 .build()
                 .await
                 .unwrap()
-                .guest_module(
-                    "guest-host-module.js",
-                    GENERATED_HOST_MODULE_SOURCE,
-                )
+                .guest_module("guest-host-module.js", GENERATED_HOST_MODULE_SOURCE,)
                 .await
                 .unwrap()
                 .function("exercise")
@@ -1406,10 +1372,7 @@ export async function exercise() {
                     .build()
                     .await
                     .unwrap()
-                    .guest_module(
-                        "complete-host-module.js",
-                        COMPLETE_HOST_MODULE_SOURCE,
-                    )
+                    .guest_module("complete-host-module.js", COMPLETE_HOST_MODULE_SOURCE,)
                     .await
                     .unwrap()
                     .function("exercise")
@@ -1438,10 +1401,7 @@ export async function exercise() {
 
         let module = TypedGuestModule::from(
             guest
-                .guest_module(
-                    "typed-guest-module.js",
-                    TYPED_GUEST_MODULE_SOURCE,
-                )
+                .guest_module("typed-guest-module.js", TYPED_GUEST_MODULE_SOURCE)
                 .await
                 .unwrap(),
         );
@@ -1450,13 +1410,7 @@ export async function exercise() {
         assert_eq!(module.add(20, 22).await.unwrap(), 42);
         assert_eq!(
             module
-                .apply(
-                    module
-                        .make_adder(1)
-                        .await
-                        .unwrap(),
-                    41,
-                )
+                .apply(module.make_adder(1).await.unwrap(), 41,)
                 .await
                 .unwrap(),
             42,
@@ -1485,10 +1439,7 @@ export async function exercise() {
 
         assert_eq!(module.revision().await.unwrap(), 2);
         assert_eq!(module.optional_value().await.unwrap(), None);
-        assert_eq!(
-            module.nullish_value().await.unwrap(),
-            Nullish::Undefined,
-        );
+        assert_eq!(module.nullish_value().await.unwrap(), Nullish::Undefined,);
         assert_eq!(
             module
                 .settings()
@@ -1541,18 +1492,9 @@ export async function exercise() {
 
                 assert_eq!(module.add(1, 2)?, 3);
                 assert_eq!(module.add(20, 22)?, 42);
-                assert_eq!(
-                    module.apply(
-                        module.make_adder(1)?,
-                        41,
-                    )?,
-                    42,
-                );
+                assert_eq!(module.apply(module.make_adder(1)?, 41,)?, 42,);
                 assert_eq!(module.optional(None)?, None);
-                assert_eq!(
-                    module.nullish(Nullish::Null)?,
-                    Nullish::Null,
-                );
+                assert_eq!(module.nullish(Nullish::Null)?, Nullish::Null,);
                 assert_eq!(module.delayed(21)?.await?, 42);
                 assert_eq!(module.answer()?, 42);
                 assert_eq!(module.revision()?, 2);
@@ -1562,7 +1504,12 @@ export async function exercise() {
                 assert_eq!(module.revision()?, 3);
                 assert_eq!(module.optional_value()?, None);
                 assert_eq!(module.nullish_value()?, Nullish::Undefined);
-                assert_eq!(module.settings()?.get::<String>("unit")?, "px");
+                assert_eq!(
+                    module
+                        .settings()?
+                        .get::<String>("unit")?,
+                    "px"
+                );
                 assert_eq!(
                     module
                         .counter()?
@@ -1570,7 +1517,12 @@ export async function exercise() {
                         .call::<_, i32>("increment", ())?,
                     2,
                 );
-                assert_eq!(module.operation()?.call::<_, i32>((41,))?, 42);
+                assert_eq!(
+                    module
+                        .operation()?
+                        .call::<_, i32>((41,))?,
+                    42
+                );
                 assert_eq!(
                     module
                         .pending_operation()?

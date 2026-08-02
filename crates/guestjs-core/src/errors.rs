@@ -193,14 +193,13 @@ impl From<rquickjs::CaughtError<'_>> for Error {
             rquickjs::CaughtError::Error(error) => {
                 Self::sourced_engine(error.to_string(), Some(error))
             }
-            rquickjs::CaughtError::Exception(error)
-                if error
-                    .as_value()
-                    .is_uncatchable_error() =>
-                Self::interrupted(),
+            rquickjs::CaughtError::Exception(error) if error.as_value().is_uncatchable_error() => {
+                Self::interrupted()
+            }
             rquickjs::CaughtError::Exception(error) => Self::guest_exception(error.to_string()),
-            rquickjs::CaughtError::Value(value) if value.is_uncatchable_error() =>
-                Self::interrupted(),
+            rquickjs::CaughtError::Value(value) if value.is_uncatchable_error() => {
+                Self::interrupted()
+            }
             rquickjs::CaughtError::Value(value) => Self::guest_exception(format!("{value:?}")),
         }
     }

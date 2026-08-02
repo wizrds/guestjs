@@ -10,10 +10,7 @@ use syn::{
     spanned::Spanned,
 };
 
-use crate::{
-    guest::GuestMacroError,
-    path::CratePath,
-};
+use crate::{guest::GuestMacroError, path::CratePath};
 
 mod keyword {
     syn::custom_keyword!(module);
@@ -80,16 +77,10 @@ impl Parse for GuestMemberInput {
         let attributes = Attribute::parse_outer(input)?;
 
         if input.peek(keyword::value) {
-            return Ok(Self::Value(GuestValueInput::parse(
-                attributes,
-                input,
-            )?));
+            return Ok(Self::Value(GuestValueInput::parse(attributes, input)?));
         }
 
-        Ok(Self::Function(GuestFunctionInput::parse(
-            attributes,
-            input,
-        )?))
+        Ok(Self::Function(GuestFunctionInput::parse(attributes, input)?))
     }
 }
 
@@ -122,12 +113,7 @@ impl Parse for GuestModuleInput {
             return Err(input.error("unexpected tokens after the guest module declaration"));
         }
 
-        Ok(Self {
-            attributes,
-            visibility,
-            ident,
-            members,
-        })
+        Ok(Self { attributes, visibility, ident, members })
     }
 }
 
@@ -137,15 +123,8 @@ struct GuestFunctionInput {
 }
 
 impl GuestFunctionInput {
-    fn parse(
-        attributes: Vec<Attribute>,
-        input: ParseStream<'_>,
-    ) -> syn::Result<Self> {
-        Self {
-            attributes,
-            signature: input.parse()?,
-        }
-        .with_semicolon(input)
+    fn parse(attributes: Vec<Attribute>, input: ParseStream<'_>) -> syn::Result<Self> {
+        Self { attributes, signature: input.parse()? }.with_semicolon(input)
     }
 
     fn with_semicolon(self, input: ParseStream<'_>) -> syn::Result<Self> {
@@ -162,10 +141,7 @@ struct GuestValueInput {
 }
 
 impl GuestValueInput {
-    fn parse(
-        attributes: Vec<Attribute>,
-        input: ParseStream<'_>,
-    ) -> syn::Result<Self> {
+    fn parse(attributes: Vec<Attribute>, input: ParseStream<'_>) -> syn::Result<Self> {
         input.parse::<keyword::value>()?;
 
         let ident = input.parse()?;
@@ -176,11 +152,7 @@ impl GuestValueInput {
 
         input.parse::<Token![;]>()?;
 
-        Ok(Self {
-            attributes,
-            ident,
-            descriptor,
-        })
+        Ok(Self { attributes, ident, descriptor })
     }
 }
 
@@ -215,10 +187,7 @@ impl GuestParameter {
             .into());
         };
 
-        if pattern.by_ref.is_some()
-            || pattern.mutability.is_some()
-            || pattern.subpat.is_some()
-        {
+        if pattern.by_ref.is_some() || pattern.mutability.is_some() || pattern.subpat.is_some() {
             return Err(syn::Error::new(
                 pattern.span(),
                 "a guest module function parameter requires a plain identifier",
@@ -303,13 +272,11 @@ impl GuestFunction {
 
     fn result_descriptor(output: &ReturnType) -> Result<Type, GuestMacroError> {
         match output {
-            ReturnType::Type(_, result) if result.is_result() => {
-                Err(syn::Error::new(
-                    result.span(),
-                    "a guest module function names its successful descriptor, not Result",
-                )
-                .into())
-            }
+            ReturnType::Type(_, result) if result.is_result() => Err(syn::Error::new(
+                result.span(),
+                "a guest module function names its successful descriptor, not Result",
+            )
+            .into()),
             ReturnType::Type(_, result) => Ok(result.as_ref().clone()),
             ReturnType::Default => Err(syn::Error::new(
                 output.span(),
@@ -333,7 +300,10 @@ impl GuestFunction {
         }
 
         if !signature.generics.params.is_empty()
-            || signature.generics.where_clause.is_some()
+            || signature
+                .generics
+                .where_clause
+                .is_some()
         {
             return Err(syn::Error::new(
                 signature.generics.span(),
@@ -381,10 +351,7 @@ impl GuestFunction {
                     format!("duplicate guest module function parameter {name:?}"),
                 );
 
-                error.combine(syn::Error::new(
-                    previous,
-                    "the first parameter is here",
-                ));
+                error.combine(syn::Error::new(previous, "the first parameter is here"));
 
                 return Err(error.into());
             }
@@ -407,11 +374,7 @@ impl GuestFunction {
         }
     }
 
-    fn owned_method(
-        &self,
-        visibility: &Visibility,
-        crate_path: &Path,
-    ) -> TokenStream {
+    fn owned_method(&self, visibility: &Visibility, crate_path: &Path) -> TokenStream {
         let attributes = &self.attributes;
         let ident = &self.ident;
         let name = &self.name;
@@ -441,11 +404,7 @@ impl GuestFunction {
         }
     }
 
-    fn bound_method(
-        &self,
-        visibility: &Visibility,
-        crate_path: &Path,
-    ) -> TokenStream {
+    fn bound_method(&self, visibility: &Visibility, crate_path: &Path) -> TokenStream {
         let attributes = &self.attributes;
         let ident = &self.ident;
         let name = &self.name;
@@ -511,11 +470,7 @@ impl GuestValue {
         })
     }
 
-    fn owned_method(
-        &self,
-        visibility: &Visibility,
-        crate_path: &Path,
-    ) -> TokenStream {
+    fn owned_method(&self, visibility: &Visibility, crate_path: &Path) -> TokenStream {
         let attributes = &self.attributes;
         let ident = &self.ident;
         let name = &self.name;
@@ -537,11 +492,7 @@ impl GuestValue {
         }
     }
 
-    fn bound_method(
-        &self,
-        visibility: &Visibility,
-        crate_path: &Path,
-    ) -> TokenStream {
+    fn bound_method(&self, visibility: &Visibility, crate_path: &Path) -> TokenStream {
         let attributes = &self.attributes;
         let ident = &self.ident;
         let name = &self.name;
@@ -598,22 +549,14 @@ impl GuestMember {
         }
     }
 
-    fn owned_method(
-        &self,
-        visibility: &Visibility,
-        crate_path: &Path,
-    ) -> TokenStream {
+    fn owned_method(&self, visibility: &Visibility, crate_path: &Path) -> TokenStream {
         match self {
             Self::Function(function) => function.owned_method(visibility, crate_path),
             Self::Value(value) => value.owned_method(visibility, crate_path),
         }
     }
 
-    fn bound_method(
-        &self,
-        visibility: &Visibility,
-        crate_path: &Path,
-    ) -> TokenStream {
+    fn bound_method(&self, visibility: &Visibility, crate_path: &Path) -> TokenStream {
         match self {
             Self::Function(function) => function.bound_method(visibility, crate_path),
             Self::Value(value) => value.bound_method(visibility, crate_path),
@@ -648,12 +591,7 @@ impl GuestModuleMacro {
                 member.span(),
                 "Rust method",
             )?;
-            Self::insert_name(
-                &mut guest_names,
-                member.name().to_owned(),
-                member.span(),
-                "export",
-            )?;
+            Self::insert_name(&mut guest_names, member.name().to_owned(), member.span(), "export")?;
         }
 
         Ok(Self {
@@ -678,15 +616,9 @@ impl GuestModuleMacro {
         let Some(previous) = names.insert(name.clone(), span) else {
             return Ok(());
         };
-        let mut error = syn::Error::new(
-            span,
-            format!("duplicate guest module {kind} {name:?}"),
-        );
+        let mut error = syn::Error::new(span, format!("duplicate guest module {kind} {name:?}"));
 
-        error.combine(syn::Error::new(
-            previous,
-            format!("the first {kind} is here"),
-        ));
+        error.combine(syn::Error::new(previous, format!("the first {kind} is here")));
 
         Err(error.into())
     }
@@ -770,35 +702,33 @@ mod tests {
 
     #[test]
     fn generates_owned_and_bound_facades() {
-        let output = GuestModuleMacro::new(
-            quote! {
-                #[guestjs(crate_path = crate)]
-                pub module Math {
-                    fn ping() -> bool;
+        let output = GuestModuleMacro::new(quote! {
+            #[guestjs(crate_path = crate)]
+            pub module Math {
+                fn ping() -> bool;
 
-                    fn apply(
-                        callback: crate::handle::Function,
-                    ) -> i32;
+                fn apply(
+                    callback: crate::handle::Function,
+                ) -> i32;
 
-                    #[guestjs(name = "combine")]
-                    fn add(
-                        left: std::option::Option<i32>,
-                        right: crate::marshal::Nullish<i32>,
-                    ) -> crate::handle::Promise<i32>;
+                #[guestjs(name = "combine")]
+                fn add(
+                    left: std::option::Option<i32>,
+                    right: crate::marshal::Nullish<i32>,
+                ) -> crate::handle::Promise<i32>;
 
-                    value answer: i32;
-                    value optional: std::option::Option<i32>;
-                    value nullish: crate::marshal::Nullish<i32>;
-                    value settings: crate::handle::Object;
-                    value counter: crate::handle::Class;
+                value answer: i32;
+                value optional: std::option::Option<i32>;
+                value nullish: crate::marshal::Nullish<i32>;
+                value settings: crate::handle::Object;
+                value counter: crate::handle::Class;
 
-                    #[guestjs(name = "operation")]
-                    value callback: crate::handle::Function;
+                #[guestjs(name = "operation")]
+                value callback: crate::handle::Function;
 
-                    value pending: crate::handle::Promise<crate::handle::Function>;
-                }
-            },
-        )
+                value pending: crate::handle::Promise<crate::handle::Function>;
+            }
+        })
         .unwrap()
         .expand()
         .to_string();
@@ -816,23 +746,19 @@ mod tests {
         assert!(output.contains(
             "callback : < crate :: handle :: Function as crate :: marshal :: GuestType > :: Owned",
         ));
-        assert!(output.contains(
-            concat!(
-                "callback : < crate :: handle :: Function as ",
-                "crate :: marshal :: GuestType > :: Bound < 'js >",
-            ),
-        ));
+        assert!(output.contains(concat!(
+            "callback : < crate :: handle :: Function as ",
+            "crate :: marshal :: GuestType > :: Bound < 'js >",
+        ),));
         assert!(output.contains("call :: < _ , i32 > ((callback ,))"));
         assert!(output.contains("function (\"combine\")"));
         assert!(output.contains(
             "< crate :: handle :: Promise < i32 > as crate :: marshal :: FromGuest > :: Owned",
         ));
-        assert!(output.contains(
-            concat!(
-                "< crate :: handle :: Promise < i32 > as ",
-                "crate :: marshal :: FromGuestBound > :: Bound < 'js >",
-            ),
-        ));
+        assert!(output.contains(concat!(
+            "< crate :: handle :: Promise < i32 > as ",
+            "crate :: marshal :: FromGuestBound > :: Bound < 'js >",
+        ),));
         assert!(output.contains("call :: < _ , crate :: handle :: Promise < i32 > >"));
         assert!(output.contains("pub async fn answer"));
         assert!(output.contains("pub fn answer"));
@@ -842,29 +768,27 @@ mod tests {
         assert!(output.contains("get :: < crate :: handle :: Function > (\"operation\")"));
         assert!(output.contains("get :: < crate :: handle :: Promise"));
         assert!(output.contains("(\"pending\")"));
-        assert!(output.contains(
-            "< crate :: handle :: Object as crate :: marshal :: FromGuest > :: Owned",
-        ));
-        assert!(output.contains(
-            concat!(
-                "< crate :: handle :: Object as crate :: marshal :: FromGuestBound > :: ",
-                "Bound < 'js >",
-            ),
-        ));
+        assert!(
+            output.contains(
+                "< crate :: handle :: Object as crate :: marshal :: FromGuest > :: Owned",
+            )
+        );
+        assert!(output.contains(concat!(
+            "< crate :: handle :: Object as crate :: marshal :: FromGuestBound > :: ",
+            "Bound < 'js >",
+        ),));
     }
 
     #[test]
     fn preserves_visibility_and_explicit_crate_path() {
-        let output = GuestModuleMacro::new(
-            quote! {
-                #[guestjs(crate_path = custom::guestjs)]
-                #[allow(dead_code)]
-                pub(crate) module Internal {
-                    #[allow(clippy::needless_lifetimes)]
-                    fn read(value: i32) -> i32;
-                }
-            },
-        )
+        let output = GuestModuleMacro::new(quote! {
+            #[guestjs(crate_path = custom::guestjs)]
+            #[allow(dead_code)]
+            pub(crate) module Internal {
+                #[allow(clippy::needless_lifetimes)]
+                fn read(value: i32) -> i32;
+            }
+        })
         .unwrap()
         .expand()
         .to_string();
@@ -874,8 +798,18 @@ mod tests {
         assert!(output.contains("custom :: guestjs :: handle :: Module"));
         assert!(output.contains("pub (crate) async fn read"));
         assert!(output.contains("pub (crate) fn read"));
-        assert_eq!(output.matches("allow (dead_code)").count(), 2);
-        assert_eq!(output.matches("allow (clippy :: needless_lifetimes)").count(), 2);
+        assert_eq!(
+            output
+                .matches("allow (dead_code)")
+                .count(),
+            2
+        );
+        assert_eq!(
+            output
+                .matches("allow (clippy :: needless_lifetimes)")
+                .count(),
+            2
+        );
     }
 
     #[test]

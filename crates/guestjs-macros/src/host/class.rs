@@ -65,12 +65,7 @@ impl StaticConstant {
         }))
     }
 
-    fn add_predicates(
-        &self,
-        generics: &mut Generics,
-        crate_path: &Path,
-        target: &Type,
-    ) {
+    fn add_predicates(&self, generics: &mut Generics, crate_path: &Path, target: &Type) {
         let value_type = &self.value_type;
 
         if value_type == target {
@@ -149,12 +144,7 @@ impl Accessor {
         Ok(())
     }
 
-    fn add_predicates(
-        &self,
-        generics: &mut Generics,
-        crate_path: &Path,
-        target: &Type,
-    ) {
+    fn add_predicates(&self, generics: &mut Generics, crate_path: &Path, target: &Type) {
         if let Some(getter) = &self.getter {
             getter.add_predicates(generics, crate_path, target);
         }
@@ -211,12 +201,7 @@ enum StaticMember {
 }
 
 impl StaticMember {
-    fn add_predicates(
-        &self,
-        generics: &mut Generics,
-        crate_path: &Path,
-        target: &Type,
-    ) {
+    fn add_predicates(&self, generics: &mut Generics, crate_path: &Path, target: &Type) {
         match self {
             Self::Constant(constant) => {
                 constant.add_predicates(generics, crate_path, target);
@@ -248,15 +233,10 @@ pub(crate) struct HostClassMacro {
 }
 
 impl HostClassMacro {
-    pub(crate) fn new(
-        args: TokenStream,
-        mut item: ItemImpl,
-    ) -> Result<Self, HostMacroError> {
+    pub(crate) fn new(args: TokenStream, mut item: ItemImpl) -> Result<Self, HostMacroError> {
         Self::validate_impl(&item)?;
 
-        let options = ClassOptions::from_list(
-            &NestedMeta::parse_meta_list(args)?,
-        )?;
+        let options = ClassOptions::from_list(&NestedMeta::parse_meta_list(args)?)?;
         let mut constructor = None;
         let mut methods = Vec::new();
         let mut accessors = Vec::<Accessor>::new();
@@ -298,10 +278,8 @@ impl HostClassMacro {
                                         "prototype member",
                                     )?;
 
-                                    accessor_indices.insert(
-                                        callable.name().to_owned(),
-                                        accessors.len(),
-                                    );
+                                    accessor_indices
+                                        .insert(callable.name().to_owned(), accessors.len());
                                     accessors.push(Accessor::new(*callable));
                                 }
                             }
@@ -325,11 +303,7 @@ impl HostClassMacro {
                                 methods.push(*callable);
                             }
                             CallableKind::Symbol(symbol) => {
-                                Self::insert_symbol(
-                                    &mut symbols,
-                                    symbol,
-                                    callable.span(),
-                                )?;
+                                Self::insert_symbol(&mut symbols, symbol, callable.span())?;
 
                                 methods.push(*callable);
                             }
@@ -365,10 +339,7 @@ impl HostClassMacro {
                     }
                 }
                 ImplItem::Const(constant) => {
-                    let Some(constant) = StaticConstant::new(
-                        constant,
-                        options.rename_all,
-                    )? else {
+                    let Some(constant) = StaticConstant::new(constant, options.rename_all)? else {
                         continue;
                     };
 
@@ -447,11 +418,9 @@ impl HostClassMacro {
             .into());
         }
         let Some(segment) = target.path.segments.last() else {
-            return Err(syn::Error::new_spanned(
-                target,
-                "host_class requires a named type target",
-            )
-            .into());
+            return Err(
+                syn::Error::new_spanned(target, "host_class requires a named type target").into()
+            );
         };
 
         Ok(&segment.ident)
@@ -466,10 +435,8 @@ impl HostClassMacro {
         let Some(previous) = names.insert(name.to_owned(), span) else {
             return Ok(());
         };
-        let mut error = syn::Error::new(
-            span,
-            format!("duplicate guest-visible {kind} name {name:?}"),
-        );
+        let mut error =
+            syn::Error::new(span, format!("duplicate guest-visible {kind} name {name:?}"));
 
         error.combine(syn::Error::new(
             previous,
@@ -487,10 +454,7 @@ impl HostClassMacro {
         let Some(previous) = symbols.insert(symbol, span) else {
             return Ok(());
         };
-        let mut error = syn::Error::new(
-            span,
-            "duplicate guest-visible well-known symbol",
-        );
+        let mut error = syn::Error::new(span, "duplicate guest-visible well-known symbol");
 
         error.combine(syn::Error::new(
             previous,
@@ -806,18 +770,9 @@ mod tests {
         .to_string();
 
         assert!(output.contains("spec . statics"));
-        assert!(
-            output.find("BEFORE").unwrap()
-                < output.find("from_method").unwrap(),
-        );
-        assert!(
-            output.find("from_method").unwrap()
-                < output.find("add_statics").unwrap(),
-        );
-        assert!(
-            output.find("add_statics").unwrap()
-                < output.find("AFTER").unwrap(),
-        );
+        assert!(output.find("BEFORE").unwrap() < output.find("from_method").unwrap(),);
+        assert!(output.find("from_method").unwrap() < output.find("add_statics").unwrap(),);
+        assert!(output.find("add_statics").unwrap() < output.find("AFTER").unwrap(),);
     }
 
     #[test]

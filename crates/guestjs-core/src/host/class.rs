@@ -15,9 +15,7 @@ use rquickjs::{
 use crate::{
     errors::Error,
     host::{args::Args, namespace::Namespace},
-    marshal::{
-        FromGuest, FromGuestBound, FromGuestMut, FromGuestRef, ToGuest, ToGuestBound,
-    },
+    marshal::{FromGuest, FromGuestBound, FromGuestMut, FromGuestRef, ToGuest, ToGuestBound},
     runtime::Scope,
 };
 
@@ -28,9 +26,7 @@ pub trait HostClass: Sized + 'static {
 
     /// Constructs an instance.
     fn construct<'js>(_scope: &Scope<'js>, _args: Args<'js>) -> Result<Self, Error> {
-        Err(Error::unexpected(
-            format!("host class {} cannot be constructed", Self::NAME),
-        ))
+        Err(Error::unexpected(format!("host class {} cannot be constructed", Self::NAME)))
     }
 
     /// Defines the class.
@@ -65,31 +61,13 @@ type MethodResult<'js> = Result<Value<'js>, Error>;
 type MethodFuture<'js> = Pin<Box<dyn Future<Output = MethodResult<'js>> + 'js>>;
 type GetterSpec<C> = Box<dyn for<'js> Fn(&C, &Scope<'js>) -> MethodResult<'js>>;
 type SetterSpec<C> = Box<dyn for<'js> Fn(&mut C, &Scope<'js>, Value<'js>) -> Result<(), Error>>;
-type RefMethod<C> = Box<
-    dyn for<'js> Fn(&C, &Scope<'js>, Args<'js>) -> MethodResult<'js>,
->;
-type MutMethod<C> = Box<
-    dyn for<'js> Fn(&mut C, &Scope<'js>, Args<'js>) -> MethodResult<'js>,
->;
-type AsyncRefMethod<C> = Box<
-    dyn for<'js> Fn(
-        &C,
-        &Scope<'js>,
-        Args<'js>,
-    ) -> Result<MethodFuture<'js>, Error>,
->;
-type AsyncMutMethod<C> = Box<
-    dyn for<'js> Fn(
-        &mut C,
-        &Scope<'js>,
-        Args<'js>,
-    ) -> Result<MethodFuture<'js>, Error>,
->;
-type AccessorSpec<C> = (
-    String,
-    Option<GetterSpec<C>>,
-    Option<SetterSpec<C>>,
-);
+type RefMethod<C> = Box<dyn for<'js> Fn(&C, &Scope<'js>, Args<'js>) -> MethodResult<'js>>;
+type MutMethod<C> = Box<dyn for<'js> Fn(&mut C, &Scope<'js>, Args<'js>) -> MethodResult<'js>>;
+type AsyncRefMethod<C> =
+    Box<dyn for<'js> Fn(&C, &Scope<'js>, Args<'js>) -> Result<MethodFuture<'js>, Error>>;
+type AsyncMutMethod<C> =
+    Box<dyn for<'js> Fn(&mut C, &Scope<'js>, Args<'js>) -> Result<MethodFuture<'js>, Error>>;
+type AccessorSpec<C> = (String, Option<GetterSpec<C>>, Option<SetterSpec<C>>);
 
 enum MethodSpec<C> {
     Ref(RefMethod<C>),
@@ -516,22 +494,18 @@ impl<'js, C: HostClass> JsClass<'js> for HostInstance<C> {
 
 impl<C: HostClass> HostInstance<C> {
     pub(crate) fn into_guest<'js>(scope: &Scope<'js>, value: C) -> Result<Value<'js>, Error> {
-        Ok(
-            Class::instance(scope.ctx().clone(), HostInstance(value))
-                .catch(scope.ctx())?
-                .into_value()
-        )
+        Ok(Class::instance(scope.ctx().clone(), HostInstance(value))
+            .catch(scope.ctx())?
+            .into_value())
     }
 
     pub(crate) fn cloned<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<C, Error>
     where
         C: Clone,
     {
-        Ok(
-            (*OwnedBorrow::<HostInstance<C>>::from_js(scope.ctx(), value)?)
-                .0
-                .clone()
-        )
+        Ok((*OwnedBorrow::<HostInstance<C>>::from_js(scope.ctx(), value)?)
+            .0
+            .clone())
     }
 
     pub(crate) fn export<'js>(scope: &Scope<'js>) -> Result<Value<'js>, Error> {
@@ -1147,11 +1121,7 @@ mod tests {
             .build()
             .await
             .unwrap();
-        let guest = runtime
-            .guest()
-            .build()
-            .await
-            .unwrap();
+        let guest = runtime.guest().build().await.unwrap();
 
         assert_eq!(
             guest
@@ -1174,9 +1144,7 @@ mod tests {
                         .host_module("@host/bag")
                         .await?
                         .function("total")?
-                        .call::<_, f64>((
-                            vec![Coord { value: 1.0 }, Coord { value: 2.0 }],
-                        ))
+                        .call::<_, f64>((vec![Coord { value: 1.0 }, Coord { value: 2.0 }],))
                 })
                 .await
                 .unwrap(),
