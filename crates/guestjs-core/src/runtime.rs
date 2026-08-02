@@ -183,9 +183,13 @@ impl RuntimeBuilder {
             registry,
             policy,
             transpiler: self.transpiler.or_else(|| {
-                if cfg!(feature = "typescript") {
+                #[cfg(feature = "typescript")]
+                {
                     Some(Arc::new(OxcTranspiler))
-                } else {
+                }
+
+                #[cfg(not(feature = "typescript"))]
+                {
                     None
                 }
             }),
