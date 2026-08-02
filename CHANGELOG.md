@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.1.5](https://github.com/wizrds/guestjs/compare/0.1.4..0.1.5) - 2026-08-02
+
+### Bug Fixes
+
+- Fix oxc transpiler typescript flag gate - ([6041551](https://github.com/wizrds/guestjs/commit/6041551ad960786f5be7f4c29478e9f631e1a51f)) - Timothy Pogue
+---
 ## [0.1.4](https://github.com/wizrds/guestjs/compare/0.1.3..0.1.4) - 2026-08-02
 
 ### Bug Fixes

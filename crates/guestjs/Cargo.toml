@@ -8,9 +8,9 @@ license.workspace = true
 readme.workspace = true
 
 [dependencies]
-guestjs-macros = { path = "../guestjs-macros", version = "0.1.4", default-features = false }
-guestjs-core = { path = "../guestjs-core", version = "0.1.4", default-features = false }
-guestjs-llrt = { path = "../guestjs-llrt", version = "0.1.4", optional = true }
+guestjs-macros = { path = "../guestjs-macros", version = "0.1.5", default-features = false }
+guestjs-core = { path = "../guestjs-core", version = "0.1.5", default-features = false }
+guestjs-llrt = { path = "../guestjs-llrt", version = "0.1.5", optional = true }
 
 async-trait = { workspace = true }
 
