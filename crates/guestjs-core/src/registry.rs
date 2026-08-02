@@ -223,7 +223,8 @@ struct RegistryState {
 impl RegistryState {
     fn next_guest(&mut self) -> Result<GuestId, Error> {
         let guest = GuestId(self.next_guest);
-        self.next_guest = self.next_guest
+        self.next_guest = self
+            .next_guest
             .checked_add(1)
             .ok_or_else(|| Error::unexpected("guest identifier space exhausted"))?;
 
@@ -248,38 +249,30 @@ impl RegistryState {
         let guest = self.next_guest()?;
         let (registry, initializers) = GuestRegistry::new(context, guest, bindings);
 
-        self.contexts.insert(registry.context, guest);
+        self.contexts
+            .insert(registry.context, guest);
         self.guests.insert(guest, registry);
 
         Ok(GuestRegistration { id: guest, initializers })
     }
 
     fn resolve(&self, context: ContextKey, name: &str) -> Option<String> {
-        self.guest(context)?
-            .resolve(name)
+        self.guest(context)?.resolve(name)
     }
 
     fn module(&self, context: ContextKey, route: &str) -> Option<ModuleRegistration> {
-        self.guest(context)?
-            .module(route)
+        self.guest(context)?.module(route)
     }
 
     fn host_route(&self, context: ContextKey, name: &str) -> Option<String> {
-        self.guest(context)?
-            .host_route(name)
+        self.guest(context)?.host_route(name)
     }
 
     fn host_module(&self, context: ContextKey, route: &str) -> Option<Arc<dyn HostModule>> {
-        self.guest(context)?
-            .host_module(route)
+        self.guest(context)?.host_module(route)
     }
 
-    fn stage(
-        &mut self,
-        context: ContextKey,
-        route: String,
-        namespace: Namespace,
-    ) {
+    fn stage(&mut self, context: ContextKey, route: String, namespace: Namespace) {
         if let Some(registry) = self.guest_mut(context) {
             registry.stage(route, namespace);
         }
@@ -547,10 +540,7 @@ mod tests {
         let second_context = ContextKey(2);
         let first_module = TestHost::shared("first");
         let first = state
-            .register(
-                first_context,
-                &[LibraryBinding::Host(first_module.clone())],
-            )
+            .register(first_context, &[LibraryBinding::Host(first_module.clone())])
             .unwrap()
             .id();
         state
@@ -587,12 +577,8 @@ mod tests {
         let first = ContextKey(1);
         let second = ContextKey(2);
 
-        state
-            .register(first, &[])
-            .unwrap();
-        state
-            .register(second, &[])
-            .unwrap();
+        state.register(first, &[]).unwrap();
+        state.register(second, &[]).unwrap();
         state.stage(first, "module".to_owned(), Namespace::new());
 
         assert!(
@@ -665,23 +651,13 @@ mod tests {
 
         assert!(Arc::ptr_eq(
             &state
-                .host_module(
-                    first,
-                    &state
-                        .resolve(first, "shared")
-                        .unwrap(),
-                )
+                .host_module(first, &state.resolve(first, "shared").unwrap(),)
                 .unwrap(),
             &module,
         ));
         assert!(Arc::ptr_eq(
             &state
-                .host_module(
-                    second,
-                    &state
-                        .resolve(second, "shared")
-                        .unwrap(),
-                )
+                .host_module(second, &state.resolve(second, "shared").unwrap(),)
                 .unwrap(),
             &module,
         ));
@@ -813,14 +789,8 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            state.resolve(context, "module"),
-            state.resolve(context, "module:alias"),
-        );
-        assert_eq!(
-            state.resolve(context, "module"),
-            state.resolve(context, "node:module"),
-        );
+        assert_eq!(state.resolve(context, "module"), state.resolve(context, "module:alias"),);
+        assert_eq!(state.resolve(context, "module"), state.resolve(context, "node:module"),);
     }
 
     #[test]
@@ -842,14 +812,8 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            state.resolve(context, "module"),
-            state.resolve(context, "module:alias"),
-        );
-        assert_ne!(
-            state.resolve(context, "module"),
-            state.resolve(context, "node:module"),
-        );
+        assert_eq!(state.resolve(context, "module"), state.resolve(context, "module:alias"),);
+        assert_ne!(state.resolve(context, "module"), state.resolve(context, "node:module"),);
     }
 
     #[test]
@@ -988,12 +952,9 @@ mod tests {
 
     #[test]
     fn native_definition_loads_in_distinct_contexts() {
-        let registry = Rc::new(
-            ModuleRegistry::new(vec![LibraryBinding::Native(NativeModule::new(
-                "native",
-                FirstNative,
-            ))]),
-        );
+        let registry = Rc::new(ModuleRegistry::new(vec![LibraryBinding::Native(
+            NativeModule::new("native", FirstNative),
+        )]));
         let runtime = JsRuntime::new().unwrap();
         let first = JsContext::full(&runtime).unwrap();
         let second = JsContext::full(&runtime).unwrap();
@@ -1032,12 +993,9 @@ mod tests {
 
     #[test]
     fn loader_rejects_another_guests_private_route() {
-        let registry = Rc::new(
-            ModuleRegistry::new(vec![LibraryBinding::Native(NativeModule::new(
-                "native",
-                FirstNative,
-            ))]),
-        );
+        let registry = Rc::new(ModuleRegistry::new(vec![LibraryBinding::Native(
+            NativeModule::new("native", FirstNative),
+        )]));
         let runtime = JsRuntime::new().unwrap();
         let first = JsContext::full(&runtime).unwrap();
         let second = JsContext::full(&runtime).unwrap();

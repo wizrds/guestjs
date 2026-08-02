@@ -5,10 +5,7 @@ use syn::{DeriveInput, Generics, Ident, Lifetime, Path};
 mod from_guest;
 mod to_guest;
 
-pub(crate) use crate::derive::{
-    from_guest::FromGuestDerive,
-    to_guest::ToGuestDerive,
-};
+pub(crate) use crate::derive::{from_guest::FromGuestDerive, to_guest::ToGuestDerive};
 
 #[derive(FromDeriveInput)]
 #[darling(attributes(guestjs), supports(struct_any, enum_any))]
@@ -32,13 +29,12 @@ impl MarshalInput {
                 _ => format!("__guestjs{suffix}"),
             };
 
-            if !self.generics.lifetimes().any(|lifetime| {
-                lifetime.lifetime.ident == name
-            }) {
-                return Lifetime::new(
-                    &format!("'{name}"),
-                    Span::mixed_site(),
-                );
+            if !self
+                .generics
+                .lifetimes()
+                .any(|lifetime| lifetime.lifetime.ident == name)
+            {
+                return Lifetime::new(&format!("'{name}"), Span::mixed_site());
             }
 
             suffix += 1;

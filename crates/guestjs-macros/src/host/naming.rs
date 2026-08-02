@@ -1,7 +1,6 @@
 use darling::FromMeta;
 use heck::{
-    ToKebabCase, ToLowerCamelCase, ToPascalCase, ToShoutyKebabCase, ToShoutySnakeCase,
-    ToSnakeCase,
+    ToKebabCase, ToLowerCamelCase, ToPascalCase, ToShoutyKebabCase, ToShoutySnakeCase, ToSnakeCase,
 };
 
 #[derive(Clone, Copy)]
@@ -53,10 +52,7 @@ impl FromMeta for RenameRule {
             "SCREAMING_SNAKE_CASE" => Ok(Self::ScreamingSnakeCase),
             "kebab-case" => Ok(Self::KebabCase),
             "SCREAMING-KEBAB-CASE" => Ok(Self::ScreamingKebabCase),
-            _ => Err(darling::Error::unknown_value_with_alts(
-                value,
-                &Self::NAMES,
-            )),
+            _ => Err(darling::Error::unknown_value_with_alts(value, &Self::NAMES)),
         }
     }
 }
@@ -108,9 +104,6 @@ mod tests {
 
     #[test]
     fn rejects_unknown_rename_rules() {
-        assert!(
-            RenameRule::from_string("Title Case")
-                .is_err(),
-        );
+        assert!(RenameRule::from_string("Title Case").is_err(),);
     }
 }

@@ -6,9 +6,7 @@ use crate::host::HostMacroError;
 pub(super) struct HelperAttributes;
 
 impl HelperAttributes {
-    pub(super) fn take(
-        attrs: &mut Vec<Attribute>,
-    ) -> Result<Vec<NestedMeta>, HostMacroError> {
+    pub(super) fn take(attrs: &mut Vec<Attribute>) -> Result<Vec<NestedMeta>, HostMacroError> {
         let mut helpers = Vec::new();
         let mut retained = Vec::with_capacity(attrs.len());
 
@@ -24,11 +22,7 @@ impl HelperAttributes {
                     helpers.extend(NestedMeta::parse_meta_list(list.tokens)?);
                 }
                 meta => {
-                    return Err(syn::Error::new_spanned(
-                        meta,
-                        "expected #[guestjs(...)]",
-                    )
-                    .into());
+                    return Err(syn::Error::new_spanned(meta, "expected #[guestjs(...)]").into());
                 }
             }
         }

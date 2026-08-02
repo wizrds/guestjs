@@ -20,10 +20,7 @@ pub struct Module {
 }
 
 impl Module {
-    pub(crate) fn new(
-        namespace: Persistent<JsObject<'static>>,
-        context: Rc<GuestContext>,
-    ) -> Self {
+    pub(crate) fn new(namespace: Persistent<JsObject<'static>>, context: Rc<GuestContext>) -> Self {
         Self { namespace, context }
     }
 

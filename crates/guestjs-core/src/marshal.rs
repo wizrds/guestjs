@@ -611,8 +611,7 @@ mod tests {
         errors::Error,
         handle::{Class, Function, Instance, Object, Promise},
         marshal::{
-            FromGuest, FromGuestBound, GuestType, Nullish, ToGuest, ToGuestArgsBound,
-            ToGuestBound,
+            FromGuest, FromGuestBound, GuestType, Nullish, ToGuest, ToGuestArgsBound, ToGuestBound,
         },
         runtime::{Runtime, Scope},
     };
@@ -773,20 +772,8 @@ mod tests {
                         .type_of(),
                     Type::Null,
                 );
-                assert_eq!(
-                    i32::from_guest_bound(
-                        &scope,
-                        Some(42).to_guest(&scope)?,
-                    )?,
-                    42,
-                );
-                assert_eq!(
-                    i32::from_guest_bound(
-                        &scope,
-                        Some(42).to_guest_bound(&scope)?,
-                    )?,
-                    42,
-                );
+                assert_eq!(i32::from_guest_bound(&scope, Some(42).to_guest(&scope)?,)?, 42,);
+                assert_eq!(i32::from_guest_bound(&scope, Some(42).to_guest_bound(&scope)?,)?, 42,);
                 assert_eq!(
                     Nullish::<i32>::Undefined
                         .to_guest(&scope)?

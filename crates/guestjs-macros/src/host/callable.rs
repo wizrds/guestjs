@@ -118,12 +118,7 @@ pub(super) enum WellKnownSymbol {
 }
 
 impl WellKnownSymbol {
-    const NAMES: [&str; 4] = [
-        "iterator",
-        "asyncIterator",
-        "toPrimitive",
-        "hasInstance",
-    ];
+    const NAMES: [&str; 4] = ["iterator", "asyncIterator", "toPrimitive", "hasInstance"];
 
     pub(super) fn tokens(self, crate_path: &Path) -> TokenStream {
         match self {
@@ -142,10 +137,7 @@ impl FromMeta for WellKnownSymbol {
             "asyncIterator" => Ok(Self::AsyncIterator),
             "toPrimitive" => Ok(Self::ToPrimitive),
             "hasInstance" => Ok(Self::HasInstance),
-            _ => Err(darling::Error::unknown_value_with_alts(
-                value,
-                &Self::NAMES,
-            )),
+            _ => Err(darling::Error::unknown_value_with_alts(value, &Self::NAMES)),
         }
     }
 }
@@ -164,17 +156,9 @@ enum ValueKind {
 }
 
 enum ParameterRole {
-    Value {
-        descriptor: Type,
-        kind: ValueKind,
-    },
-    Borrow {
-        value_type: Type,
-        mutable: bool,
-    },
-    Rest {
-        descriptor: Type,
-    },
+    Value { descriptor: Type, kind: ValueKind },
+    Borrow { value_type: Type, mutable: bool },
+    Rest { descriptor: Type },
     Scope,
 }
 
@@ -187,13 +171,8 @@ struct Parameter {
 }
 
 impl Parameter {
-    fn new(
-        argument: &mut PatType,
-        guest_index: usize,
-    ) -> Result<Self, HostMacroError> {
-        let options = ParameterOptions::from_list(
-            &HelperAttributes::take(&mut argument.attrs)?,
-        )?;
+    fn new(argument: &mut PatType, guest_index: usize) -> Result<Self, HostMacroError> {
+        let options = ParameterOptions::from_list(&HelperAttributes::take(&mut argument.attrs)?)?;
         let binding = match argument.pat.as_ref() {
             Pat::Ident(binding) if binding.subpat.is_none() => binding.ident.clone(),
             pattern => {
@@ -215,32 +194,15 @@ impl Parameter {
 
         let materialized = argument.ty.as_ref().clone();
         let role = if options.scope.is_present() {
-            Self::scope_role(
-                &materialized,
-                options.descriptor.map(Type::Path),
-            )?
+            Self::scope_role(&materialized, options.descriptor.map(Type::Path))?
         } else if options.borrow.is_present() {
-            Self::borrow_role(
-                &materialized,
-                options.descriptor.map(Type::Path),
-                false,
-            )?
+            Self::borrow_role(&materialized, options.descriptor.map(Type::Path), false)?
         } else if options.borrow_mut.is_present() {
-            Self::borrow_role(
-                &materialized,
-                options.descriptor.map(Type::Path),
-                true,
-            )?
+            Self::borrow_role(&materialized, options.descriptor.map(Type::Path), true)?
         } else if options.rest.is_present() {
-            Self::rest_role(
-                &materialized,
-                options.descriptor.map(Type::Path),
-            )?
+            Self::rest_role(&materialized, options.descriptor.map(Type::Path))?
         } else {
-            Self::value_role(
-                &materialized,
-                options.descriptor.map(Type::Path),
-            )
+            Self::value_role(&materialized, options.descriptor.map(Type::Path))
         };
 
         Ok(Self {
@@ -293,9 +255,7 @@ impl Parameter {
         }
 
         match materialized {
-            Type::Reference(reference)
-                if reference.mutability.is_some() == mutable =>
-            {
+            Type::Reference(reference) if reference.mutability.is_some() == mutable => {
                 Ok(ParameterRole::Borrow {
                     value_type: reference.elem.as_ref().clone(),
                     mutable,
@@ -327,18 +287,14 @@ impl Parameter {
             Some(value_type) => Ok(ParameterRole::Rest {
                 descriptor: descriptor.unwrap_or(value_type),
             }),
-            None => Err(syn::Error::new(
-                materialized.span(),
-                "a rest parameter must have type Vec<T>",
-            )
-            .into()),
+            None => {
+                Err(syn::Error::new(materialized.span(), "a rest parameter must have type Vec<T>")
+                    .into())
+            }
         }
     }
 
-    fn value_role(
-        materialized: &Type,
-        descriptor: Option<Type>,
-    ) -> ParameterRole {
+    fn value_role(materialized: &Type, descriptor: Option<Type>) -> ParameterRole {
         if let Some(value_type) = TypeShape::single_argument(materialized, "Option") {
             return ParameterRole::Value {
                 descriptor: descriptor.unwrap_or(value_type),
@@ -402,21 +358,18 @@ impl Parameter {
 
     fn setter_descriptor(&self, crate_path: &Path) -> Option<TokenStream> {
         match &self.role {
-            ParameterRole::Value {
-                descriptor,
-                kind: ValueKind::Required,
-            } => Some(quote!(#descriptor)),
-            ParameterRole::Value {
-                descriptor,
-                kind: ValueKind::Optional,
-            } => Some(quote!(::std::option::Option<#descriptor>)),
-            ParameterRole::Value {
-                descriptor,
-                kind: ValueKind::Nullish,
-            } => Some(quote!(#crate_path::marshal::Nullish<#descriptor>)),
-            ParameterRole::Borrow { .. }
-            | ParameterRole::Rest { .. }
-            | ParameterRole::Scope => None,
+            ParameterRole::Value { descriptor, kind: ValueKind::Required } => {
+                Some(quote!(#descriptor))
+            }
+            ParameterRole::Value { descriptor, kind: ValueKind::Optional } => {
+                Some(quote!(::std::option::Option<#descriptor>))
+            }
+            ParameterRole::Value { descriptor, kind: ValueKind::Nullish } => {
+                Some(quote!(#crate_path::marshal::Nullish<#descriptor>))
+            }
+            ParameterRole::Borrow { .. } | ParameterRole::Rest { .. } | ParameterRole::Scope => {
+                None
+            }
         }
     }
 
@@ -424,14 +377,10 @@ impl Parameter {
         let index = self.guest_index;
 
         match &self.role {
-            ParameterRole::Value {
-                descriptor,
-                kind: ValueKind::Required,
-            } => quote!(args.get::<#descriptor>(scope, #index)?),
-            ParameterRole::Value {
-                descriptor,
-                kind: ValueKind::Optional,
-            } => quote!(
+            ParameterRole::Value { descriptor, kind: ValueKind::Required } => {
+                quote!(args.get::<#descriptor>(scope, #index)?)
+            }
+            ParameterRole::Value { descriptor, kind: ValueKind::Optional } => quote!(
                 args
                     .get_opt::<::std::option::Option<#descriptor>>(
                         scope,
@@ -439,10 +388,7 @@ impl Parameter {
                     )?
                     .flatten()
             ),
-            ParameterRole::Value {
-                descriptor,
-                kind: ValueKind::Nullish,
-            } => quote!(
+            ParameterRole::Value { descriptor, kind: ValueKind::Nullish } => quote!(
                 args
                     .get_opt::<#crate_path::marshal::Nullish<#descriptor>>(
                         scope,
@@ -450,14 +396,12 @@ impl Parameter {
                     )?
                     .unwrap_or(#crate_path::marshal::Nullish::Undefined)
             ),
-            ParameterRole::Borrow {
-                value_type,
-                mutable: false,
-            } => quote!(&*args.get_borrow::<#value_type>(scope, #index)?),
-            ParameterRole::Borrow {
-                value_type,
-                mutable: true,
-            } => quote!(&mut *args.get_borrow_mut::<#value_type>(scope, #index)?),
+            ParameterRole::Borrow { value_type, mutable: false } => {
+                quote!(&*args.get_borrow::<#value_type>(scope, #index)?)
+            }
+            ParameterRole::Borrow { value_type, mutable: true } => {
+                quote!(&mut *args.get_borrow_mut::<#value_type>(scope, #index)?)
+            }
             ParameterRole::Rest { descriptor } => {
                 quote!(args.get_rest::<#descriptor>(scope, #index)?)
             }
@@ -477,15 +421,9 @@ impl Parameter {
         &self.binding
     }
 
-    fn add_predicates(
-        &self,
-        generics: &mut Generics,
-        crate_path: &Path,
-        target: &Type,
-    ) {
+    fn add_predicates(&self, generics: &mut Generics, crate_path: &Path, target: &Type) {
         match &self.role {
-            ParameterRole::Value { descriptor, .. }
-            | ParameterRole::Rest { descriptor }
+            ParameterRole::Value { descriptor, .. } | ParameterRole::Rest { descriptor }
                 if !TypeShape::is_target(descriptor, target) =>
             {
                 generics
@@ -512,14 +450,9 @@ impl Parameter {
         }
     }
 
-    fn add_module_predicates(
-        &self,
-        generics: &mut Generics,
-        crate_path: &Path,
-    ) {
+    fn add_module_predicates(&self, generics: &mut Generics, crate_path: &Path) {
         match &self.role {
-            ParameterRole::Value { descriptor, .. }
-            | ParameterRole::Rest { descriptor } => {
+            ParameterRole::Value { descriptor, .. } | ParameterRole::Rest { descriptor } => {
                 generics
                     .make_where_clause()
                     .predicates
@@ -539,25 +472,16 @@ impl Parameter {
         }
     }
 
-    fn add_async_predicate(
-        &self,
-        generics: &mut Generics,
-        crate_path: &Path,
-    ) {
+    fn add_async_predicate(&self, generics: &mut Generics, crate_path: &Path) {
         let materialized = &self.materialized;
         let descriptor = match &self.role {
-            ParameterRole::Value {
-                descriptor,
-                kind: ValueKind::Required,
-            } => quote!(#descriptor),
-            ParameterRole::Value {
-                descriptor,
-                kind: ValueKind::Optional,
-            } => quote!(::std::option::Option<#descriptor>),
-            ParameterRole::Value {
-                descriptor,
-                kind: ValueKind::Nullish,
-            } => quote!(#crate_path::marshal::Nullish<#descriptor>),
+            ParameterRole::Value { descriptor, kind: ValueKind::Required } => quote!(#descriptor),
+            ParameterRole::Value { descriptor, kind: ValueKind::Optional } => {
+                quote!(::std::option::Option<#descriptor>)
+            }
+            ParameterRole::Value { descriptor, kind: ValueKind::Nullish } => {
+                quote!(#crate_path::marshal::Nullish<#descriptor>)
+            }
             ParameterRole::Rest { descriptor } => {
                 quote!(::std::vec::Vec<#descriptor>)
             }
@@ -621,21 +545,10 @@ impl ClassMethod {
         }
 
         if options.statics.is_present() {
-            return Ok(Some(Self::Statics(StaticsHook::new(
-                method,
-                options.name,
-            )?)));
+            return Ok(Some(Self::Statics(StaticsHook::new(method, options.name)?)));
         }
 
-        Ok(
-            Some(Self::Callable(Box::new(
-                Callable::new(
-                    method,
-                    options,
-                    rename_all,
-                )?,
-            ))),
-        )
+        Ok(Some(Self::Callable(Box::new(Callable::new(method, options, rename_all)?))))
     }
 }
 
@@ -674,15 +587,11 @@ impl ModuleMethod {
         }
 
         if options.function.is_present() {
-            return Ok(
-                Some(Self::Function(Box::new(
-                    ModuleFunction::new(
-                        method,
-                        options.name,
-                        rename_all,
-                    )?,
-                ))),
-            );
+            return Ok(Some(Self::Function(Box::new(ModuleFunction::new(
+                method,
+                options.name,
+                rename_all,
+            )?))));
         }
 
         if options.object.is_present() {
@@ -711,11 +620,10 @@ impl ModuleMethod {
             .into());
         }
 
-        Err(syn::Error::new(
-            method.sig.ident.span(),
-            "this host module member role is unsupported",
+        Err(
+            syn::Error::new(method.sig.ident.span(), "this host module member role is unsupported")
+                .into(),
         )
-        .into())
     }
 }
 
@@ -732,11 +640,7 @@ impl ModuleFunction {
     ) -> Result<Self, HostMacroError> {
         Ok(Self {
             asynchronous: method.sig.asyncness.is_some(),
-            callable: Callable::new_module(
-                method,
-                name,
-                rename_all,
-            )?,
+            callable: Callable::new_module(method, name, rename_all)?,
         })
     }
 
@@ -748,17 +652,9 @@ impl ModuleFunction {
         self.callable.name()
     }
 
-    pub(super) fn add_predicates(
-        &self,
-        generics: &mut Generics,
-        crate_path: &Path,
-    ) {
+    pub(super) fn add_predicates(&self, generics: &mut Generics, crate_path: &Path) {
         self.callable
-            .add_module_predicates(
-                generics,
-                crate_path,
-                self.asynchronous,
-            );
+            .add_module_predicates(generics, crate_path, self.asynchronous);
     }
 
     pub(super) fn registration(&self, crate_path: &Path) -> TokenStream {
@@ -798,10 +694,7 @@ impl ModuleHook {
             .into());
         }
 
-        let receiver = Callable::receiver(
-            method,
-            "host module hooks",
-        )?;
+        let receiver = Callable::receiver(method, "host module hooks")?;
 
         match (kind, receiver) {
             (ModuleHookKind::Object, Receiver::None | Receiver::Shared)
@@ -924,10 +817,7 @@ pub(super) struct StaticsHook {
 }
 
 impl StaticsHook {
-    fn new(
-        method: &mut ImplItemFn,
-        name: Option<String>,
-    ) -> Result<Self, HostMacroError> {
+    fn new(method: &mut ImplItemFn, name: Option<String>) -> Result<Self, HostMacroError> {
         if name.is_some() {
             return Err(syn::Error::new(
                 method.sig.ident.span(),
@@ -975,11 +865,9 @@ impl StaticsHook {
         }
 
         if !TypeShape::is_unit_return(&method.sig.output) {
-            return Err(syn::Error::new(
-                method.sig.output.span(),
-                "a statics hook must return ()",
-            )
-            .into());
+            return Err(
+                syn::Error::new(method.sig.output.span(), "a statics hook must return ()").into()
+            );
         }
 
         Ok(Self {
@@ -999,7 +887,6 @@ impl StaticsHook {
             Self::#ident(statics);
         }
     }
-
 }
 
 pub(super) struct Callable {
@@ -1023,10 +910,7 @@ impl Callable {
         Self::validate_common_signature(method)?;
 
         let kind = options.callable_kind().unwrap();
-        let receiver = Self::receiver(
-            method,
-            "host class methods",
-        )?;
+        let receiver = Self::receiver(method, "host class methods")?;
         let parameters = Self::parameters(method)?;
         let (result, error) = CallableResult::parse(&method.sig.output)?;
         let future = match kind {
@@ -1113,10 +997,7 @@ impl Callable {
         Self::validate_signature(method, "host module functions")
     }
 
-    fn validate_signature(
-        method: &ImplItemFn,
-        kind: &str,
-    ) -> Result<(), HostMacroError> {
+    fn validate_signature(method: &ImplItemFn, kind: &str) -> Result<(), HostMacroError> {
         if method.sig.unsafety.is_some() {
             return Err(syn::Error::new(
                 method.sig.unsafety.span(),
@@ -1178,20 +1059,13 @@ impl Callable {
             .first()
             .is_some_and(|(index, _)| *index + 1 != parameters.len())
         {
-            return Err(syn::Error::new(
-                rest[0].1.span,
-                "a rest parameter must be last",
-            )
-            .into());
+            return Err(syn::Error::new(rest[0].1.span, "a rest parameter must be last").into());
         }
 
         Ok(parameters)
     }
 
-    fn receiver(
-        method: &ImplItemFn,
-        subject: &str,
-    ) -> Result<Receiver, HostMacroError> {
+    fn receiver(method: &ImplItemFn, subject: &str) -> Result<Receiver, HostMacroError> {
         match method.sig.receiver() {
             None => Ok(Receiver::None),
             Some(receiver) if receiver.reference.is_none() => Err(syn::Error::new_spanned(
@@ -1231,18 +1105,12 @@ impl Callable {
                 .into());
             }
             (CallableKind::Getter, _) => {
-                return Err(syn::Error::new(
-                    self.span,
-                    "a host class getter requires &self",
-                )
-                .into());
+                return Err(syn::Error::new(self.span, "a host class getter requires &self").into());
             }
             (CallableKind::Setter, _) => {
-                return Err(syn::Error::new(
-                    self.span,
-                    "a host class setter requires &mut self",
-                )
-                .into());
+                return Err(
+                    syn::Error::new(self.span, "a host class setter requires &mut self").into()
+                );
             }
             (CallableKind::Iterable, _) => {
                 return Err(syn::Error::new(
@@ -1277,7 +1145,10 @@ impl Callable {
         }
 
         if matches!(self.kind, CallableKind::Getter | CallableKind::Iterable)
-            && self.parameters.iter().any(Parameter::consumes_guest_argument)
+            && self
+                .parameters
+                .iter()
+                .any(Parameter::consumes_guest_argument)
         {
             return Err(syn::Error::new(
                 self.span,
@@ -1287,7 +1158,12 @@ impl Callable {
         }
 
         if self.kind == CallableKind::Setter {
-            if self.parameters.iter().filter(|parameter| parameter.is_value()).count() != 1
+            if self
+                .parameters
+                .iter()
+                .filter(|parameter| parameter.is_value())
+                .count()
+                != 1
                 || self
                     .parameters
                     .iter()
@@ -1369,12 +1245,7 @@ impl Callable {
         &self.name
     }
 
-    pub(super) fn add_predicates(
-        &self,
-        generics: &mut Generics,
-        crate_path: &Path,
-        target: &Type,
-    ) {
+    pub(super) fn add_predicates(&self, generics: &mut Generics, crate_path: &Path, target: &Type) {
         let error = &self.error;
 
         generics
@@ -1576,11 +1447,7 @@ impl Callable {
         }
     }
 
-    pub(super) fn module_registration(
-        &self,
-        crate_path: &Path,
-        asynchronous: bool,
-    ) -> TokenStream {
+    pub(super) fn module_registration(&self, crate_path: &Path, asynchronous: bool) -> TokenStream {
         let name = &self.name;
         let ident = &self.ident;
         let scope = self.scope_binding();
@@ -1646,7 +1513,11 @@ impl Callable {
 
     pub(super) fn setter_closure(&self) -> TokenStream {
         let invocation = self.accessor_invocation();
-        let scope = if self.parameters.iter().any(Parameter::is_scope) {
+        let scope = if self
+            .parameters
+            .iter()
+            .any(Parameter::is_scope)
+        {
             quote!(scope)
         } else {
             quote!(_scope)
@@ -1701,11 +1572,9 @@ impl FutureResult {
                 TypeParamBound::Lifetime(lifetime) if lifetime.ident == "static"
             )
         }) {
-            return Err(syn::Error::new(
-                future.span(),
-                "an async_method future must be 'static",
-            )
-            .into());
+            return Err(
+                syn::Error::new(future.span(), "an async_method future must be 'static").into()
+            );
         }
 
         let (value, error) = CallableResult::parse_type(
@@ -1719,12 +1588,15 @@ impl FutureResult {
                 .filter(|segment| segment.ident == "Future")
                 .find_map(|segment| match &segment.arguments {
                     PathArguments::AngleBracketed(arguments) => {
-                        arguments.args.iter().find_map(|argument| match argument {
-                            GenericArgument::AssocType(output) if output.ident == "Output" => {
-                                Some(output.ty.clone())
-                            }
-                            _ => None,
-                        })
+                        arguments
+                            .args
+                            .iter()
+                            .find_map(|argument| match argument {
+                                GenericArgument::AssocType(output) if output.ident == "Output" => {
+                                    Some(output.ty.clone())
+                                }
+                                _ => None,
+                            })
                     }
                     _ => None,
                 })
@@ -1817,25 +1689,32 @@ impl TypeShape {
                 )
             }),
             Type::Paren(paren) => Self::has_non_static_lifetime(paren.elem.as_ref()),
-            Type::Path(path) => path.path.segments.iter().any(|segment| {
-                let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
-                    return false;
-                };
+            Type::Path(path) => path
+                .path
+                .segments
+                .iter()
+                .any(|segment| {
+                    let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+                        return false;
+                    };
 
-                arguments.args.iter().any(|argument| match argument {
-                    GenericArgument::Lifetime(lifetime) => lifetime.ident != "static",
-                    GenericArgument::Type(value_type) => {
-                        Self::has_non_static_lifetime(value_type)
-                    }
-                    GenericArgument::AssocType(binding) => {
-                        Self::has_non_static_lifetime(&binding.ty)
-                    }
-                    GenericArgument::AssocConst(_)
-                    | GenericArgument::Constraint(_)
-                    | GenericArgument::Const(_) => false,
-                    _ => false,
-                })
-            }),
+                    arguments
+                        .args
+                        .iter()
+                        .any(|argument| match argument {
+                            GenericArgument::Lifetime(lifetime) => lifetime.ident != "static",
+                            GenericArgument::Type(value_type) => {
+                                Self::has_non_static_lifetime(value_type)
+                            }
+                            GenericArgument::AssocType(binding) => {
+                                Self::has_non_static_lifetime(&binding.ty)
+                            }
+                            GenericArgument::AssocConst(_)
+                            | GenericArgument::Constraint(_)
+                            | GenericArgument::Const(_) => false,
+                            _ => false,
+                        })
+                }),
             Type::Ptr(pointer) => Self::has_non_static_lifetime(pointer.elem.as_ref()),
             Type::Reference(reference) => {
                 reference
@@ -1944,9 +1823,7 @@ impl TypeShape {
                     || Self::path_mentions_target(&path.path, target)
             }
             Type::Ptr(pointer) => Self::mentions_target(pointer.elem.as_ref(), target),
-            Type::Reference(reference) => {
-                Self::mentions_target(reference.elem.as_ref(), target)
-            }
+            Type::Reference(reference) => Self::mentions_target(reference.elem.as_ref(), target),
             Type::Slice(slice) => Self::mentions_target(slice.elem.as_ref(), target),
             Type::TraitObject(value) => value
                 .bounds
@@ -1961,15 +1838,12 @@ impl TypeShape {
     }
 
     fn path_mentions_target(path: &Path, target: &Type) -> bool {
-        path.segments.iter().any(|segment| {
-            Self::path_arguments_mention_target(&segment.arguments, target)
-        })
+        path.segments
+            .iter()
+            .any(|segment| Self::path_arguments_mention_target(&segment.arguments, target))
     }
 
-    fn path_arguments_mention_target(
-        arguments: &PathArguments,
-        target: &Type,
-    ) -> bool {
+    fn path_arguments_mention_target(arguments: &PathArguments, target: &Type) -> bool {
         match arguments {
             PathArguments::None => false,
             PathArguments::AngleBracketed(arguments) => {
@@ -1994,39 +1868,48 @@ impl TypeShape {
         arguments: &AngleBracketedGenericArguments,
         target: &Type,
     ) -> bool {
-        arguments.args.iter().any(|argument| match argument {
-            GenericArgument::Type(value_type) => {
-                Self::mentions_target(value_type, target)
-            }
-            GenericArgument::AssocType(binding) => {
-                binding.generics.as_ref().is_some_and(|arguments| {
-                    Self::angle_arguments_mention_target(arguments, target)
-                }) || Self::mentions_target(&binding.ty, target)
-            }
-            GenericArgument::AssocConst(binding) => binding
-                .generics
-                .as_ref()
-                .is_some_and(|arguments| {
-                    Self::angle_arguments_mention_target(arguments, target)
-                }),
-            GenericArgument::Constraint(constraint) => {
-                constraint.generics.as_ref().is_some_and(|arguments| {
-                    Self::angle_arguments_mention_target(arguments, target)
-                }) || constraint
-                    .bounds
-                    .iter()
-                    .any(|bound| Self::bound_mentions_target(bound, target))
-            }
-            GenericArgument::Const(_) | GenericArgument::Lifetime(_) => false,
-            _ => false,
-        })
+        arguments
+            .args
+            .iter()
+            .any(|argument| match argument {
+                GenericArgument::Type(value_type) => Self::mentions_target(value_type, target),
+                GenericArgument::AssocType(binding) => {
+                    binding
+                        .generics
+                        .as_ref()
+                        .is_some_and(|arguments| {
+                            Self::angle_arguments_mention_target(arguments, target)
+                        })
+                        || Self::mentions_target(&binding.ty, target)
+                }
+                GenericArgument::AssocConst(binding) => {
+                    binding
+                        .generics
+                        .as_ref()
+                        .is_some_and(|arguments| {
+                            Self::angle_arguments_mention_target(arguments, target)
+                        })
+                }
+                GenericArgument::Constraint(constraint) => {
+                    constraint
+                        .generics
+                        .as_ref()
+                        .is_some_and(|arguments| {
+                            Self::angle_arguments_mention_target(arguments, target)
+                        })
+                        || constraint
+                            .bounds
+                            .iter()
+                            .any(|bound| Self::bound_mentions_target(bound, target))
+                }
+                GenericArgument::Const(_) | GenericArgument::Lifetime(_) => false,
+                _ => false,
+            })
     }
 
     fn bound_mentions_target(bound: &TypeParamBound, target: &Type) -> bool {
         match bound {
-            TypeParamBound::Trait(bound) => {
-                Self::path_mentions_target(&bound.path, target)
-            }
+            TypeParamBound::Trait(bound) => Self::path_mentions_target(&bound.path, target),
             TypeParamBound::Lifetime(_) => false,
             _ => false,
         }
@@ -2064,19 +1947,15 @@ mod tests {
             }
         }
 
-        fn predicates(
-            method: &mut ImplItemFn,
-            target: &Type,
-        ) -> String {
+        fn predicates(method: &mut ImplItemFn, target: &Type) -> String {
             let mut generics = Generics::default();
 
-            Self::parse(method).add_predicates(
-                &mut generics,
-                &parse_quote!(crate),
-                target,
-            );
+            Self::parse(method).add_predicates(&mut generics, &parse_quote!(crate), target);
 
-            generics.where_clause.to_token_stream().to_string()
+            generics
+                .where_clause
+                .to_token_stream()
+                .to_string()
         }
     }
 
@@ -2095,14 +1974,8 @@ mod tests {
             }
         };
 
-        assert_eq!(
-            CallableFixture::parse(&mut constructor).kind(),
-            CallableKind::Constructor,
-        );
-        assert_eq!(
-            CallableFixture::parse(&mut method).kind(),
-            CallableKind::Method,
-        );
+        assert_eq!(CallableFixture::parse(&mut constructor).kind(), CallableKind::Constructor,);
+        assert_eq!(CallableFixture::parse(&mut method).kind(), CallableKind::Method,);
     }
 
     #[test]
@@ -2128,11 +2001,7 @@ mod tests {
             .to_string();
 
         assert!(output.contains("get :: < i32 > (scope , 0"));
-        assert!(
-            output.contains(
-                "get_opt :: < :: std :: option :: Option < i32 >> (scope , 1",
-            ),
-        );
+        assert!(output.contains("get_opt :: < :: std :: option :: Option < i32 >> (scope , 1",),);
         assert!(output.contains("Nullish < i32 >"));
         assert!(output.contains("get_borrow :: < Point > (scope , 3"));
         assert!(output.contains("get_borrow_mut :: < Point > (scope , 4"));
@@ -2179,41 +2048,11 @@ mod tests {
             }
         };
 
-        assert!(
-            !CallableFixture::predicates(
-                &mut direct,
-                &target,
-            )
-            .contains("ToGuest"),
-        );
-        assert!(
-            !CallableFixture::predicates(
-                &mut nested,
-                &target,
-            )
-            .contains("ToGuest"),
-        );
-        assert!(
-            !CallableFixture::predicates(
-                &mut concrete,
-                &target,
-            )
-            .contains("ToGuest"),
-        );
-        assert!(
-            !CallableFixture::predicates(
-                &mut asynchronous,
-                &target,
-            )
-            .contains("ToGuest"),
-        );
-        assert!(
-            CallableFixture::predicates(
-                &mut foreign,
-                &target,
-            )
-            .contains("ToGuest"),
-        );
+        assert!(!CallableFixture::predicates(&mut direct, &target,).contains("ToGuest"),);
+        assert!(!CallableFixture::predicates(&mut nested, &target,).contains("ToGuest"),);
+        assert!(!CallableFixture::predicates(&mut concrete, &target,).contains("ToGuest"),);
+        assert!(!CallableFixture::predicates(&mut asynchronous, &target,).contains("ToGuest"),);
+        assert!(CallableFixture::predicates(&mut foreign, &target,).contains("ToGuest"),);
     }
 
     #[test]
@@ -2391,7 +2230,17 @@ mod tests {
 
         CallableFixture::parse(&mut method);
 
-        assert!(!method.to_token_stream().to_string().contains("guestjs"));
-        assert!(method.to_token_stream().to_string().contains("allow"));
+        assert!(
+            !method
+                .to_token_stream()
+                .to_string()
+                .contains("guestjs")
+        );
+        assert!(
+            method
+                .to_token_stream()
+                .to_string()
+                .contains("allow")
+        );
     }
 }

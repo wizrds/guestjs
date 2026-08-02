@@ -1,3 +1,4 @@
+pub mod awaitable;
 pub mod class;
 pub mod function;
 pub mod instance;
@@ -5,6 +6,7 @@ pub mod module;
 pub mod object;
 pub mod promise;
 
+pub use awaitable::*;
 pub use class::*;
 pub use function::*;
 pub use instance::*;

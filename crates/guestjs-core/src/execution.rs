@@ -56,10 +56,8 @@ struct Deadline {
 
 impl Deadline {
     fn arm(&self, budget: Duration) {
-        self.at.store(
-            (self.base.elapsed() + budget).as_nanos() as u64,
-            Ordering::Relaxed,
-        );
+        self.at
+            .store((self.base.elapsed() + budget).as_nanos() as u64, Ordering::Relaxed);
     }
 
     fn disarm(&self) {
@@ -131,12 +129,8 @@ impl ExecutionPolicy {
 
     pub(crate) fn classify<R>(&self, result: Result<R, Error>) -> Result<R, Error> {
         match result {
-            Err(error) if error.is_interrupt() && self.is_cancelled() => {
-                Err(Error::cancelled())
-            }
-            Err(error) if error.is_interrupt() && self.deadline.expired() => {
-                Err(Error::timeout())
-            }
+            Err(error) if error.is_interrupt() && self.is_cancelled() => Err(Error::cancelled()),
+            Err(error) if error.is_interrupt() && self.deadline.expired() => Err(Error::timeout()),
             other => other,
         }
     }
@@ -150,11 +144,17 @@ impl ExecutionPolicy {
             return false;
         };
 
-        if self.since_gc.fetch_add(1, Ordering::Relaxed) + 1 < limit {
+        if self
+            .since_gc
+            .fetch_add(1, Ordering::Relaxed)
+            + 1
+            < limit
+        {
             return false;
         }
 
-        self.since_gc.store(0, Ordering::Relaxed);
+        self.since_gc
+            .store(0, Ordering::Relaxed);
 
         true
     }
@@ -176,42 +176,26 @@ mod tests {
         cancellation.cancel();
 
         assert!(matches!(
-            ExecutionPolicy::new(
-                None,
-                Some(Arc::new(cancellation)),
-                None,
-            )
-            .begin(),
+            ExecutionPolicy::new(None, Some(Arc::new(cancellation)), None,).begin(),
             Err(Error::Cancelled),
         ));
     }
 
     #[test]
     fn an_expired_deadline_refines_an_interrupt_into_a_timeout() {
-        let policy = ExecutionPolicy::new(
-            Some(Duration::from_millis(1)),
-            None,
-            None,
-        );
+        let policy = ExecutionPolicy::new(Some(Duration::from_millis(1)), None, None);
 
         policy.begin().unwrap();
 
         sleep(Duration::from_millis(5));
 
-        assert!(matches!(
-            policy.classify::<()>(Err(Error::interrupted())),
-            Err(Error::Timeout),
-        ));
+        assert!(matches!(policy.classify::<()>(Err(Error::interrupted())), Err(Error::Timeout),));
     }
 
     #[test]
     fn a_cancellation_refines_an_interrupt_into_a_cancellation() {
         let cancellation = Cancellation::new();
-        let policy = ExecutionPolicy::new(
-            None,
-            Some(Arc::new(cancellation.clone())),
-            None,
-        );
+        let policy = ExecutionPolicy::new(None, Some(Arc::new(cancellation.clone())), None);
 
         policy.begin().unwrap();
 
@@ -225,11 +209,7 @@ mod tests {
 
     #[test]
     fn a_non_interrupt_error_passes_through_even_past_the_deadline() {
-        let policy = ExecutionPolicy::new(
-            Some(Duration::from_millis(1)),
-            None,
-            None,
-        );
+        let policy = ExecutionPolicy::new(Some(Duration::from_millis(1)), None, None);
 
         policy.begin().unwrap();
 
@@ -243,15 +223,16 @@ mod tests {
 
     #[test]
     fn a_healthy_result_passes_through_unchanged() {
-        let policy = ExecutionPolicy::new(
-            Some(Duration::from_secs(10)),
-            None,
-            None,
-        );
+        let policy = ExecutionPolicy::new(Some(Duration::from_secs(10)), None, None);
 
         policy.begin().unwrap();
 
-        assert_eq!(policy.classify(Ok::<_, Error>(7)).unwrap(), 7);
+        assert_eq!(
+            policy
+                .classify(Ok::<_, Error>(7))
+                .unwrap(),
+            7
+        );
     }
 
     #[test]

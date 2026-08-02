@@ -8,8 +8,7 @@ use darling::{
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use syn::{
-    Attribute, Generics, Ident, ImplItem, ImplItemConst, ItemImpl, Path, Type,
-    spanned::Spanned,
+    Attribute, Generics, Ident, ImplItem, ImplItemConst, ItemImpl, Path, Type, spanned::Spanned,
 };
 
 use crate::{
@@ -112,11 +111,7 @@ impl ModuleConstant {
         }))
     }
 
-    fn add_predicates(
-        &self,
-        generics: &mut Generics,
-        crate_path: &Path,
-    ) {
+    fn add_predicates(&self, generics: &mut Generics, crate_path: &Path) {
         let value_type = &self.value_type;
 
         generics
@@ -168,11 +163,7 @@ impl ModuleMember {
         }
     }
 
-    fn add_predicates(
-        &self,
-        generics: &mut Generics,
-        crate_path: &Path,
-    ) {
+    fn add_predicates(&self, generics: &mut Generics, crate_path: &Path) {
         match self {
             Self::Constant(constant) => constant.add_predicates(generics, crate_path),
             Self::Function(function) => function.add_predicates(generics, crate_path),
@@ -198,15 +189,10 @@ pub(crate) struct HostModuleMacro {
 }
 
 impl HostModuleMacro {
-    pub(crate) fn new(
-        args: TokenStream,
-        mut item: ItemImpl,
-    ) -> Result<Self, HostMacroError> {
+    pub(crate) fn new(args: TokenStream, mut item: ItemImpl) -> Result<Self, HostMacroError> {
         Self::validate_impl(&item)?;
 
-        let options = ModuleOptions::from_list(
-            &NestedMeta::parse_meta_list(args)?,
-        )?;
+        let options = ModuleOptions::from_list(&NestedMeta::parse_meta_list(args)?)?;
         let mut class_paths = HashMap::new();
 
         for class in options.classes.iter() {
@@ -225,10 +211,7 @@ impl HostModuleMacro {
         for member in &mut item.items {
             let member = match member {
                 ImplItem::Fn(method) => {
-                    let Some(method) = ModuleMethod::new(
-                        method,
-                        options.rename_all,
-                    )? else {
+                    let Some(method) = ModuleMethod::new(method, options.rename_all)? else {
                         continue;
                     };
 
@@ -258,10 +241,7 @@ impl HostModuleMacro {
                     }
                 }
                 ImplItem::Const(constant) => {
-                    let Some(constant) = ModuleConstant::new(
-                        constant,
-                        options.rename_all,
-                    )? else {
+                    let Some(constant) = ModuleConstant::new(constant, options.rename_all)? else {
                         continue;
                     };
 
@@ -334,11 +314,10 @@ impl HostModuleMacro {
 
         match item.self_ty.as_ref() {
             Type::Path(path) if path.qself.is_none() => Ok(()),
-            target => Err(syn::Error::new_spanned(
-                target,
-                "host_module requires a nominal type target",
-            )
-            .into()),
+            target => {
+                Err(syn::Error::new_spanned(target, "host_module requires a nominal type target")
+                    .into())
+            }
         }
     }
 
@@ -350,11 +329,10 @@ impl HostModuleMacro {
             return Ok(());
         }
 
-        Err(syn::Error::new(
-            span,
-            "this associated item cannot be exported from a host module",
+        Err(
+            syn::Error::new(span, "this associated item cannot be exported from a host module")
+                .into(),
         )
-        .into())
     }
 
     fn insert_name(
@@ -366,27 +344,16 @@ impl HostModuleMacro {
         let Some(previous) = names.insert(name.clone(), span) else {
             return Ok(());
         };
-        let mut error = syn::Error::new(
-            span,
-            format!("duplicate guest-visible host module {kind} {name:?}"),
-        );
+        let mut error =
+            syn::Error::new(span, format!("duplicate guest-visible host module {kind} {name:?}"));
 
-        error.combine(syn::Error::new(
-            previous,
-            format!("the first host module {kind} is here"),
-        ));
+        error.combine(syn::Error::new(previous, format!("the first host module {kind} is here")));
 
         Err(error.into())
     }
 
     pub(crate) fn expand(self) -> TokenStream {
-        let Self {
-            item,
-            name,
-            crate_path,
-            classes,
-            members,
-        } = self;
+        let Self { item, name, crate_path, classes, members } = self;
         let target = item.self_ty.as_ref();
         let mut generics = item.generics.clone();
 
@@ -484,12 +451,20 @@ mod tests {
         assert!(output.contains("fn name (& self) -> & str"));
         assert!(output.contains("\"@host/geometry\""));
         assert!(
-            output.find("class :: < Point >").unwrap()
-                < output.find("class :: < Shape >").unwrap(),
+            output
+                .find("class :: < Point >")
+                .unwrap()
+                < output
+                    .find("class :: < Shape >")
+                    .unwrap(),
         );
         assert!(
-            output.find("class :: < Shape >").unwrap()
-                < output.find("function (\"addValues\"").unwrap(),
+            output
+                .find("class :: < Shape >")
+                .unwrap()
+                < output
+                    .find("function (\"addValues\"")
+                    .unwrap(),
         );
         assert!(output.contains("async_function (\"delayed\""));
         assert!(output.contains("await . map_err (Into :: into)"));
@@ -552,24 +527,44 @@ mod tests {
         assert!(output.contains("Self :: configure (self , exports)"));
         assert!(output.contains("& 'static str : crate :: marshal :: ToGuest + Clone + 'static"));
         assert!(
-            output.find("class :: < Point >").unwrap()
-                < output.find("default (Self :: FALLBACK)").unwrap(),
+            output
+                .find("class :: < Point >")
+                .unwrap()
+                < output
+                    .find("default (Self :: FALLBACK)")
+                    .unwrap(),
         );
         assert!(
-            output.find("default (Self :: FALLBACK)").unwrap()
-                < output.find("function (\"read\"").unwrap(),
+            output
+                .find("default (Self :: FALLBACK)")
+                .unwrap()
+                < output
+                    .find("function (\"read\"")
+                    .unwrap(),
         );
         assert!(
-            output.find("function (\"read\"").unwrap()
-                < output.find("constant (\"apiVersion\"").unwrap(),
+            output
+                .find("function (\"read\"")
+                .unwrap()
+                < output
+                    .find("constant (\"apiVersion\"")
+                    .unwrap(),
         );
         assert!(
-            output.find("constant (\"apiVersion\"").unwrap()
-                < output.find("object (\"tools\"").unwrap(),
+            output
+                .find("constant (\"apiVersion\"")
+                .unwrap()
+                < output
+                    .find("object (\"tools\"")
+                    .unwrap(),
         );
         assert!(
-            output.find("object (\"tools\"").unwrap()
-                < output.find("Self :: configure").unwrap(),
+            output
+                .find("object (\"tools\"")
+                .unwrap()
+                < output
+                    .find("Self :: configure")
+                    .unwrap(),
         );
     }
 

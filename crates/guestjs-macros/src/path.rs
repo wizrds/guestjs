@@ -1,5 +1,5 @@
-use proc_macro2::Span;
 use proc_macro_crate::{FoundCrate, crate_name};
+use proc_macro2::Span;
 use syn::{Ident, Path, parse_quote};
 
 pub(crate) struct CratePath {
@@ -17,10 +17,7 @@ impl CratePath {
             FoundCrate::Name(name) => {
                 let mut path: Path = parse_quote!(::guestjs);
 
-                path.segments[0].ident = Ident::new(
-                    &name.replace('-', "_"),
-                    Span::call_site(),
-                );
+                path.segments[0].ident = Ident::new(&name.replace('-', "_"), Span::call_site());
 
                 path
             }

@@ -164,7 +164,10 @@ impl RuntimeBuilder {
                 let mut user = self.interrupt_handler;
 
                 Box::new(move || {
-                    policy.should_abort() || user.as_mut().is_some_and(|handler| handler())
+                    policy.should_abort()
+                        || user
+                            .as_mut()
+                            .is_some_and(|handler| handler())
                 })
             }))
             .await;
@@ -239,15 +242,13 @@ impl GuestBuilder<'_> {
             })
             .await?;
 
-        let context = Rc::new(
-            GuestContext {
-                inner,
-                id: registration.id(),
-                registry: Rc::downgrade(&runtime.registry),
-                policy: runtime.policy.clone(),
-                transpiler: runtime.transpiler.clone(),
-            },
-        );
+        let context = Rc::new(GuestContext {
+            inner,
+            id: registration.id(),
+            registry: Rc::downgrade(&runtime.registry),
+            policy: runtime.policy.clone(),
+            transpiler: runtime.transpiler.clone(),
+        });
 
         Scope::with(&context, async move |scope| {
             for initializer in registration.into_initializers() {
@@ -672,12 +673,7 @@ mod tests {
 
         cancellation.cancel();
 
-        assert!(matches!(
-            guest
-                .eval::<i32>("1 + 1")
-                .await,
-            Err(Error::Cancelled),
-        ));
+        assert!(matches!(guest.eval::<i32>("1 + 1").await, Err(Error::Cancelled),));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -759,9 +755,7 @@ mod tests {
                 .build()
                 .await
                 .unwrap()
-                .eval::<i32>(
-                    "(function recurse(n) { return recurse(n + 1); })(0)",
-                )
+                .eval::<i32>("(function recurse(n) { return recurse(n + 1); })(0)",)
                 .await
                 .is_err()
         );
