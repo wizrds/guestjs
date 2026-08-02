@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.1.4](https://github.com/wizrds/guestjs/compare/0.1.3..0.1.4) - 2026-08-02
+
+### Bug Fixes
+
+- Add awaitable handle and export additional llrt modules  - ([122987e](https://github.com/wizrds/guestjs/commit/122987ec7e051b0d45020874fa1d18770b08c5d3)) - Timothy Pogue
+---
 ## [0.1.3](https://github.com/wizrds/guestjs/compare/0.1.2..0.1.3) - 2026-07-26
 
 ### Bug Fixes
