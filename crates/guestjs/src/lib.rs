@@ -447,7 +447,7 @@
 //! > `process_env` exposes only a host environment snapshot at `globalThis.process.env`. It does not
 //! > provide the complete Node.js or LLRT process API. This adapter does not provide package or
 //! > filesystem source resolution or complete Node compatibility.
-//! 
+//!
 //! A complete host class and host module can be defined together:
 //!
 //! ```ignore

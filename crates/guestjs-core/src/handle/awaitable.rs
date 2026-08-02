@@ -144,9 +144,9 @@ where
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + 'js>>;
 
     fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move {
-            T::from_guest_bound(&self.scope.clone(), self.resolve_value().await?)
-        })
+        Box::pin(
+            async move { T::from_guest_bound(&self.scope.clone(), self.resolve_value().await?) },
+        )
     }
 }
 

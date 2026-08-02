@@ -189,10 +189,12 @@ impl LlrtBuilder {
     /// Adds the LLRT process environment snapshot.
     #[cfg(feature = "process-env")]
     pub fn process_env(mut self) -> Self {
-        self.library = self.library.initialize(NativeInitializer::new(
-            "guestjs:process-env",
-            Self::initialize_process_env,
-        ));
+        self.library = self
+            .library
+            .initialize(NativeInitializer::new(
+                "guestjs:process-env",
+                Self::initialize_process_env,
+            ));
 
         self
     }
@@ -538,10 +540,7 @@ mod tests {
                 .get::<String>("default")
                 .await
                 .unwrap(),
-            format!(
-                "object:object:{}:undefined:undefined",
-                std::env::vars().next().is_some(),
-            ),
+            format!("object:object:{}:undefined:undefined", std::env::vars().next().is_some(),),
         );
     }
 
@@ -556,15 +555,12 @@ mod tests {
                 .guest()
                 .bind_native(
                     NativeLibrary::new()
-                        .initialize(NativeInitializer::new(
-                            "test:process-marker",
-                            |ctx| {
-                                let process = JsObject::new(ctx.clone())?;
+                        .initialize(NativeInitializer::new("test:process-marker", |ctx| {
+                            let process = JsObject::new(ctx.clone())?;
 
-                                process.set("marker", "preserved")?;
-                                ctx.globals().set("process", process)
-                            },
-                        ))
+                            process.set("marker", "preserved")?;
+                            ctx.globals().set("process", process)
+                        },))
                         .extend(Llrt::builder().process_env().build()),
                 )
                 .build()
