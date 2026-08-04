@@ -387,7 +387,8 @@ impl<'js> Scope<'js> {
         Self { ctx, parent: Some(parent) }
     }
 
-    pub(crate) fn detached(ctx: Ctx<'js>) -> Self {
+    /// Creates a parentless scope for marshalling values given only a `Ctx`. Cannot mint owned handles.
+    pub fn detached(ctx: Ctx<'js>) -> Self {
         Self { ctx, parent: None }
     }
 

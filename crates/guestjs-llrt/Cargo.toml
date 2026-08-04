@@ -8,7 +8,11 @@ license.workspace = true
 readme.workspace = true
 
 [dependencies]
+guestjs-macros = { path = "../guestjs-macros", version = "0.1.5" }
 guestjs-core = { path = "../guestjs-core", version = "0.1.5" }
+
+bytes = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
 
 llrt_modules = { git = "https://github.com/awslabs/llrt", rev = "101ae49", default-features = false, features = ["path", "timers"] }
 rquickjs = { workspace = true, optional = true }
@@ -28,9 +32,17 @@ fetch = [
     "llrt_modules/stream-web",
     "llrt_modules/tls-ring",
     "llrt_modules/url",
+    "streams",
 ]
 fs = ["llrt_modules/buffer", "llrt_modules/fs"]
 os = ["llrt_modules/os"]
 process-env = ["dep:rquickjs"]
+streams = [
+    "dep:rquickjs",
+    "dep:bytes",
+    "dep:futures",
+    "guestjs-core/bytes",
+    "llrt_modules/stream-web",
+]
 timers = ["llrt_modules/timers"]
 url = ["llrt_modules/url"]

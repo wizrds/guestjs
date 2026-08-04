@@ -603,6 +603,105 @@ where
     }
 }
 
+/// Marshals [`bytes::Bytes`](bytes::Bytes) to and from a JavaScript `Uint8Array`.
+#[cfg(feature = "bytes")]
+mod bytes_marshal {
+    use bytes::Bytes;
+    use rquickjs::{CatchResultExt, TypedArray, Value};
+
+    use crate::{
+        errors::Error,
+        marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
+        runtime::Scope,
+    };
+
+    // `new_copy` uses QuickJS-owned storage, required to survive transfer and GC.
+    impl ToGuest for Bytes {
+        fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+            Ok(TypedArray::<u8>::new_copy(scope.ctx().clone(), self.as_ref())
+                .catch(scope.ctx())?
+                .into_value())
+        }
+    }
+
+    impl<'js> ToGuestBound<'js> for Bytes {
+        fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+            self.to_guest(scope)
+        }
+    }
+
+    impl FromGuest for Bytes {
+        type Owned = Self;
+
+        fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+            // Copy out: the view borrows QuickJS storage tied to the scope.
+            Ok(Bytes::copy_from_slice(
+                TypedArray::<u8>::from_value(value)
+                    .catch(scope.ctx())?
+                    .as_bytes()
+                    .ok_or_else(|| Error::conversion("Uint8Array is detached"))?,
+            ))
+        }
+    }
+
+    impl FromGuestBound for Bytes {
+        type Bound<'js> = Self;
+
+        fn from_guest_bound<'js>(
+            scope: &Scope<'js>,
+            value: Value<'js>,
+        ) -> Result<Self::Bound<'js>, Error> {
+            Self::from_guest(scope, value)
+        }
+    }
+}
+
+#[cfg(all(test, feature = "bytes"))]
+mod bytes_tests {
+    use bytes::Bytes;
+
+    use crate::runtime::Runtime;
+
+    #[tokio::test]
+    async fn bytes_round_trip_through_uint8array() {
+        let guest = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        // A guest Uint8Array deserializes into Bytes preserving order and length.
+        assert_eq!(
+            guest
+                .eval::<Bytes>("new Uint8Array([1, 2, 3, 255])")
+                .await
+                .unwrap(),
+            Bytes::from_static(&[1, 2, 3, 255]),
+        );
+
+        // A host Bytes serializes into a guest Uint8Array the guest can measure and index.
+        assert_eq!(
+            guest
+                .guest_module(
+                    "echo.js",
+                    "export function describe(view) { return `${view.constructor.name}:${view.length}:${view[3]}`; }",
+                )
+                .await
+                .unwrap()
+                .function("describe")
+                .await
+                .unwrap()
+                .call::<_, String>((Bytes::from_static(&[9, 8, 7, 42]),))
+                .await
+                .unwrap(),
+            "Uint8Array:4:42",
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rquickjs::{CatchResultExt, Function as JsFunction, Type, Value};

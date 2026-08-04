@@ -17,7 +17,7 @@ serde_json = { workspace = true }
 
 thiserror = { workspace = true }
 
-bytes = { workspace = true }
+bytes = { workspace = true, optional = true }
 
 rquickjs = { workspace = true }
 rquickjs-serde = { workspace = true }
@@ -28,5 +28,6 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 
 [features]
 default = []
+bytes = ["dep:bytes"]
 tokio = ["dep:tokio-util"]
 typescript = ["oxc"]

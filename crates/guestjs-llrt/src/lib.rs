@@ -2,12 +2,16 @@
 
 use guestjs_core::native::NativeLibrary;
 
+#[cfg(feature = "streams")]
+pub mod streams;
+
 #[cfg(any(
     feature = "buffer",
     feature = "console",
     feature = "fetch",
     feature = "fs",
     feature = "process-env",
+    feature = "streams",
     feature = "timers",
     feature = "url",
 ))]
@@ -18,15 +22,17 @@ use guestjs_core::native::NativeInitializer;
     feature = "console",
     feature = "fs",
     feature = "os",
+    feature = "streams",
     feature = "timers",
     feature = "url",
 ))]
 use guestjs_core::native::NativeModule;
 
 #[cfg(feature = "fetch")]
-use llrt_modules::{
-    abort::init as init_abort, fetch::init as init_fetch, stream_web::init as init_stream_web,
-};
+use llrt_modules::{abort::init as init_abort, fetch::init as init_fetch};
+
+#[cfg(feature = "streams")]
+use llrt_modules::stream_web::{StreamWebModule, init as init_stream_web};
 
 #[cfg(any(feature = "buffer", feature = "fetch", feature = "fs"))]
 use llrt_modules::buffer::init as init_buffer;
@@ -90,15 +96,6 @@ impl LlrtBuilder {
         self
     }
 
-    #[cfg(feature = "fetch")]
-    fn ensure_stream_web(mut self) -> Self {
-        self.library = self
-            .library
-            .initialize(NativeInitializer::new("llrt:stream-web", init_stream_web));
-
-        self
-    }
-
     #[cfg(any(feature = "fetch", feature = "url"))]
     fn ensure_url(mut self) -> Self {
         self.library = self
@@ -153,8 +150,8 @@ impl LlrtBuilder {
     #[cfg(feature = "fetch")]
     pub fn fetch(mut self) -> Self {
         self = self
+            .streams()
             .ensure_abort()
-            .ensure_stream_web()
             .ensure_buffer_globals()
             .ensure_url();
         self.library = self
@@ -195,6 +192,18 @@ impl LlrtBuilder {
                 "guestjs:process-env",
                 Self::initialize_process_env,
             ));
+
+        self
+    }
+
+    /// Adds the LLRT Web Streams capability.
+    #[cfg(feature = "streams")]
+    pub fn streams(mut self) -> Self {
+        self.library = self.library.with(
+            NativeModule::new("stream/web", StreamWebModule)
+                .alias("node:stream/web")
+                .initialize(NativeInitializer::new("llrt:stream-web", init_stream_web)),
+        );
 
         self
     }
