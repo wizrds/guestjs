@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.1.6](https://github.com/wizrds/guestjs/compare/0.1.5..0.1.6) - 2026-08-04
+
+### Bug Fixes
+
+- Add support for streams and sinks, and bytes marshal handling  - ([c473bf4](https://github.com/wizrds/guestjs/commit/c473bf4b7975ba63dff9ba495691bc4fece829c4)) - Timothy Pogue
+---
 ## [0.1.5](https://github.com/wizrds/guestjs/compare/0.1.4..0.1.5) - 2026-08-02
 
 ### Bug Fixes
