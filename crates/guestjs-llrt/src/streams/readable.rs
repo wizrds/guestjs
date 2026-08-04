@@ -108,9 +108,9 @@ where
                     let cancelled = cancelled.clone();
                     let future_ctx = ctx.clone();
 
-                    Ok(JsPromise::wrap_future(&ctx, async move {
+                    JsPromise::wrap_future(&ctx, async move {
                         Self::pull_once(future_ctx, controller, source, cancelled).await
-                    })?)
+                    })
                 }
             }),
             LlrtCancelAlgorithm::from_fn({
@@ -382,13 +382,15 @@ impl<'js, T> ToGuestBound<'js> for BoundReadableStream<'js, T> {
     }
 }
 
+type PendingReadFuture<T> = Pin<Box<dyn Future<Output = Result<Option<T>, Error>>>>;
+
 /// An owned reader for a guest readable stream.
 pub struct Reader<T = Bytes>
 where
     T: FromGuest,
 {
     reader: Instance,
-    pending: Option<Pin<Box<dyn Future<Output = Result<Option<T::Owned>, Error>>>>>,
+    pending: Option<PendingReadFuture<T::Owned>>,
     _chunk: PhantomData<fn() -> T>,
 }
 
