@@ -679,10 +679,14 @@ pub mod prelude;
     feature = "llrt-fs",
     feature = "llrt-os",
     feature = "llrt-process-env",
+    feature = "llrt-streams",
     feature = "llrt-timers",
     feature = "llrt-url",
 ))]
 pub mod llrt {
+    #[cfg(feature = "llrt-streams")]
+    pub use guestjs_llrt::streams;
+
     pub use guestjs_llrt::{Llrt, LlrtBuilder};
 }
 

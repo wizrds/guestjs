@@ -46,6 +46,7 @@ features = [
     "llrt-fs",
     "llrt-os",
     "llrt-process-env",
+    "llrt-streams",
     "llrt-timers",
     "llrt-url",
     "tokio",
@@ -61,6 +62,7 @@ features = [
 | `llrt-fs` | Provides LLRT `fs`, `fs/promises`, and Node-prefixed aliases. |
 | `llrt-os` | Provides LLRT `os` and `node:os` modules. |
 | `llrt-process-env` | Provides a host environment snapshot through `process.env`. |
+| `llrt-streams` | Provides Web Streams globals, modules, and host interop types. |
 | `llrt-timers` | Provides LLRT timer globals plus `timers` and `node:timers` modules. |
 | `llrt-url` | Provides LLRT URL globals plus `url` and `node:url` modules. |
 | `tokio` | Accepts `tokio_util::sync::CancellationToken` as a cancellation signal. |
@@ -917,6 +919,7 @@ Capabilities are explicit:
 - `.fs()` adds `fs`, `fs/promises`, `node:fs`, and `node:fs/promises`;
 - `.fetch()` installs LLRT's fetch initializer together with its abort, stream, buffer, and URL
   prerequisites;
+- `.streams()` adds Web Streams globals plus the `stream/web` and `node:stream/web` modules;
 - `.timers()` adds timer globals plus the `timers` and `node:timers` modules;
 - `.url()` adds `URL` and `URLSearchParams` globals plus the `url` and `node:url` modules;
 - `.os()` adds the `os` and `node:os` modules; and
@@ -933,6 +936,7 @@ not grant the same modules to other guests:
 let runtime = Runtime::builder()
     .build()
     .await?;
+
 assert!(
     runtime
         .guest()
@@ -950,6 +954,7 @@ export { readFile };
         .await
         .is_ok(),
 );
+
 assert!(
     runtime
         .guest()
@@ -970,6 +975,212 @@ export { readFile };
 
 The LLRT adapter supplies the selected native modules and globals. It does not add package
 resolution, filesystem source resolution, or complete Node.js compatibility.
+
+## Streams
+
+Enable `llrt-streams` to exchange Web Streams between host Rust code and guest modules. The
+`llrt-fetch` feature includes this capability because fetch bodies use the same stream machinery.
+
+Applications that name the default byte type or use the `futures::Stream` and `futures::Sink`
+interfaces directly should include those crates:
+
+```toml
+[dependencies]
+bytes = "1"
+futures = "0.3"
+guestjs = { git = "https://github.com/wizrds/guestjs", features = ["llrt-streams"] }
+```
+
+Install the `stream/web` module and the `ReadableStream`, `WritableStream`, and `TransformStream`
+globals on a runtime or an individual guest with `.streams()`:
+
+```rust
+use guestjs::{llrt::Llrt, prelude::*};
+
+let guest = Runtime::builder()
+    .build()
+    .await?
+    .guest()
+    .bind_native(Llrt::builder().streams().build())
+    .build()
+    .await?;
+```
+
+Every stream type is generic over its chunk descriptor and defaults to `bytes::Bytes`. Byte chunks
+cross the boundary as JavaScript `Uint8Array` values. Other chunk types can use the same stream
+machinery when they implement the marshal traits required by their direction of travel.
+
+### Host readable streams
+
+`HostReadableStream<T>` exposes a `futures::Stream<Item = Result<T, Error>>` as a guest
+`ReadableStream`. Each guest pull advances the Rust source once, preserving chunk boundaries and
+backpressure. Guest cancellation drops the retained Rust source.
+
+This host module exposes an HTTP-client-style class backed by an in-memory source:
+
+```rust
+use std::future::Future;
+
+use bytes::Bytes;
+use futures::stream;
+use guestjs::{
+    llrt::{Llrt, streams::HostReadableStream},
+    prelude::*,
+};
+
+struct HttpClient;
+
+#[guestjs::host_class]
+impl HttpClient {
+    #[guestjs(constructor)]
+    fn new() -> Result<Self, Error> {
+        Ok(Self)
+    }
+
+    #[guestjs(async_method)]
+    fn body(
+        &self,
+    ) -> Result<impl Future<Output = Result<HostReadableStream, Error>> + 'static, Error> {
+        Ok(async move {
+            Ok(
+                HostReadableStream::from_stream(stream::iter([
+                    Ok::<_, Error>(Bytes::from_static(b"first")),
+                    Ok(Bytes::from_static(b"second")),
+                ])),
+            )
+        })
+    }
+}
+
+struct HttpModule;
+
+#[guestjs::host_module(
+    name = "@host/http",
+    classes(HttpClient),
+)]
+impl HttpModule {}
+
+let guest = Runtime::builder()
+    .bind(HttpModule)
+    .build()
+    .await?
+    .guest()
+    .bind_native(Llrt::builder().streams().build())
+    .build()
+    .await?;
+```
+
+The guest receives a standard readable stream and consumes chunks incrementally:
+
+```javascript
+import { HttpClient } from "@host/http";
+
+export async function readBody() {
+    const body = await new HttpClient().body();
+    const chunks = [];
+
+    for await (const chunk of body) {
+        chunks.push(chunk);
+    }
+
+    return chunks;
+}
+```
+
+### Guest readable streams
+
+`ReadableStream<T>` is an owned handle for a readable created by guest code. Use `collect` for all
+remaining chunks, acquire a `Reader<T>` for explicit reads, or consume that reader through its
+`futures::Stream` implementation:
+
+```rust
+use bytes::Bytes;
+use guestjs::{llrt::streams::ReadableStream, prelude::*};
+
+assert_eq!(
+    guest
+        .guest_module(
+            "body.js",
+            r#"
+export function body() {
+    return new ReadableStream({
+        start(controller) {
+            controller.enqueue(new Uint8Array([1, 2]));
+            controller.enqueue(new Uint8Array([3]));
+            controller.close();
+        },
+    });
+}
+"#,
+        )
+        .await?
+        .function("body")
+        .await?
+        .call::<_, ReadableStream>(())
+        .await?
+        .collect()
+        .await?,
+    vec![Bytes::from_static(&[1, 2]), Bytes::from_static(&[3])],
+);
+```
+
+`ReadableStream::cancel` signals the producer to stop. `pipe_through`, `pipe_to`, and `tee` compose
+the owned handle with transform and writable handles without exposing LLRT stream classes.
+
+### Writable streams
+
+`HostWritableStream<T>` wraps a `futures::Sink<T, Error = Error>` so a guest can write into a Rust
+destination. Closing the guest stream flushes and drops the host sink, while aborting drops it
+without flushing.
+
+The reverse direction uses `WritableStream<T>` and `Writer<T>`:
+
+```rust
+use bytes::Bytes;
+use guestjs::llrt::streams::WritableStream;
+
+let writer = module
+    .function("destination")
+    .await?
+    .call::<_, WritableStream>(())
+    .await?
+    .writer()
+    .await?;
+
+writer.write(Bytes::from_static(&[1, 2, 3])).await?;
+writer.close().await?;
+```
+
+`Writer<T>` also implements `futures::Sink<T, Error = Error>`. Owned stream and writer handles can
+be retained across calls. Their bound counterparts, `BoundWritableStream<'js, T>` and
+`BoundWriter<'js, T>`, operate within one live guest scope.
+
+### Transform streams
+
+`TransformStream<I, O>` wraps a transform created by the guest. Its `writable` and `readable`
+methods expose the two sides as typed GuestJS handles. `HostTransformStream<I, O>` performs the
+opposite conversion by exposing an asynchronous Rust mapping as a guest transform:
+
+```rust
+use bytes::Bytes;
+use guestjs::llrt::streams::HostTransformStream;
+
+let transform = HostTransformStream::from_fn(
+    |chunk: Bytes| async move {
+        Ok(
+            vec![Bytes::from(
+                chunk
+                    .iter()
+                    .map(|byte| byte.to_ascii_uppercase())
+                    .collect::<Vec<_>>(),
+            )],
+        )
+    },
+);
+```
+
+Each mapping can produce zero, one, or multiple output chunks. Guest code receives a standard
+`TransformStream` and can use it with `readable.pipeThrough(transform)`.
 
 ## TypeScript
 

@@ -2,7 +2,7 @@ use rquickjs::Value;
 
 use crate::{
     errors::Error,
-    marshal::{FromGuestBound, FromGuestMut, FromGuestRef},
+    marshal::{FromGuest, FromGuestBound, FromGuestMut, FromGuestRef},
     runtime::Scope,
 };
 
@@ -48,6 +48,14 @@ impl<'js> Args<'js> {
             Some(value) => T::from_guest_bound(scope, value).map(Some),
             None => Ok(None),
         }
+    }
+
+    /// Returns an argument in its owned form, for capture by a future outliving the callback.
+    pub fn get_owned<T>(&self, scope: &Scope<'js>, index: usize) -> Result<T::Owned, Error>
+    where
+        T: FromGuest,
+    {
+        T::from_guest(scope, self.required(index)?)
     }
 
     /// Returns a shared argument borrow.
