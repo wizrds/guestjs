@@ -66,14 +66,6 @@ pub(crate) enum ContextInitializer {
 }
 
 impl ContextInitializer {
-    pub(crate) fn name(&self) -> &str {
-        match self {
-            Self::Host(initializer) => initializer.name(),
-            Self::HostModule(module) => module.name(),
-            Self::Native(initializer) => initializer.name(),
-        }
-    }
-
     pub(crate) fn initialize<'js>(&self, scope: &Scope<'js>) -> Result<(), Error> {
         match self {
             Self::Host(initializer) => initializer.initialize(scope),
@@ -498,8 +490,8 @@ mod tests {
         host::{Exports, HostInitializer, HostModule, Namespace},
         native::{NativeInitializer, NativeModule},
         registry::{
-            ContextKey, LibraryBinding, ModuleLoader, ModuleRegistration, ModuleRegistry,
-            ModuleResolver, RegistryState,
+            ContextInitializer, ContextKey, LibraryBinding, ModuleLoader, ModuleRegistration,
+            ModuleRegistry, ModuleResolver, RegistryState,
         },
         runtime::Scope,
     };
@@ -565,6 +557,29 @@ mod tests {
     struct SecondNative;
 
     impl ModuleDef for SecondNative {}
+
+    struct InitializerNames;
+
+    impl InitializerNames {
+        fn collect(initializers: &[ContextInitializer]) -> Vec<String> {
+            initializers
+                .iter()
+                .map(Self::name)
+                .collect()
+        }
+
+        fn collect_owned(initializers: Vec<ContextInitializer>) -> Vec<String> {
+            Self::collect(&initializers)
+        }
+
+        fn name(initializer: &ContextInitializer) -> String {
+            match initializer {
+                ContextInitializer::Host(initializer) => initializer.name().to_owned(),
+                ContextInitializer::HostModule(module) => module.name().to_owned(),
+                ContextInitializer::Native(initializer) => initializer.name().to_owned(),
+            }
+        }
+    }
 
     #[test]
     fn assigns_distinct_guest_ids() {
@@ -902,22 +917,24 @@ mod tests {
         let mut state = RegistryState::default();
 
         assert_eq!(
-            state
-                .register(
-                    ContextKey(1),
-                    &[
-                        LibraryBinding::Native(
-                            NativeModule::new("shared", FirstNative)
-                                .initialize(NativeInitializer::new("native:init", |_ctx| Ok(()))),
-                        ),
-                        TestHost::binding("shared"),
-                    ],
-                )
-                .unwrap()
-                .into_initializers()
-                .iter()
-                .map(|initializer| initializer.name())
-                .collect::<Vec<_>>(),
+            InitializerNames::collect_owned(
+                state
+                    .register(
+                        ContextKey(1),
+                        &[
+                            LibraryBinding::Native(
+                                NativeModule::new("shared", FirstNative)
+                                    .initialize(NativeInitializer::new(
+                                        "native:init",
+                                        |_ctx| Ok(()),
+                                    )),
+                            ),
+                            TestHost::binding("shared"),
+                        ],
+                    )
+                    .unwrap()
+                    .into_initializers(),
+            ),
             vec!["shared"],
         );
     }
@@ -927,26 +944,28 @@ mod tests {
         let mut state = RegistryState::default();
 
         assert_eq!(
-            state
-                .register(
-                    ContextKey(1),
-                    &[
-                        LibraryBinding::NativeInitializer(NativeInitializer::new(
-                            "dependency:init",
-                            |_ctx| Ok(()),
-                        )),
-                        LibraryBinding::Native(
-                            NativeModule::new("shared", FirstNative)
-                                .initialize(NativeInitializer::new("module:init", |_ctx| Ok(())),),
-                        ),
-                        TestHost::binding("shared"),
-                    ],
-                )
-                .unwrap()
-                .into_initializers()
-                .iter()
-                .map(|initializer| initializer.name())
-                .collect::<Vec<_>>(),
+            InitializerNames::collect_owned(
+                state
+                    .register(
+                        ContextKey(1),
+                        &[
+                            LibraryBinding::NativeInitializer(NativeInitializer::new(
+                                "dependency:init",
+                                |_ctx| Ok(()),
+                            )),
+                            LibraryBinding::Native(
+                                NativeModule::new("shared", FirstNative)
+                                    .initialize(NativeInitializer::new(
+                                        "module:init",
+                                        |_ctx| Ok(()),
+                                    )),
+                            ),
+                            TestHost::binding("shared"),
+                        ],
+                    )
+                    .unwrap()
+                    .into_initializers(),
+            ),
             vec!["dependency:init", "shared"],
         );
     }
@@ -994,10 +1013,7 @@ mod tests {
         let context = JsContext::full(&runtime).unwrap();
 
         assert_eq!(
-            initializers
-                .iter()
-                .map(|initializer| initializer.name())
-                .collect::<Vec<_>>(),
+            InitializerNames::collect(&initializers),
             vec!["other", "shared"],
         );
 
@@ -1017,23 +1033,22 @@ mod tests {
         let mut state = RegistryState::default();
 
         assert_eq!(
-            state
-                .register(
-                    ContextKey(1),
-                    &[
-                        LibraryBinding::HostInitializer(HostInitializer::new(
-                            "dependency:init",
-                            |_scope| Ok(()),
-                        )),
-                        LibraryBinding::Native(NativeModule::new("shared", FirstNative)),
-                        LibraryBinding::Native(NativeModule::new("shared", SecondNative)),
-                    ],
-                )
-                .unwrap()
-                .into_initializers()
-                .iter()
-                .map(|initializer| initializer.name())
-                .collect::<Vec<_>>(),
+            InitializerNames::collect_owned(
+                state
+                    .register(
+                        ContextKey(1),
+                        &[
+                            LibraryBinding::HostInitializer(HostInitializer::new(
+                                "dependency:init",
+                                |_scope| Ok(()),
+                            )),
+                            LibraryBinding::Native(NativeModule::new("shared", FirstNative)),
+                            LibraryBinding::Native(NativeModule::new("shared", SecondNative)),
+                        ],
+                    )
+                    .unwrap()
+                    .into_initializers(),
+            ),
             vec!["dependency:init"],
         );
     }
@@ -1078,10 +1093,7 @@ mod tests {
         let context = JsContext::full(&runtime).unwrap();
 
         assert_eq!(
-            initializers
-                .iter()
-                .map(|initializer| initializer.name())
-                .collect::<Vec<_>>(),
+            InitializerNames::collect(&initializers),
             vec!["shared"],
         );
 
@@ -1114,10 +1126,7 @@ mod tests {
         let context = JsContext::full(&runtime).unwrap();
 
         assert_eq!(
-            initializers
-                .iter()
-                .map(|initializer| initializer.name())
-                .collect::<Vec<_>>(),
+            InitializerNames::collect(&initializers),
             vec!["shared"],
         );
 
