@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 description = "GuestJS is a Rust library for executing guest JavaScript code transparently."
 repository = "https://github.com/wizrds/guestjs"

@@ -8,8 +8,8 @@ license.workspace = true
 readme.workspace = true
 
 [dependencies]
-guestjs-macros = { path = "../guestjs-macros", version = "0.1.6" }
-guestjs-core = { path = "../guestjs-core", version = "0.1.6" }
+guestjs-macros = { path = "../guestjs-macros", version = "0.1.7" }
+guestjs-core = { path = "../guestjs-core", version = "0.1.7" }
 
 bytes = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }

@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.1.7](https://github.com/wizrds/guestjs/compare/0.1.6..0.1.7) - 2026-08-05
+
+### Bug Fixes
+
+- Add support for host module initialize hook  - ([a777a1f](https://github.com/wizrds/guestjs/commit/a777a1f054369018441905e728ee24d7c56f25a2)) - Timothy Pogue
+---
 ## [0.1.6](https://github.com/wizrds/guestjs/compare/0.1.5..0.1.6) - 2026-08-04
 
 ### Bug Fixes
