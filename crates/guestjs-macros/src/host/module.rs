@@ -143,7 +143,7 @@ impl ModuleConstant {
 enum ModuleMember {
     Constant(Box<ModuleConstant>),
     Function(Box<ModuleFunction>),
-    Hook(ModuleHook),
+    Hook(Box<ModuleHook>),
 }
 
 impl ModuleMember {
@@ -185,6 +185,7 @@ pub(crate) struct HostModuleMacro {
     name: String,
     crate_path: Path,
     classes: PathList,
+    init_hook: Option<Box<ModuleHook>>,
     members: Vec<ModuleMember>,
 }
 
@@ -206,6 +207,7 @@ impl HostModuleMacro {
 
         let mut export_names = HashMap::new();
         let mut build_hook = None;
+        let mut init_hook = None::<Box<ModuleHook>>;
         let mut members = Vec::new();
 
         for member in &mut item.items {
@@ -218,22 +220,43 @@ impl HostModuleMacro {
                     match method {
                         ModuleMethod::Function(function) => ModuleMember::Function(function),
                         ModuleMethod::Hook(hook) => {
-                            if hook.kind() == ModuleHookKind::Build {
-                                if let Some(previous) = build_hook {
+                            match (hook.kind(), init_hook.as_ref().map(|hook| hook.span())) {
+                                (ModuleHookKind::Build, _) => {
+                                    if let Some(previous) = build_hook {
+                                        let mut error = syn::Error::new(
+                                            hook.span(),
+                                            "a host module may have only one build hook",
+                                        );
+
+                                        error.combine(syn::Error::new(
+                                            previous,
+                                            "the first build hook is here",
+                                        ));
+
+                                        return Err(error.into());
+                                    }
+
+                                    build_hook = Some(hook.span());
+                                }
+                                (ModuleHookKind::Init, Some(previous)) => {
                                     let mut error = syn::Error::new(
                                         hook.span(),
-                                        "a host module may have only one build hook",
+                                        "a host module may have only one init hook",
                                     );
 
                                     error.combine(syn::Error::new(
                                         previous,
-                                        "the first build hook is here",
+                                        "the first init hook is here",
                                     ));
 
                                     return Err(error.into());
                                 }
+                                (ModuleHookKind::Init, None) => {
+                                    init_hook = Some(hook);
 
-                                build_hook = Some(hook.span());
+                                    continue;
+                                }
+                                (ModuleHookKind::Object, _) => {}
                             }
 
                             ModuleMember::Hook(hook)
@@ -283,6 +306,7 @@ impl HostModuleMacro {
             name: options.name,
             crate_path: CratePath::new(options.crate_path).resolve()?,
             classes: options.classes,
+            init_hook,
             members,
         })
     }
@@ -353,7 +377,14 @@ impl HostModuleMacro {
     }
 
     pub(crate) fn expand(self) -> TokenStream {
-        let Self { item, name, crate_path, classes, members } = self;
+        let Self {
+            item,
+            name,
+            crate_path,
+            classes,
+            init_hook,
+            members,
+        } = self;
         let target = item.self_ty.as_ref();
         let mut generics = item.generics.clone();
 
@@ -375,6 +406,18 @@ impl HostModuleMacro {
             member.add_predicates(&mut generics, &crate_path);
         }
 
+        if let Some(error) = init_hook
+            .as_ref()
+            .and_then(|hook| hook.error())
+        {
+            generics
+                .make_where_clause()
+                .predicates
+                .push(syn::parse_quote!(
+                    #error: Into<#crate_path::errors::Error>
+                ));
+        }
+
         let (impl_generics, _, where_clause) = generics.split_for_impl();
         let class_registrations = classes.iter().map(|class| {
             quote! {
@@ -384,6 +427,9 @@ impl HostModuleMacro {
         let member_registrations = members
             .iter()
             .map(|member| member.registration(&crate_path));
+        let initializer = init_hook
+            .as_ref()
+            .map(|hook| hook.initializer(&crate_path));
 
         quote! {
             #item
@@ -394,6 +440,8 @@ impl HostModuleMacro {
                 fn name(&self) -> &str {
                     #name
                 }
+
+                #initializer
 
                 fn build(
                     &self,
@@ -569,6 +617,91 @@ mod tests {
     }
 
     #[test]
+    fn generates_initializer_hook() {
+        let output = HostModuleMacro::new(
+            quote!(name = "@host/initialized", crate_path = crate),
+            parse_quote! {
+                impl Initialized {
+                    #[guestjs(init)]
+                    fn init(
+                        &self,
+                        scope: &crate::runtime::Scope<'_>,
+                    ) -> Result<(), DomainError> {
+                        scope
+                            .ctx()
+                            .globals()
+                            .set("__initialized", true)?;
+
+                        Ok(())
+                    }
+
+                    #[guestjs(function)]
+                    fn value() -> Result<i32, DomainError> {
+                        Ok(42)
+                    }
+                }
+            },
+        )
+        .unwrap()
+        .expand()
+        .to_string();
+
+        assert!(output.contains("fn initialize < 'js >"));
+        assert!(output.contains("scope : & crate :: runtime :: Scope < 'js >"));
+        assert!(output.contains("Self :: init (self , scope) . map_err (Into :: into)"));
+        assert!(output.contains("DomainError : Into < crate :: errors :: Error >"));
+        assert!(output.contains("function (\"value\""));
+    }
+
+    #[test]
+    fn generates_static_initializer_hook() {
+        let output = HostModuleMacro::new(
+            quote!(name = "@host/initialized", crate_path = crate),
+            parse_quote! {
+                impl Initialized {
+                    #[guestjs(init)]
+                    fn init(
+                        scope: &crate::runtime::Scope<'_>,
+                    ) -> Result<(), DomainError> {
+                        scope
+                            .ctx()
+                            .globals()
+                            .set("__initialized", true)?;
+
+                        Ok(())
+                    }
+                }
+            },
+        )
+        .unwrap()
+        .expand()
+        .to_string();
+
+        assert!(output.contains("fn initialize < 'js >"));
+        assert!(output.contains("Self :: init (scope) . map_err (Into :: into)"));
+    }
+
+    #[test]
+    fn omits_initializer_hook_when_no_init_is_present() {
+        let output = HostModuleMacro::new(
+            quote!(name = "@host/plain", crate_path = crate),
+            parse_quote! {
+                impl Plain {
+                    #[guestjs(function)]
+                    fn value() -> Result<i32, Error> {
+                        Ok(42)
+                    }
+                }
+            },
+        )
+        .unwrap()
+        .expand()
+        .to_string();
+
+        assert!(!output.contains("fn initialize < 'js >"));
+    }
+
+    #[test]
     fn preserves_outer_generics_and_unannotated_members() {
         let output = HostModuleMacro::new(
             quote!(name = "host:values", crate_path = crate),
@@ -740,6 +873,131 @@ mod tests {
                         #[guestjs(get)]
                         fn value(&self) -> Result<i32, Error> {
                             Ok(1)
+                        }
+                    }
+                },
+            )
+            .is_err(),
+        );
+        assert!(
+            HostModuleMacro::new(
+                quote!(name = "host:init", crate_path = crate),
+                parse_quote! {
+                    impl Initialized {
+                        #[guestjs(init)]
+                        fn first(
+                            &self,
+                            _scope: &crate::runtime::Scope<'_>,
+                        ) -> Result<(), Error> {
+                            Ok(())
+                        }
+
+                        #[guestjs(init)]
+                        fn second(
+                            &self,
+                            _scope: &crate::runtime::Scope<'_>,
+                        ) -> Result<(), Error> {
+                            Ok(())
+                        }
+                    }
+                },
+            )
+            .is_err(),
+        );
+        assert!(
+            HostModuleMacro::new(
+                quote!(name = "host:init", crate_path = crate),
+                parse_quote! {
+                    impl Initialized {
+                        #[guestjs(init, name = "visible")]
+                        fn init(
+                            &self,
+                            _scope: &crate::runtime::Scope<'_>,
+                        ) -> Result<(), Error> {
+                            Ok(())
+                        }
+                    }
+                },
+            )
+            .is_err(),
+        );
+        assert!(
+            HostModuleMacro::new(
+                quote!(name = "host:init", crate_path = crate),
+                parse_quote! {
+                    impl Initialized {
+                        #[guestjs(init)]
+                        fn init(
+                            &mut self,
+                            _scope: &crate::runtime::Scope<'_>,
+                        ) -> Result<(), Error> {
+                            Ok(())
+                        }
+                    }
+                },
+            )
+            .is_err(),
+        );
+        assert!(
+            HostModuleMacro::new(
+                quote!(name = "host:init", crate_path = crate),
+                parse_quote! {
+                    impl Initialized {
+                        #[guestjs(init)]
+                        fn init(
+                            &self,
+                            _exports: &mut crate::host::Exports,
+                        ) -> Result<(), Error> {
+                            Ok(())
+                        }
+                    }
+                },
+            )
+            .is_err(),
+        );
+        assert!(
+            HostModuleMacro::new(
+                quote!(name = "host:init", crate_path = crate),
+                parse_quote! {
+                    impl Initialized {
+                        #[guestjs(init)]
+                        fn init(
+                            &self,
+                            #[guestjs(scope)] _scope: &crate::runtime::Scope<'_>,
+                        ) -> Result<(), Error> {
+                            Ok(())
+                        }
+                    }
+                },
+            )
+            .is_err(),
+        );
+        assert!(
+            HostModuleMacro::new(
+                quote!(name = "host:init", crate_path = crate),
+                parse_quote! {
+                    impl Initialized {
+                        #[guestjs(init)]
+                        fn init(
+                            &self,
+                            _scope: &crate::runtime::Scope<'_>,
+                        ) {}
+                    }
+                },
+            )
+            .is_err(),
+        );
+        assert!(
+            HostModuleMacro::new(
+                quote!(name = "host:init", crate_path = crate),
+                parse_quote! {
+                    impl Initialized {
+                        #[guestjs(init)]
+                        async fn init(
+                            &self,
+                            _scope: &crate::runtime::Scope<'_>,
+                        ) -> Result<(), Error> {
+                            Ok(())
                         }
                     }
                 },

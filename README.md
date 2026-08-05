@@ -664,7 +664,7 @@ uses a synchronous Rust method that copies or clones the required state before r
 
 `#[guestjs::host_module]` generates a `HostModule` from an inherent implementation. A host module
 can register generated classes, synchronous and asynchronous functions, default and named values,
-nested objects, and an explicit build hook:
+nested objects, an explicit build hook, and a per-guest initializer:
 
 ```rust
 use guestjs::prelude::*;
@@ -707,6 +707,16 @@ impl Geometry {
         metadata.property("precision", 2);
     }
 
+    #[guestjs(init)]
+    fn initialize(scope: &Scope<'_>) -> Result<(), Error> {
+        scope
+            .ctx()
+            .globals()
+            .set("__geometryReady", true)?;
+
+        Ok(())
+    }
+
     #[guestjs(build)]
     fn configure(
         &self,
@@ -731,6 +741,16 @@ async fn build_shared_geometry() -> Result<Runtime, Error> {
                     Geometry {
                         expose_origin: true,
                     },
+                )
+                .initialize(
+                    HostInitializer::new("geometry:application", |scope| {
+                        scope
+                            .ctx()
+                            .globals()
+                            .set("__application", "geometry")?;
+
+                        Ok(())
+                    }),
                 ),
         )
         .build()
@@ -773,15 +793,53 @@ console.log(originAvailable);
 console.log(vector.length());
 console.log(hypot(5, 12));
 console.log(await delayedHypot(5, 12));
+console.log(globalThis.__geometryReady);
+console.log(globalThis.__application);
 ```
 
 Registered host modules can also be opened directly through `Guest::host_module` or
 `Scope::host_module` when host code needs a handle to their exports.
 
+Host initializers run once for each guest that receives the host library, before guest module code
+is loaded. Use `#[guestjs(init)]` when setup belongs to a host module. Use
+`HostLibrary::initialize` when setup belongs to the library as a whole. Initializers share the same
+name-based last-wins behavior as other library registrations.
+
 Root module getters, setters, and accessors are not supported by the current ESM export boundary.
 Define writable properties and accessors inside an object hook, where GuestJS installs them on an
 ordinary JavaScript object. Stateful or fallible dynamic registration remains available through
 the explicit build hook and handwritten `HostModule` implementation.
+
+Handwritten host modules can perform the same per-guest setup by overriding
+`HostModule::initialize`:
+
+```rust
+use guestjs::prelude::*;
+
+struct ApplicationModule;
+
+impl HostModule for ApplicationModule {
+    fn name(&self) -> &str {
+        "@host/application"
+    }
+
+    fn initialize<'js>(
+        &self,
+        scope: &Scope<'js>,
+    ) -> Result<(), Error> {
+        scope
+            .ctx()
+            .globals()
+            .set("__applicationReady", true)?;
+
+        Ok(())
+    }
+
+    fn build(&self, exports: &mut Exports) {
+        exports.constant("name", "application");
+    }
+}
+```
 
 ## Native libraries
 

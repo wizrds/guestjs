@@ -20,6 +20,7 @@ struct MemberOptions {
     constructor: Flag,
     function: Flag,
     get: Flag,
+    init: Flag,
     iterable: Flag,
     method: Flag,
     name: Option<String>,
@@ -38,6 +39,7 @@ impl MemberOptions {
             self.constructor.is_present(),
             self.function.is_present(),
             self.get.is_present(),
+            self.init.is_present(),
             self.iterable.is_present(),
             self.method.is_present(),
             self.object.is_present(),
@@ -534,6 +536,7 @@ impl ClassMethod {
         }
 
         if options.function.is_present()
+            || options.init.is_present()
             || options.object.is_present()
             || options.build.is_present()
         {
@@ -554,7 +557,7 @@ impl ClassMethod {
 
 pub(super) enum ModuleMethod {
     Function(Box<ModuleFunction>),
-    Hook(ModuleHook),
+    Hook(Box<ModuleHook>),
 }
 
 impl ModuleMethod {
@@ -595,21 +598,30 @@ impl ModuleMethod {
         }
 
         if options.object.is_present() {
-            return Ok(Some(Self::Hook(ModuleHook::new(
+            return Ok(Some(Self::Hook(Box::new(ModuleHook::new(
                 method,
                 ModuleHookKind::Object,
                 options.name,
                 rename_all,
-            )?)));
+            )?))));
         }
 
         if options.build.is_present() {
-            return Ok(Some(Self::Hook(ModuleHook::new(
+            return Ok(Some(Self::Hook(Box::new(ModuleHook::new(
                 method,
                 ModuleHookKind::Build,
                 options.name,
                 rename_all,
-            )?)));
+            )?))));
+        }
+
+        if options.init.is_present() {
+            return Ok(Some(Self::Hook(Box::new(ModuleHook::new(
+                method,
+                ModuleHookKind::Init,
+                options.name,
+                rename_all,
+            )?))));
         }
 
         if options.get.is_present() || options.set.is_present() {
@@ -667,6 +679,7 @@ impl ModuleFunction {
 pub(super) enum ModuleHookKind {
     Object,
     Build,
+    Init,
 }
 
 pub(super) struct ModuleHook {
@@ -675,6 +688,7 @@ pub(super) struct ModuleHook {
     ident: Ident,
     name: Option<String>,
     receiver: Receiver,
+    error: Option<Type>,
 }
 
 impl ModuleHook {
@@ -698,7 +712,8 @@ impl ModuleHook {
 
         match (kind, receiver) {
             (ModuleHookKind::Object, Receiver::None | Receiver::Shared)
-            | (ModuleHookKind::Build, Receiver::Shared) => {}
+            | (ModuleHookKind::Build, Receiver::Shared)
+            | (ModuleHookKind::Init, Receiver::None | Receiver::Shared) => {}
             (ModuleHookKind::Object, Receiver::Exclusive) => {
                 return Err(syn::Error::new(
                     method.sig.ident.span(),
@@ -713,12 +728,24 @@ impl ModuleHook {
                 )
                 .into());
             }
+            (ModuleHookKind::Init, Receiver::Exclusive) => {
+                return Err(syn::Error::new(
+                    method.sig.ident.span(),
+                    "an init hook cannot have an exclusive receiver",
+                )
+                .into());
+            }
         }
 
         if method.sig.inputs.len() != usize::from(receiver != Receiver::None) + 1 {
             return Err(syn::Error::new(
                 method.sig.inputs.span(),
-                "a host module hook requires exactly one builder parameter",
+                match kind {
+                    ModuleHookKind::Init => "an init hook requires exactly one scope parameter",
+                    ModuleHookKind::Object | ModuleHookKind::Build => {
+                        "a host module hook requires exactly one builder parameter"
+                    }
+                },
             )
             .into());
         }
@@ -730,14 +757,57 @@ impl ModuleHook {
         if !HelperAttributes::take(&mut argument.attrs)?.is_empty() {
             return Err(syn::Error::new(
                 argument.span(),
-                "a host module hook parameter cannot have a guestjs role",
+                match kind {
+                    ModuleHookKind::Init => "an init hook parameter cannot have a guestjs role",
+                    ModuleHookKind::Object | ModuleHookKind::Build => {
+                        "a host module hook parameter cannot have a guestjs role"
+                    }
+                },
             )
             .into());
+        }
+
+        if kind == ModuleHookKind::Init {
+            if name.is_some() {
+                return Err(syn::Error::new(
+                    method.sig.ident.span(),
+                    "an init hook cannot have a guest-visible name",
+                )
+                .into());
+            }
+
+            if !TypeShape::is_reference_to(argument.ty.as_ref(), "Scope") {
+                return Err(syn::Error::new(
+                    argument.ty.span(),
+                    "an init hook parameter must have type &Scope<'_>",
+                )
+                .into());
+            }
+
+            let (result, error) = CallableResult::parse(&method.sig.output)?;
+
+            if !TypeShape::is_unit(&result) {
+                return Err(syn::Error::new(
+                    result.span(),
+                    "an init hook must return Result<(), E>",
+                )
+                .into());
+            }
+
+            return Ok(Self {
+                kind,
+                span: method.sig.ident.span(),
+                ident: method.sig.ident.clone(),
+                name: None,
+                receiver,
+                error: Some(error),
+            });
         }
 
         let builder = match kind {
             ModuleHookKind::Object => "Namespace",
             ModuleHookKind::Build => "Exports",
+            ModuleHookKind::Init => unreachable!(),
         };
 
         if !TypeShape::is_mutable_reference_to(argument.ty.as_ref(), builder) {
@@ -771,6 +841,7 @@ impl ModuleHook {
             name: (kind == ModuleHookKind::Object)
                 .then(|| Naming::member(&method.sig.ident, name, rename_all)),
             receiver,
+            error: None,
         })
     }
 
@@ -784,6 +855,28 @@ impl ModuleHook {
 
     pub(super) fn name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+
+    pub(super) fn error(&self) -> Option<&Type> {
+        self.error.as_ref()
+    }
+
+    pub(super) fn initializer(&self, crate_path: &Path) -> TokenStream {
+        let ident = &self.ident;
+        let invocation = match self.receiver {
+            Receiver::None => quote!(Self::#ident(scope)),
+            Receiver::Shared => quote!(Self::#ident(self, scope)),
+            Receiver::Exclusive => unreachable!(),
+        };
+
+        quote! {
+            fn initialize<'js>(
+                &self,
+                scope: &#crate_path::runtime::Scope<'js>,
+            ) -> Result<(), #crate_path::errors::Error> {
+                #invocation.map_err(Into::into)
+            }
+        }
     }
 
     pub(super) fn registration(&self) -> TokenStream {
@@ -807,6 +900,7 @@ impl ModuleHook {
             ModuleHookKind::Build => quote! {
                 Self::#ident(self, exports);
             },
+            ModuleHookKind::Init => unreachable!(),
         }
     }
 }
@@ -1779,6 +1873,15 @@ impl TypeShape {
             value_type,
             Type::Reference(reference)
                 if reference.mutability.is_some()
+                    && Self::has_name(reference.elem.as_ref(), name)
+        )
+    }
+
+    fn is_reference_to(value_type: &Type, name: &str) -> bool {
+        matches!(
+            value_type,
+            Type::Reference(reference)
+                if reference.mutability.is_none()
                     && Self::has_name(reference.elem.as_ref(), name)
         )
     }

@@ -12,23 +12,30 @@ use rquickjs::{
 
 use crate::{
     errors::Error,
-    host::{HostLibrary, HostModule, HostModuleAdapter, Namespace},
+    host::{
+        HostInitializer, HostLibrary, HostLibraryEntry, HostModule, HostModuleAdapter, Namespace,
+    },
     native::{NativeInitializer, NativeLibrary, NativeLibraryEntry, NativeModule},
+    runtime::Scope,
 };
 
 #[derive(Clone)]
 pub(crate) enum LibraryBinding {
     Host(Arc<dyn HostModule>),
+    HostInitializer(HostInitializer),
     Native(NativeModule),
-    Initializer(NativeInitializer),
+    NativeInitializer(NativeInitializer),
 }
 
 impl LibraryBinding {
     pub(crate) fn from_host(library: HostLibrary) -> Vec<Self> {
         library
-            .into_modules()
+            .into_entries()
             .into_iter()
-            .map(Self::Host)
+            .map(|entry| match entry {
+                HostLibraryEntry::Module(module) => Self::Host(module),
+                HostLibraryEntry::Initializer(initializer) => Self::HostInitializer(initializer),
+            })
             .collect()
     }
 
@@ -38,7 +45,9 @@ impl LibraryBinding {
             .into_iter()
             .map(|entry| match entry {
                 NativeLibraryEntry::Module(module) => Self::Native(module),
-                NativeLibraryEntry::Initializer(initializer) => Self::Initializer(initializer),
+                NativeLibraryEntry::Initializer(initializer) => {
+                    Self::NativeInitializer(initializer)
+                }
             })
             .collect()
     }
@@ -48,6 +57,23 @@ impl LibraryBinding {
 enum ModuleRegistration {
     Host(Arc<dyn HostModule>),
     Native(NativeModule),
+}
+
+#[derive(Clone)]
+pub(crate) enum ContextInitializer {
+    Host(HostInitializer),
+    HostModule(Arc<dyn HostModule>),
+    Native(NativeInitializer),
+}
+
+impl ContextInitializer {
+    pub(crate) fn initialize<'js>(&self, scope: &Scope<'js>) -> Result<(), Error> {
+        match self {
+            Self::Host(initializer) => initializer.initialize(scope),
+            Self::HostModule(module) => module.initialize(scope),
+            Self::Native(initializer) => initializer.initialize(scope.ctx()),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -64,7 +90,7 @@ impl ContextKey {
 
 pub(crate) struct GuestRegistration {
     id: GuestId,
-    initializers: Vec<NativeInitializer>,
+    initializers: Vec<ContextInitializer>,
 }
 
 impl GuestRegistration {
@@ -72,7 +98,7 @@ impl GuestRegistration {
         self.id
     }
 
-    pub(crate) fn into_initializers(self) -> Vec<NativeInitializer> {
+    pub(crate) fn into_initializers(self) -> Vec<ContextInitializer> {
         self.initializers
     }
 }
@@ -89,7 +115,7 @@ impl GuestRegistry {
         context: ContextKey,
         guest: GuestId,
         bindings: &[LibraryBinding],
-    ) -> (Self, Vec<NativeInitializer>) {
+    ) -> (Self, Vec<ContextInitializer>) {
         let mut specifier_ordinals = HashMap::new();
 
         for (ordinal, binding) in bindings.iter().enumerate() {
@@ -97,6 +123,7 @@ impl GuestRegistry {
                 LibraryBinding::Host(module) => {
                     specifier_ordinals.insert(module.name().to_owned(), ordinal);
                 }
+                LibraryBinding::HostInitializer(_) => {}
                 LibraryBinding::Native(module) => {
                     specifier_ordinals.insert(module.name().to_owned(), ordinal);
 
@@ -104,7 +131,7 @@ impl GuestRegistry {
                         specifier_ordinals.insert(alias.clone(), ordinal);
                     }
                 }
-                LibraryBinding::Initializer(_) => {}
+                LibraryBinding::NativeInitializer(_) => {}
             }
         }
 
@@ -128,8 +155,9 @@ impl GuestRegistry {
                 route,
                 match binding {
                     LibraryBinding::Host(module) => ModuleRegistration::Host(module.clone()),
+                    LibraryBinding::HostInitializer(_) => continue,
                     LibraryBinding::Native(module) => ModuleRegistration::Native(module.clone()),
-                    LibraryBinding::Initializer(_) => continue,
+                    LibraryBinding::NativeInitializer(_) => continue,
                 },
             );
         }
@@ -139,21 +167,33 @@ impl GuestRegistry {
 
         for (ordinal, binding) in bindings.iter().enumerate().rev() {
             match binding {
+                LibraryBinding::Host(module)
+                    if live_ordinals.contains(&ordinal)
+                        && initializer_names.insert(module.name().to_owned()) =>
+                {
+                    initializers.push(ContextInitializer::HostModule(module.clone()));
+                }
+                LibraryBinding::HostInitializer(initializer)
+                    if initializer_names.insert(initializer.name().to_owned()) =>
+                {
+                    initializers.push(ContextInitializer::Host(initializer.clone()));
+                }
                 LibraryBinding::Native(module) if live_ordinals.contains(&ordinal) => {
                     for initializer in module.initializers().iter().rev() {
                         if initializer_names.insert(initializer.name().to_owned()) {
-                            initializers.push(initializer.clone());
+                            initializers.push(ContextInitializer::Native(initializer.clone()));
                         }
                     }
                 }
-                LibraryBinding::Initializer(initializer)
+                LibraryBinding::NativeInitializer(initializer)
                     if initializer_names.insert(initializer.name().to_owned()) =>
                 {
-                    initializers.push(initializer.clone());
+                    initializers.push(ContextInitializer::Native(initializer.clone()));
                 }
                 LibraryBinding::Host(_)
+                | LibraryBinding::HostInitializer(_)
                 | LibraryBinding::Native(_)
-                | LibraryBinding::Initializer(_) => {}
+                | LibraryBinding::NativeInitializer(_) => {}
             }
         }
 
@@ -446,13 +486,15 @@ mod tests {
         module::ModuleDef,
     };
 
-    use super::{
-        ContextKey, LibraryBinding, ModuleLoader, ModuleRegistration, ModuleRegistry,
-        ModuleResolver, RegistryState,
-    };
     use crate::{
-        host::{Exports, HostModule, Namespace},
+        errors::Error,
+        host::{Exports, HostInitializer, HostModule, Namespace},
         native::{NativeInitializer, NativeModule},
+        registry::{
+            ContextInitializer, ContextKey, LibraryBinding, ModuleLoader, ModuleRegistration,
+            ModuleRegistry, ModuleResolver, RegistryState,
+        },
+        runtime::Scope,
     };
 
     struct TestHost {
@@ -477,6 +519,37 @@ mod tests {
         fn build(&self, _exports: &mut Exports) {}
     }
 
+    struct InitializingHost {
+        name: &'static str,
+        calls: Rc<RefCell<Vec<&'static str>>>,
+        label: &'static str,
+    }
+
+    impl InitializingHost {
+        #[allow(clippy::arc_with_non_send_sync)]
+        fn binding(
+            name: &'static str,
+            calls: Rc<RefCell<Vec<&'static str>>>,
+            label: &'static str,
+        ) -> LibraryBinding {
+            LibraryBinding::Host(Arc::new(Self { name, calls, label }))
+        }
+    }
+
+    impl HostModule for InitializingHost {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn initialize<'js>(&self, _scope: &Scope<'js>) -> Result<(), Error> {
+            self.calls.borrow_mut().push(self.label);
+
+            Ok(())
+        }
+
+        fn build(&self, _exports: &mut Exports) {}
+    }
+
     struct FirstNative;
 
     impl ModuleDef for FirstNative {}
@@ -484,6 +557,29 @@ mod tests {
     struct SecondNative;
 
     impl ModuleDef for SecondNative {}
+
+    struct InitializerNames;
+
+    impl InitializerNames {
+        fn collect(initializers: &[ContextInitializer]) -> Vec<String> {
+            initializers
+                .iter()
+                .map(Self::name)
+                .collect()
+        }
+
+        fn collect_owned(initializers: Vec<ContextInitializer>) -> Vec<String> {
+            Self::collect(&initializers)
+        }
+
+        fn name(initializer: &ContextInitializer) -> String {
+            match initializer {
+                ContextInitializer::Host(initializer) => initializer.name().to_owned(),
+                ContextInitializer::HostModule(module) => module.name().to_owned(),
+                ContextInitializer::Native(initializer) => initializer.name().to_owned(),
+            }
+        }
+    }
 
     #[test]
     fn assigns_distinct_guest_ids() {
@@ -820,21 +916,24 @@ mod tests {
     fn overwritten_native_omits_associated_initialization() {
         let mut state = RegistryState::default();
 
-        assert!(
-            state
-                .register(
-                    ContextKey(1),
-                    &[
-                        LibraryBinding::Native(
-                            NativeModule::new("shared", FirstNative)
-                                .initialize(NativeInitializer::new("native:init", |_ctx| Ok(()))),
-                        ),
-                        TestHost::binding("shared"),
-                    ],
-                )
-                .unwrap()
-                .into_initializers()
-                .is_empty()
+        assert_eq!(
+            InitializerNames::collect_owned(
+                state
+                    .register(
+                        ContextKey(1),
+                        &[
+                            LibraryBinding::Native(
+                                NativeModule::new("shared", FirstNative).initialize(
+                                    NativeInitializer::new("native:init", |_ctx| Ok(()),)
+                                ),
+                            ),
+                            TestHost::binding("shared"),
+                        ],
+                    )
+                    .unwrap()
+                    .into_initializers(),
+            ),
+            vec!["shared"],
         );
     }
 
@@ -843,27 +942,27 @@ mod tests {
         let mut state = RegistryState::default();
 
         assert_eq!(
-            state
-                .register(
-                    ContextKey(1),
-                    &[
-                        LibraryBinding::Initializer(NativeInitializer::new(
-                            "dependency:init",
-                            |_ctx| Ok(()),
-                        )),
-                        LibraryBinding::Native(
-                            NativeModule::new("shared", FirstNative)
-                                .initialize(NativeInitializer::new("module:init", |_ctx| Ok(())),),
-                        ),
-                        TestHost::binding("shared"),
-                    ],
-                )
-                .unwrap()
-                .into_initializers()
-                .iter()
-                .map(|initializer| initializer.name())
-                .collect::<Vec<_>>(),
-            vec!["dependency:init"],
+            InitializerNames::collect_owned(
+                state
+                    .register(
+                        ContextKey(1),
+                        &[
+                            LibraryBinding::NativeInitializer(NativeInitializer::new(
+                                "dependency:init",
+                                |_ctx| Ok(()),
+                            )),
+                            LibraryBinding::Native(
+                                NativeModule::new("shared", FirstNative).initialize(
+                                    NativeInitializer::new("module:init", |_ctx| Ok(()),)
+                                ),
+                            ),
+                            TestHost::binding("shared"),
+                        ],
+                    )
+                    .unwrap()
+                    .into_initializers(),
+            ),
+            vec!["dependency:init", "shared"],
         );
     }
 
@@ -875,7 +974,7 @@ mod tests {
             .register(
                 ContextKey(1),
                 &[
-                    LibraryBinding::Initializer(NativeInitializer::new("shared", {
+                    LibraryBinding::NativeInitializer(NativeInitializer::new("shared", {
                         let calls = calls.clone();
 
                         move |_ctx| {
@@ -884,7 +983,7 @@ mod tests {
                             Ok(())
                         }
                     })),
-                    LibraryBinding::Initializer(NativeInitializer::new("other", {
+                    LibraryBinding::NativeInitializer(NativeInitializer::new("other", {
                         let calls = calls.clone();
 
                         move |_ctx| {
@@ -893,7 +992,7 @@ mod tests {
                             Ok(())
                         }
                     })),
-                    LibraryBinding::Initializer(NativeInitializer::new("shared", {
+                    LibraryBinding::NativeInitializer(NativeInitializer::new("shared", {
                         let calls = calls.clone();
 
                         move |_ctx| {
@@ -909,21 +1008,139 @@ mod tests {
         let runtime = JsRuntime::new().unwrap();
         let context = JsContext::full(&runtime).unwrap();
 
-        assert_eq!(
-            initializers
-                .iter()
-                .map(|initializer| initializer.name())
-                .collect::<Vec<_>>(),
-            vec!["other", "shared"],
-        );
+        assert_eq!(InitializerNames::collect(&initializers), vec!["other", "shared"],);
 
         context.with(|ctx| {
             for initializer in initializers {
-                initializer.initialize(&ctx).unwrap();
+                initializer
+                    .initialize(&Scope::detached(ctx.clone()))
+                    .unwrap();
             }
         });
 
         assert_eq!(*calls.borrow(), vec!["other", "last"]);
+    }
+
+    #[test]
+    fn standalone_host_initializer_survives_module_override() {
+        let mut state = RegistryState::default();
+
+        assert_eq!(
+            InitializerNames::collect_owned(
+                state
+                    .register(
+                        ContextKey(1),
+                        &[
+                            LibraryBinding::HostInitializer(HostInitializer::new(
+                                "dependency:init",
+                                |_scope| Ok(()),
+                            )),
+                            LibraryBinding::Native(NativeModule::new("shared", FirstNative)),
+                            LibraryBinding::Native(NativeModule::new("shared", SecondNative)),
+                        ],
+                    )
+                    .unwrap()
+                    .into_initializers(),
+            ),
+            vec!["dependency:init"],
+        );
+    }
+
+    #[test]
+    fn duplicate_host_and_native_initializers_keep_last_callback() {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let mut state = RegistryState::default();
+        let initializers = state
+            .register(
+                ContextKey(1),
+                &[
+                    LibraryBinding::HostInitializer(HostInitializer::new("shared", {
+                        let calls = calls.clone();
+
+                        move |_scope| {
+                            calls.borrow_mut().push("host");
+
+                            Ok(())
+                        }
+                    })),
+                    LibraryBinding::NativeInitializer(NativeInitializer::new("shared", {
+                        let calls = calls.clone();
+
+                        move |_ctx| {
+                            calls.borrow_mut().push("native");
+
+                            Ok(())
+                        }
+                    })),
+                ],
+            )
+            .unwrap()
+            .into_initializers();
+        let runtime = JsRuntime::new().unwrap();
+        let context = JsContext::full(&runtime).unwrap();
+
+        assert_eq!(InitializerNames::collect(&initializers), vec!["shared"],);
+
+        context.with(|ctx| {
+            for initializer in initializers {
+                initializer
+                    .initialize(&Scope::detached(ctx.clone()))
+                    .unwrap();
+            }
+        });
+
+        assert_eq!(*calls.borrow(), vec!["native"]);
+    }
+
+    #[test]
+    fn host_module_initializer_is_included_only_for_winning_host() {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let mut state = RegistryState::default();
+        let initializers = state
+            .register(
+                ContextKey(1),
+                &[
+                    InitializingHost::binding("shared", calls.clone(), "first"),
+                    InitializingHost::binding("shared", calls.clone(), "second"),
+                ],
+            )
+            .unwrap()
+            .into_initializers();
+        let runtime = JsRuntime::new().unwrap();
+        let context = JsContext::full(&runtime).unwrap();
+
+        assert_eq!(InitializerNames::collect(&initializers), vec!["shared"],);
+
+        context.with(|ctx| {
+            for initializer in initializers {
+                initializer
+                    .initialize(&Scope::detached(ctx.clone()))
+                    .unwrap();
+            }
+        });
+
+        assert_eq!(*calls.borrow(), vec!["second"]);
+    }
+
+    #[test]
+    fn host_module_initializer_is_omitted_when_native_wins() {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let mut state = RegistryState::default();
+
+        assert!(
+            state
+                .register(
+                    ContextKey(1),
+                    &[
+                        InitializingHost::binding("shared", calls.clone(), "host"),
+                        LibraryBinding::Native(NativeModule::new("shared", FirstNative)),
+                    ],
+                )
+                .unwrap()
+                .into_initializers()
+                .is_empty()
+        );
+        assert!(calls.borrow().is_empty());
     }
 
     #[test]

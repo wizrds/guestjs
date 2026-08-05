@@ -389,7 +389,9 @@
 //! A [`HostModule`](crate::host::module::HostModule) defines values that guest modules can import.
 //! One module converts directly into a [`HostLibrary`](crate::host::library::HostLibrary), while
 //! [`HostLibrary::with`](crate::host::library::HostLibrary::with) collects heterogeneous modules in
-//! registration order. Binding through
+//! registration order and
+//! [`HostLibrary::initialize`](crate::host::library::HostLibrary::initialize) adds setup that runs
+//! once for each guest receiving the library. Binding through
 //! [`RuntimeBuilder`](crate::runtime::RuntimeBuilder) grants the library to every guest; binding
 //! through [`GuestBuilder`](crate::runtime::GuestBuilder) grants it only to that guest.
 //! [`host_module`](crate::host_module) generates a
@@ -400,6 +402,8 @@
 //! [`Namespace`](crate::host::namespace::Namespace) for defining nested functions, values,
 //! properties, accessors, objects, and classes. One `build` hook receives the complete
 //! [`Exports`](crate::host::module::Exports) and can define conditional or stateful exports.
+//! One `init` hook receives a [`Scope`](crate::runtime::Scope) and runs once for each guest that
+//! receives the host module.
 //! Exported functions cannot have a receiver. Their errors may be any type that converts into
 //! [`Error`](crate::errors::Error), and asynchronous parameters must own everything retained by
 //! the returned future. Root accessors and live writable root bindings are unsupported; define
@@ -576,6 +580,16 @@
 //!         metadata.property("precision", 2);
 //!     }
 //!
+//!     #[guestjs(init)]
+//!     fn initialize(scope: &Scope<'_>) -> Result<(), Error> {
+//!         scope
+//!             .ctx()
+//!             .globals()
+//!             .set("__geometryReady", true)?;
+//!
+//!         Ok(())
+//!     }
+//!
 //!     #[guestjs(build)]
 //!     fn configure(
 //!         &self,
@@ -589,9 +603,22 @@
 //!
 //! let runtime = Runtime::builder()
 //!     .bind(
-//!         Geometry {
-//!             expose_origin: true,
-//!         },
+//!         HostLibrary::new()
+//!             .with(
+//!                 Geometry {
+//!                     expose_origin: true,
+//!                 },
+//!             )
+//!             .initialize(
+//!                 HostInitializer::new("geometry:application", |scope| {
+//!                     scope
+//!                         .ctx()
+//!                         .globals()
+//!                         .set("__application", "geometry")?;
+//!
+//!                     Ok(())
+//!                 }),
+//!             ),
 //!     )
 //!     .build()
 //!     .await?;
@@ -652,6 +679,8 @@
 //!         await vector.lengthAsync(),
 //!         hypot(5, 12),
 //!         await delayedHypot(5, 12),
+//!         globalThis.__geometryReady === true,
+//!         globalThis.__application,
 //!     ].join("|");
 //! }
 //! "#,
@@ -662,7 +691,7 @@
 //!                 .await
 //!         })
 //!         .await?,
-//!     "cartesian|1|cartesian|3|true|6|6,6|Vector2(6, 6)|2|0|cartesian|8.48528137423857|13|13",
+//!     "cartesian|1|cartesian|3|true|6|6,6|Vector2(6, 6)|2|0|cartesian|8.48528137423857|13|13|true|geometry",
 //! );
 //! ```
 
@@ -768,6 +797,7 @@ export async function exercise() {
         complete.tools.count,
         point.readValue(),
         "conditional" in complete,
+        globalThis.__completeInitialized === true,
     ].join("|");
 }
 "#;
@@ -1045,6 +1075,16 @@ export function advance() {
 
         #[guestjs(constant)]
         const API_VERSION: i32 = 2;
+
+        #[guestjs(init)]
+        fn init(scope: &Scope<'_>) -> Result<(), Error> {
+            scope
+                .ctx()
+                .globals()
+                .set("__completeInitialized", true)?;
+
+            Ok(())
+        }
 
         #[guestjs(object, name = "tools")]
         fn build_tools(&self, tools: &mut Namespace) {
@@ -1360,8 +1400,8 @@ export async function exercise() {
     #[tokio::test]
     async fn generated_host_module_supports_complete_exports() {
         for (conditional, expected) in [
-            (true, "fallback|2|5|12|9|7|4|true"),
-            (false, "fallback|2|5|12|9|7|4|false"),
+            (true, "fallback|2|5|12|9|7|4|true|true"),
+            (false, "fallback|2|5|12|9|7|4|false|true"),
         ] {
             assert_eq!(
                 Runtime::builder()
