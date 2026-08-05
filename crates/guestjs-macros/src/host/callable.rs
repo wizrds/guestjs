@@ -758,9 +758,7 @@ impl ModuleHook {
             return Err(syn::Error::new(
                 argument.span(),
                 match kind {
-                    ModuleHookKind::Init => {
-                        "an init hook parameter cannot have a guestjs role"
-                    }
+                    ModuleHookKind::Init => "an init hook parameter cannot have a guestjs role",
                     ModuleHookKind::Object | ModuleHookKind::Build => {
                         "a host module hook parameter cannot have a guestjs role"
                     }

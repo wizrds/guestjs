@@ -1041,35 +1041,21 @@ mod tests {
     async fn host_initializer_runs_once_per_guest() {
         let calls = Arc::new(AtomicUsize::new(0));
         let runtime = Runtime::builder()
-            .bind(
-                HostLibrary::new()
-                    .initialize(HostInitializer::new(
-                        "host:init",
-                        {
-                            let calls = calls.clone();
+            .bind(HostLibrary::new().initialize(HostInitializer::new("host:init", {
+                let calls = calls.clone();
 
-                            move |_scope| {
-                                calls.fetch_add(1, Ordering::SeqCst);
+                move |_scope| {
+                    calls.fetch_add(1, Ordering::SeqCst);
 
-                                Ok(())
-                            }
-                        },
-                    )),
-            )
+                    Ok(())
+                }
+            })))
             .build()
             .await
             .unwrap();
 
-        runtime
-            .guest()
-            .build()
-            .await
-            .unwrap();
-        runtime
-            .guest()
-            .build()
-            .await
-            .unwrap();
+        runtime.guest().build().await.unwrap();
+        runtime.guest().build().await.unwrap();
 
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
@@ -1082,28 +1068,18 @@ mod tests {
             .unwrap();
         let initialized = runtime
             .guest()
-            .bind(
-                HostLibrary::new()
-                    .initialize(HostInitializer::new(
-                        "local:init",
-                        |scope| {
-                            scope
-                                .ctx()
-                                .globals()
-                                .set("__localHostInitialized", true)?;
+            .bind(HostLibrary::new().initialize(HostInitializer::new("local:init", |scope| {
+                scope
+                    .ctx()
+                    .globals()
+                    .set("__localHostInitialized", true)?;
 
-                            Ok(())
-                        },
-                    )),
-            )
+                Ok(())
+            })))
             .build()
             .await
             .unwrap();
-        let plain = runtime
-            .guest()
-            .build()
-            .await
-            .unwrap();
+        let plain = runtime.guest().build().await.unwrap();
 
         assert!(
             initialized

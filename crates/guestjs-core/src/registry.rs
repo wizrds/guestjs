@@ -13,8 +13,7 @@ use rquickjs::{
 use crate::{
     errors::Error,
     host::{
-        HostInitializer, HostLibrary, HostLibraryEntry, HostModule, HostModuleAdapter,
-        Namespace,
+        HostInitializer, HostLibrary, HostLibraryEntry, HostModule, HostModuleAdapter, Namespace,
     },
     native::{NativeInitializer, NativeLibrary, NativeLibraryEntry, NativeModule},
     runtime::Scope,
@@ -46,7 +45,9 @@ impl LibraryBinding {
             .into_iter()
             .map(|entry| match entry {
                 NativeLibraryEntry::Module(module) => Self::Native(module),
-                NativeLibraryEntry::Initializer(initializer) => Self::NativeInitializer(initializer),
+                NativeLibraryEntry::Initializer(initializer) => {
+                    Self::NativeInitializer(initializer)
+                }
             })
             .collect()
     }
@@ -540,9 +541,7 @@ mod tests {
         }
 
         fn initialize<'js>(&self, _scope: &Scope<'js>) -> Result<(), Error> {
-            self.calls
-                .borrow_mut()
-                .push(self.label);
+            self.calls.borrow_mut().push(self.label);
 
             Ok(())
         }
@@ -923,11 +922,9 @@ mod tests {
                         ContextKey(1),
                         &[
                             LibraryBinding::Native(
-                                NativeModule::new("shared", FirstNative)
-                                    .initialize(NativeInitializer::new(
-                                        "native:init",
-                                        |_ctx| Ok(()),
-                                    )),
+                                NativeModule::new("shared", FirstNative).initialize(
+                                    NativeInitializer::new("native:init", |_ctx| Ok(()),)
+                                ),
                             ),
                             TestHost::binding("shared"),
                         ],
@@ -954,11 +951,9 @@ mod tests {
                                 |_ctx| Ok(()),
                             )),
                             LibraryBinding::Native(
-                                NativeModule::new("shared", FirstNative)
-                                    .initialize(NativeInitializer::new(
-                                        "module:init",
-                                        |_ctx| Ok(()),
-                                    )),
+                                NativeModule::new("shared", FirstNative).initialize(
+                                    NativeInitializer::new("module:init", |_ctx| Ok(()),)
+                                ),
                             ),
                             TestHost::binding("shared"),
                         ],
@@ -1012,10 +1007,7 @@ mod tests {
         let runtime = JsRuntime::new().unwrap();
         let context = JsContext::full(&runtime).unwrap();
 
-        assert_eq!(
-            InitializerNames::collect(&initializers),
-            vec!["other", "shared"],
-        );
+        assert_eq!(InitializerNames::collect(&initializers), vec!["other", "shared"],);
 
         context.with(|ctx| {
             for initializer in initializers {
@@ -1061,30 +1053,24 @@ mod tests {
             .register(
                 ContextKey(1),
                 &[
-                    LibraryBinding::HostInitializer(HostInitializer::new(
-                        "shared",
-                        {
-                            let calls = calls.clone();
+                    LibraryBinding::HostInitializer(HostInitializer::new("shared", {
+                        let calls = calls.clone();
 
-                            move |_scope| {
-                                calls.borrow_mut().push("host");
+                        move |_scope| {
+                            calls.borrow_mut().push("host");
 
-                                Ok(())
-                            }
-                        },
-                    )),
-                    LibraryBinding::NativeInitializer(NativeInitializer::new(
-                        "shared",
-                        {
-                            let calls = calls.clone();
+                            Ok(())
+                        }
+                    })),
+                    LibraryBinding::NativeInitializer(NativeInitializer::new("shared", {
+                        let calls = calls.clone();
 
-                            move |_ctx| {
-                                calls.borrow_mut().push("native");
+                        move |_ctx| {
+                            calls.borrow_mut().push("native");
 
-                                Ok(())
-                            }
-                        },
-                    )),
+                            Ok(())
+                        }
+                    })),
                 ],
             )
             .unwrap()
@@ -1092,10 +1078,7 @@ mod tests {
         let runtime = JsRuntime::new().unwrap();
         let context = JsContext::full(&runtime).unwrap();
 
-        assert_eq!(
-            InitializerNames::collect(&initializers),
-            vec!["shared"],
-        );
+        assert_eq!(InitializerNames::collect(&initializers), vec!["shared"],);
 
         context.with(|ctx| {
             for initializer in initializers {
@@ -1125,10 +1108,7 @@ mod tests {
         let runtime = JsRuntime::new().unwrap();
         let context = JsContext::full(&runtime).unwrap();
 
-        assert_eq!(
-            InitializerNames::collect(&initializers),
-            vec!["shared"],
-        );
+        assert_eq!(InitializerNames::collect(&initializers), vec!["shared"],);
 
         context.with(|ctx| {
             for initializer in initializers {

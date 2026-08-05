@@ -377,7 +377,14 @@ impl HostModuleMacro {
     }
 
     pub(crate) fn expand(self) -> TokenStream {
-        let Self { item, name, crate_path, classes, init_hook, members } = self;
+        let Self {
+            item,
+            name,
+            crate_path,
+            classes,
+            init_hook,
+            members,
+        } = self;
         let target = item.self_ty.as_ref();
         let mut generics = item.generics.clone();
 
