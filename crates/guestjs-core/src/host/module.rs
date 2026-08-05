@@ -9,6 +9,7 @@ use rquickjs::{
 };
 
 use crate::{
+    errors::Error,
     host::namespace::Namespace,
     marshal::ToGuest,
     registry::{ModuleRegistry, RegistryHandle},
@@ -19,6 +20,11 @@ use crate::{
 pub trait HostModule {
     /// Returns the module specifier.
     fn name(&self) -> &str;
+
+    /// Initializes one guest context.
+    fn initialize<'js>(&self, _scope: &Scope<'js>) -> Result<(), Error> {
+        Ok(())
+    }
 
     /// Defines the module exports.
     fn build(&self, exports: &mut Exports);

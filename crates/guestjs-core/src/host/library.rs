@@ -1,11 +1,17 @@
 use std::sync::Arc;
 
-use crate::host::HostModule;
+use crate::host::{HostInitializer, HostModule};
 
-/// A collection of [`HostModule`](crate::host::HostModule) implementations.
+#[derive(Clone)]
+pub(crate) enum HostLibraryEntry {
+    Module(Arc<dyn HostModule>),
+    Initializer(HostInitializer),
+}
+
+/// A collection of host guest capabilities.
 #[derive(Clone, Default)]
 pub struct HostLibrary {
-    modules: Vec<Arc<dyn HostModule>>,
+    entries: Vec<HostLibraryEntry>,
 }
 
 impl HostLibrary {
@@ -19,13 +25,22 @@ impl HostLibrary {
     where
         M: HostModule + 'static,
     {
-        self.modules.push(Arc::new(module));
+        self.entries
+            .push(HostLibraryEntry::Module(Arc::new(module)));
 
         self
     }
 
-    pub(crate) fn into_modules(self) -> Vec<Arc<dyn HostModule>> {
-        self.modules
+    /// Adds a [`HostInitializer`](crate::host::HostInitializer).
+    pub fn initialize(mut self, initializer: HostInitializer) -> Self {
+        self.entries
+            .push(HostLibraryEntry::Initializer(initializer));
+
+        self
+    }
+
+    pub(crate) fn into_entries(self) -> Vec<HostLibraryEntry> {
+        self.entries
     }
 }
 
@@ -42,8 +57,7 @@ where
 mod tests {
     use std::sync::Arc;
 
-    use super::HostLibrary;
-    use crate::host::{Exports, HostModule};
+    use crate::host::{Exports, HostInitializer, HostLibrary, HostLibraryEntry, HostModule};
 
     struct FirstHost;
 
@@ -67,23 +81,70 @@ mod tests {
 
     #[test]
     fn converts_host_module_into_library() {
-        assert_eq!(HostLibrary::from(FirstHost).into_modules()[0].name(), "first",);
+        match HostLibrary::from(FirstHost)
+            .into_entries()
+            .remove(0)
+        {
+            HostLibraryEntry::Module(module) => {
+                assert_eq!(module.name(), "first");
+            }
+            HostLibraryEntry::Initializer(_) => {
+                panic!("expected a host module");
+            }
+        }
     }
 
     #[test]
-    fn preserves_heterogeneous_module_order() {
-        let modules = HostLibrary::new()
+    fn preserves_heterogeneous_entry_order() {
+        let entries = HostLibrary::new()
             .with(FirstHost)
+            .initialize(HostInitializer::new("first:init", |_scope| Ok(())))
             .with(SecondHost)
-            .into_modules();
+            .into_entries();
 
-        assert_eq!(
-            modules
-                .iter()
-                .map(|module| module.name())
-                .collect::<Vec<_>>(),
-            vec!["first", "second"],
-        );
-        assert!(!Arc::ptr_eq(&modules[0], &modules[1]));
+        assert!(matches!(
+            &entries[0],
+            HostLibraryEntry::Module(module) if module.name() == "first"
+        ));
+        assert!(matches!(
+            &entries[1],
+            HostLibraryEntry::Initializer(initializer)
+                if initializer.name() == "first:init"
+        ));
+        assert!(matches!(
+            &entries[2],
+            HostLibraryEntry::Module(module) if module.name() == "second"
+        ));
+
+        let first = match &entries[0] {
+            HostLibraryEntry::Module(module) => module,
+            HostLibraryEntry::Initializer(_) => {
+                panic!("expected a host module");
+            }
+        };
+        let second = match &entries[2] {
+            HostLibraryEntry::Module(module) => module,
+            HostLibraryEntry::Initializer(_) => {
+                panic!("expected a host module");
+            }
+        };
+
+        assert!(!Arc::ptr_eq(first, second));
+    }
+
+    #[test]
+    fn preserves_initializer_entry() {
+        match HostLibrary::new()
+            .initialize(HostInitializer::new("provider:init", |_scope| Ok(())))
+            .into_entries()
+            .remove(0)
+        {
+            HostLibraryEntry::Module(_) => {
+                panic!("expected a host initializer");
+            }
+            HostLibraryEntry::Initializer(initializer) => {
+                assert_eq!(initializer.name(), "provider:init");
+            }
+        }
     }
 }

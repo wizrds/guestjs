@@ -256,7 +256,7 @@ impl GuestBuilder<'_> {
 
         Scope::with(&context, async move |scope| {
             for initializer in registration.into_initializers() {
-                initializer.initialize(scope.ctx())?;
+                initializer.initialize(&scope)?;
             }
 
             Ok(())
@@ -493,13 +493,13 @@ mod tests {
     #[cfg(feature = "tokio")]
     use tokio_util::sync::CancellationToken;
 
-    use super::{Runtime, Scope};
     use crate::{
         errors::Error,
         execution::Cancellation,
         handle::Function,
-        host::{Exports, HostLibrary, HostModule},
+        host::{Exports, HostInitializer, HostLibrary, HostModule},
         native::{NativeInitializer, NativeLibrary, NativeModule},
+        runtime::{Runtime, Scope},
     };
 
     const SCOPED_GUEST_MODULE_SOURCE: &str = r#"
@@ -624,6 +624,27 @@ mod tests {
 
         fn build(&self, exports: &mut Exports) {
             exports.default(self.value);
+        }
+    }
+
+    struct InitializingHostModule;
+
+    impl HostModule for InitializingHostModule {
+        fn name(&self) -> &str {
+            "@host/initialized"
+        }
+
+        fn initialize<'js>(&self, scope: &Scope<'js>) -> Result<(), Error> {
+            scope
+                .ctx()
+                .globals()
+                .set("__hostInitialized", true)?;
+
+            Ok(())
+        }
+
+        fn build(&self, exports: &mut Exports) {
+            exports.constant("value", 42_i32);
         }
     }
 
@@ -1013,6 +1034,140 @@ mod tests {
                 .await
                 .unwrap(),
             5,
+        );
+    }
+
+    #[tokio::test]
+    async fn host_initializer_runs_once_per_guest() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let runtime = Runtime::builder()
+            .bind(
+                HostLibrary::new()
+                    .initialize(HostInitializer::new(
+                        "host:init",
+                        {
+                            let calls = calls.clone();
+
+                            move |_scope| {
+                                calls.fetch_add(1, Ordering::SeqCst);
+
+                                Ok(())
+                            }
+                        },
+                    )),
+            )
+            .build()
+            .await
+            .unwrap();
+
+        runtime
+            .guest()
+            .build()
+            .await
+            .unwrap();
+        runtime
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn local_host_initializer_is_isolated() {
+        let runtime = Runtime::builder()
+            .build()
+            .await
+            .unwrap();
+        let initialized = runtime
+            .guest()
+            .bind(
+                HostLibrary::new()
+                    .initialize(HostInitializer::new(
+                        "local:init",
+                        |scope| {
+                            scope
+                                .ctx()
+                                .globals()
+                                .set("__localHostInitialized", true)?;
+
+                            Ok(())
+                        },
+                    )),
+            )
+            .build()
+            .await
+            .unwrap();
+        let plain = runtime
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        assert!(
+            initialized
+                .eval::<bool>("globalThis.__localHostInitialized === true")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !plain
+                .eval::<bool>("globalThis.__localHostInitialized === true")
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn host_initializer_failure_cleans_up_guest_registration() {
+        let runtime = Runtime::builder()
+            .build()
+            .await
+            .unwrap();
+        let drops = Arc::new(AtomicUsize::new(0));
+
+        assert!(matches!(
+            runtime
+                .guest()
+                .bind(
+                    HostLibrary::new()
+                        .with(TrackedHostModule::new("@host/scoped", 1, drops.clone()))
+                        .initialize(HostInitializer::new(
+                            "failing:init",
+                            |_scope| {
+                                Err(Error::unexpected("host initializer failed"))
+                            },
+                        )),
+                )
+                .build()
+                .await,
+            Err(Error::Unexpected { message, .. }) if message == "host initializer failed",
+        ));
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn host_module_initialize_runs_before_guest_module() {
+        assert!(
+            Runtime::builder()
+                .bind(InitializingHostModule)
+                .build()
+                .await
+                .unwrap()
+                .guest()
+                .build()
+                .await
+                .unwrap()
+                .guest_module(
+                    "initialized.js",
+                    "export default globalThis.__hostInitialized === true;",
+                )
+                .await
+                .unwrap()
+                .get::<bool>("default")
+                .await
+                .unwrap()
         );
     }
 
