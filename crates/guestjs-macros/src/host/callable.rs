@@ -557,7 +557,7 @@ impl ClassMethod {
 
 pub(super) enum ModuleMethod {
     Function(Box<ModuleFunction>),
-    Hook(ModuleHook),
+    Hook(Box<ModuleHook>),
 }
 
 impl ModuleMethod {
@@ -598,30 +598,30 @@ impl ModuleMethod {
         }
 
         if options.object.is_present() {
-            return Ok(Some(Self::Hook(ModuleHook::new(
+            return Ok(Some(Self::Hook(Box::new(ModuleHook::new(
                 method,
                 ModuleHookKind::Object,
                 options.name,
                 rename_all,
-            )?)));
+            )?))));
         }
 
         if options.build.is_present() {
-            return Ok(Some(Self::Hook(ModuleHook::new(
+            return Ok(Some(Self::Hook(Box::new(ModuleHook::new(
                 method,
                 ModuleHookKind::Build,
                 options.name,
                 rename_all,
-            )?)));
+            )?))));
         }
 
         if options.init.is_present() {
-            return Ok(Some(Self::Hook(ModuleHook::new(
+            return Ok(Some(Self::Hook(Box::new(ModuleHook::new(
                 method,
                 ModuleHookKind::Init,
                 options.name,
                 rename_all,
-            )?)));
+            )?))));
         }
 
         if options.get.is_present() || options.set.is_present() {

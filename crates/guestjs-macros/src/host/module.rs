@@ -143,7 +143,7 @@ impl ModuleConstant {
 enum ModuleMember {
     Constant(Box<ModuleConstant>),
     Function(Box<ModuleFunction>),
-    Hook(ModuleHook),
+    Hook(Box<ModuleHook>),
 }
 
 impl ModuleMember {
@@ -185,7 +185,7 @@ pub(crate) struct HostModuleMacro {
     name: String,
     crate_path: Path,
     classes: PathList,
-    init_hook: Option<ModuleHook>,
+    init_hook: Option<Box<ModuleHook>>,
     members: Vec<ModuleMember>,
 }
 
@@ -207,7 +207,7 @@ impl HostModuleMacro {
 
         let mut export_names = HashMap::new();
         let mut build_hook = None;
-        let mut init_hook = None::<ModuleHook>;
+        let mut init_hook = None::<Box<ModuleHook>>;
         let mut members = Vec::new();
 
         for member in &mut item.items {
@@ -220,7 +220,7 @@ impl HostModuleMacro {
                     match method {
                         ModuleMethod::Function(function) => ModuleMember::Function(function),
                         ModuleMethod::Hook(hook) => {
-                            match (hook.kind(), init_hook.as_ref().map(ModuleHook::span)) {
+                            match (hook.kind(), init_hook.as_ref().map(|hook| hook.span())) {
                                 (ModuleHookKind::Build, _) => {
                                     if let Some(previous) = build_hook {
                                         let mut error = syn::Error::new(
@@ -408,7 +408,7 @@ impl HostModuleMacro {
 
         if let Some(error) = init_hook
             .as_ref()
-            .and_then(ModuleHook::error)
+            .and_then(|hook| hook.error())
         {
             generics
                 .make_where_clause()

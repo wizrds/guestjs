@@ -526,6 +526,7 @@ mod tests {
     }
 
     impl InitializingHost {
+        #[allow(clippy::arc_with_non_send_sync)]
         fn binding(
             name: &'static str,
             calls: Rc<RefCell<Vec<&'static str>>>,
