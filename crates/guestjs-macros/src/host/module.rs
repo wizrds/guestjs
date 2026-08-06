@@ -220,7 +220,12 @@ impl HostModuleMacro {
                     match method {
                         ModuleMethod::Function(function) => ModuleMember::Function(function),
                         ModuleMethod::Hook(hook) => {
-                            match (hook.kind(), init_hook.as_ref().map(|hook| hook.span())) {
+                            match (
+                                hook.kind(),
+                                init_hook
+                                    .as_ref()
+                                    .map(|hook| hook.span()),
+                            ) {
                                 (ModuleHookKind::Build, _) => {
                                     if let Some(previous) = build_hook {
                                         let mut error = syn::Error::new(

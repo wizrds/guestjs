@@ -1141,8 +1141,7 @@ mod tests {
             guest
                 .scope(async move |scope| {
                     scope
-                        .host_module("@host/bag")
-                        .await?
+                        .host_module("@host/bag")?
                         .function("total")?
                         .call::<_, f64>((vec![Coord { value: 1.0 }, Coord { value: 2.0 }],))
                 })
