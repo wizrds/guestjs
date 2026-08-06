@@ -630,8 +630,7 @@
 //!         .await?
 //!         .scope(async move |scope| {
 //!             scope
-//!                 .host_module("@host/geometry")
-//!                 .await?
+//!                 .host_module("@host/geometry")?
 //!                 .function("hypot")?
 //!                 .call::<_, f64>((5.0, 12.0))
 //!         })

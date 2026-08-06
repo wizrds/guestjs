@@ -365,13 +365,7 @@ impl Guest {
 
     /// Instantiates a registered host binding in this guest and returns a handle to its exports.
     pub async fn host_module(&self, name: &str) -> Result<Module, Error> {
-        Scope::with(&self.context, async move |scope| {
-            scope
-                .host_module(name)
-                .await?
-                .into_owned()
-        })
-        .await
+        Scope::with(&self.context, async move |scope| scope.host_module(name)?.into_owned()).await
     }
 }
 
@@ -451,7 +445,7 @@ impl<'js> Scope<'js> {
     }
 
     /// Loads a registered host module.
-    pub async fn host_module(&self, name: &str) -> Result<BoundModule<'js>, Error> {
+    pub fn host_module(&self, name: &str) -> Result<BoundModule<'js>, Error> {
         self.parent()
             .ok_or_else(Error::detached_scope)?;
 
@@ -468,8 +462,7 @@ impl<'js> Scope<'js> {
         .catch(self.ctx())?;
 
         promise
-            .into_future::<()>()
-            .await
+            .finish::<()>()
             .catch(self.ctx())?;
 
         Ok(BoundModule::new(module.namespace().catch(self.ctx())?, self.clone()))
@@ -919,8 +912,7 @@ mod tests {
             .scope(async move |scope| {
                 assert_eq!(
                     scope
-                        .host_module("@host/arithmetic")
-                        .await?
+                        .host_module("@host/arithmetic")?
                         .function("multiply")?
                         .call::<_, i32>((6, 7))?,
                     42,
@@ -983,8 +975,7 @@ mod tests {
                 ));
                 assert!(matches!(
                     scope
-                        .host_module("@host/missing")
-                        .await,
+                        .host_module("@host/missing"),
                     Err(Error::Unexpected { message, .. })
                         if message == "cannot build an owned guest handle on detached scope",
                 ));
