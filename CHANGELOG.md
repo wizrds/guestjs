@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.2.0](https://github.com/wizrds/guestjs/compare/0.1.7..0.2.0) - 2026-08-06
+
+### Features
+
+-  [**breaking**]Make Scope::host_module synchronous to better reflect no yields happen and support use in initializers  - ([a83a835](https://github.com/wizrds/guestjs/commit/a83a835584a89a97d78d481d7bc3b260530a164b)) - Timothy Pogue
+---
 ## [0.1.7](https://github.com/wizrds/guestjs/compare/0.1.6..0.1.7) - 2026-08-05
 
 ### Bug Fixes
