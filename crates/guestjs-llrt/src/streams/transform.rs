@@ -12,7 +12,7 @@ use guestjs_core::{
 };
 use rquickjs::{
     CatchResultExt, Constructor as JsConstructor, Ctx, Exception, Function as JsFunction,
-    Object as JsObject, Value,
+    Object as JsObject, Value as JsValue,
     function::{Async, This},
 };
 
@@ -58,19 +58,19 @@ where
 {
     type Owned = Self;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
         Ok(Self::new(Instance::from_guest(scope, value)?))
     }
 }
 
 impl<I, O> ToGuest for TransformStream<I, O> {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.object.to_guest(scope)
     }
 }
 
 impl<I, O> ToGuest for &TransformStream<I, O> {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.object.clone().to_guest(scope)
     }
 }
@@ -98,7 +98,7 @@ where
     I: FromGuest<Owned = I> + 'static,
     O: ToGuest + 'static,
 {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         let transform = Rc::new(RefCell::new(self.transform));
         let underlying = JsObject::new(scope.ctx().clone()).catch(scope.ctx())?;
 
@@ -107,7 +107,7 @@ where
                 "transform",
                 JsFunction::new(
                     scope.ctx().clone(),
-                    Async(move |ctx: Ctx<'js>, chunk: Value<'js>, controller: JsObject<'js>| {
+                    Async(move |ctx: Ctx<'js>, chunk: JsValue<'js>, controller: JsObject<'js>| {
                         let prepared = I::from_guest(&Scope::detached(ctx.clone()), chunk)
                             .map(|chunk| transform.borrow_mut()(chunk));
                         let future_ctx = ctx.clone();

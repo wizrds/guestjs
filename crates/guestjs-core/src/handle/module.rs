@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use rquickjs::{
     CatchResultExt, Constructor as JsConstructor, Function as JsFunction, Object as JsObject,
-    Persistent, Value,
+    Persistent, Value as JsValue,
 };
 
 use crate::{
@@ -88,7 +88,7 @@ impl<'js> BoundModule<'js> {
         Self { namespace, scope }
     }
 
-    fn get_value(&self, name: &str) -> Result<Value<'js>, Error> {
+    fn get_value(&self, name: &str) -> Result<JsValue<'js>, Error> {
         self.namespace
             .get(name)
             .catch(self.scope.ctx())
@@ -146,8 +146,8 @@ impl<'js> BoundModule<'js> {
 }
 
 impl<'js> ToGuestBound<'js> for BoundModule<'js> {
-    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<Value<'js>, Error> {
-        Ok(Value::from(self.namespace))
+    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+        Ok(JsValue::from(self.namespace))
     }
 }
 

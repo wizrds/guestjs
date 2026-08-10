@@ -3,11 +3,13 @@
 pub use guestjs_core::{
     errors::*,
     execution::*,
-    handle::*,
+    handle::{
+        array::*, awaitable::*, class::*, function::*, instance::*, module::*, object::*,
+        promise::*, scoped::*, value::*,
+    },
     host::{args::*, callable::*, class::*, library::*, module::*, namespace::*, object::*},
     marshal::*,
     native::*,
     runtime::*,
     transpiler::*,
-    value::*,
 };

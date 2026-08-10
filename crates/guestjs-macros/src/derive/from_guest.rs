@@ -54,7 +54,7 @@ impl FromGuestDerive {
 
                 fn from_guest<'js>(
                     _scope: &#crate_path::runtime::Scope<'js>,
-                    value: #crate_path::value::Value<'js>,
+                    value: #crate_path::__private::JsValue<'js>,
                 ) -> Result<
                     Self::Owned,
                     #crate_path::errors::Error,
@@ -70,7 +70,7 @@ impl FromGuestDerive {
 
                 fn from_guest_bound<#bound_lifetime>(
                     _scope: &#crate_path::runtime::Scope<#bound_lifetime>,
-                    value: #crate_path::value::Value<#bound_lifetime>,
+                    value: #crate_path::__private::JsValue<#bound_lifetime>,
                 ) -> Result<
                     Self::Bound<#bound_lifetime>,
                     #crate_path::errors::Error,

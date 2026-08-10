@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use rquickjs::{
-    CatchResultExt, Function as JsFunction, Object as JsObject, Persistent, Value,
+    CatchResultExt, Function as JsFunction, Object as JsObject, Persistent, Value as JsValue,
     function::Args as JsArgs,
 };
 
@@ -75,8 +75,8 @@ impl Instance {
 }
 
 impl ToGuest for Instance {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
-        Ok(Value::from(
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+        Ok(JsValue::from(
             self.value
                 .restore(scope.ctx())
                 .catch(scope.ctx())?,
@@ -85,7 +85,7 @@ impl ToGuest for Instance {
 }
 
 impl<'js> ToGuestBound<'js> for Instance {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.to_guest(scope)
     }
 }
@@ -93,7 +93,7 @@ impl<'js> ToGuestBound<'js> for Instance {
 impl FromGuest for Instance {
     type Owned = Self;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
         Ok(Instance::new(
             Persistent::save(
                 scope.ctx(),
@@ -114,7 +114,7 @@ impl FromGuestBound for Instance {
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
-        value: Value<'js>,
+        value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error> {
         Ok(BoundInstance::new(
             value
@@ -175,7 +175,7 @@ impl<'js> BoundInstance<'js> {
         ))
     }
 
-    fn call_value(&self, method: &str, mut args: JsArgs<'js>) -> Result<Value<'js>, Error> {
+    fn call_value(&self, method: &str, mut args: JsArgs<'js>) -> Result<JsValue<'js>, Error> {
         args.this(self.value.clone())
             .catch(self.scope.ctx())?;
 
@@ -187,14 +187,14 @@ impl<'js> BoundInstance<'js> {
             .map_err(Into::into)
     }
 
-    fn get_value(&self, property: &str) -> Result<Value<'js>, Error> {
+    fn get_value(&self, property: &str) -> Result<JsValue<'js>, Error> {
         self.value
             .get(property)
             .catch(self.scope.ctx())
             .map_err(Into::into)
     }
 
-    fn set_value(&self, property: &str, value: Value<'js>) -> Result<(), Error> {
+    fn set_value(&self, property: &str, value: JsValue<'js>) -> Result<(), Error> {
         self.value
             .set(property, value)
             .catch(self.scope.ctx())
@@ -203,8 +203,8 @@ impl<'js> BoundInstance<'js> {
 }
 
 impl<'js> ToGuestBound<'js> for BoundInstance<'js> {
-    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<Value<'js>, Error> {
-        Ok(Value::from(self.value))
+    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+        Ok(JsValue::from(self.value))
     }
 }
 

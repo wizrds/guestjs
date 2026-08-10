@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin};
 
 use rquickjs::{
-    CatchResultExt, Ctx, Exception, Function as JsFunction, Value,
+    CatchResultExt, Ctx, Exception, Function as JsFunction, Value as JsValue,
     function::{Async, Rest},
 };
 
@@ -12,8 +12,8 @@ use crate::{
     runtime::Scope,
 };
 
-pub(crate) type BoxFuture<'js> = Pin<Box<dyn Future<Output = Result<Value<'js>, Error>> + 'js>>;
-type SyncThunk = Box<dyn for<'js> Fn(&Scope<'js>, Args<'js>) -> Result<Value<'js>, Error>>;
+pub(crate) type BoxFuture<'js> = Pin<Box<dyn Future<Output = Result<JsValue<'js>, Error>> + 'js>>;
+type SyncThunk = Box<dyn for<'js> Fn(&Scope<'js>, Args<'js>) -> Result<JsValue<'js>, Error>>;
 type AsyncThunk = Box<dyn for<'js> Fn(&Scope<'js>, Args<'js>) -> Result<BoxFuture<'js>, Error>>;
 
 pub(crate) enum CallableBody {
@@ -44,22 +44,24 @@ impl CallableBody {
         }))
     }
 
-    pub(crate) fn into_function<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    pub(crate) fn into_function<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         match self {
-            Self::Sync(thunk) => Ok(Value::from(
+            Self::Sync(thunk) => Ok(JsValue::from(
                 JsFunction::new(
                     scope.ctx().clone(),
-                    move |ctx: Ctx<'js>, args: Rest<Value<'js>>| -> rquickjs::Result<Value<'js>> {
+                    move |ctx: Ctx<'js>,
+                          args: Rest<JsValue<'js>>|
+                          -> rquickjs::Result<JsValue<'js>> {
                         thunk(&Scope::detached(ctx.clone()), Args::new(args.0))
                             .map_err(|error| Exception::throw_message(&ctx, &error.to_string()))
                     },
                 )
                 .catch(scope.ctx())?,
             )),
-            Self::Async(thunk) => Ok(Value::from(
+            Self::Async(thunk) => Ok(JsValue::from(
                 JsFunction::new(
                     scope.ctx().clone(),
-                    Async(move |ctx: Ctx<'js>, args: Rest<Value<'js>>| {
+                    Async(move |ctx: Ctx<'js>, args: Rest<JsValue<'js>>| {
                         let prepared = thunk(&Scope::detached(ctx.clone()), Args::new(args.0));
 
                         async move {
@@ -104,13 +106,13 @@ impl HostFn {
 }
 
 impl ToGuest for HostFn {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.body.into_function(scope)
     }
 }
 
 impl<'js> ToGuestBound<'js> for HostFn {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.to_guest(scope)
     }
 }

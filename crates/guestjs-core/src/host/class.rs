@@ -6,7 +6,7 @@ use std::{
 
 use rquickjs::{
     Array, Atom, CatchResultExt, Class, Constructor, Ctx, Exception, FromJs,
-    Function as JsFunction, JsLifetime, Object as JsObject, Symbol, Value,
+    Function as JsFunction, JsLifetime, Object as JsObject, Symbol, Value as JsValue,
     class::{JsClass, OwnedBorrow, OwnedBorrowMut, Trace, Tracer, Writable},
     function::{Async, Rest, This},
     object::Accessor,
@@ -57,10 +57,10 @@ impl WellKnownSymbol {
     }
 }
 
-type MethodResult<'js> = Result<Value<'js>, Error>;
+type MethodResult<'js> = Result<JsValue<'js>, Error>;
 type MethodFuture<'js> = Pin<Box<dyn Future<Output = MethodResult<'js>> + 'js>>;
 type GetterSpec<C> = Box<dyn for<'js> Fn(&C, &Scope<'js>) -> MethodResult<'js>>;
-type SetterSpec<C> = Box<dyn for<'js> Fn(&mut C, &Scope<'js>, Value<'js>) -> Result<(), Error>>;
+type SetterSpec<C> = Box<dyn for<'js> Fn(&mut C, &Scope<'js>, JsValue<'js>) -> Result<(), Error>>;
 type RefMethod<C> = Box<dyn for<'js> Fn(&C, &Scope<'js>, Args<'js>) -> MethodResult<'js>>;
 type MutMethod<C> = Box<dyn for<'js> Fn(&mut C, &Scope<'js>, Args<'js>) -> MethodResult<'js>>;
 type AsyncRefMethod<C> =
@@ -265,7 +265,7 @@ impl<C: HostClass> ClassSpec<C> {
                     .as_object()
                     .get::<_, JsFunction>(Symbol::iterator(scope.ctx().clone()).as_atom())
                     .catch(scope.ctx())?
-                    .call::<_, Value>((This(array.clone()),))
+                    .call::<_, JsValue>((This(array.clone()),))
                     .catch(scope.ctx())
                     .map_err(Into::into)
             })),
@@ -300,8 +300,8 @@ impl<C: HostClass> MethodSpec<C> {
             Self::Ref(thunk) => JsFunction::new(
                 ctx.clone(),
                 move |this: This<Class<'js, HostInstance<C>>>,
-                      args: Rest<Value<'js>>|
-                      -> rquickjs::Result<Value<'js>> {
+                      args: Rest<JsValue<'js>>|
+                      -> rquickjs::Result<JsValue<'js>> {
                     let scope = Scope::detached(this.0.ctx().clone());
                     let guard = this.0.try_borrow()?;
 
@@ -312,8 +312,8 @@ impl<C: HostClass> MethodSpec<C> {
             Self::Mut(thunk) => JsFunction::new(
                 ctx.clone(),
                 move |this: This<Class<'js, HostInstance<C>>>,
-                      args: Rest<Value<'js>>|
-                      -> rquickjs::Result<Value<'js>> {
+                      args: Rest<JsValue<'js>>|
+                      -> rquickjs::Result<JsValue<'js>> {
                     let scope = Scope::detached(this.0.ctx().clone());
                     let mut guard = this.0.try_borrow_mut()?;
 
@@ -323,7 +323,7 @@ impl<C: HostClass> MethodSpec<C> {
             ),
             Self::AsyncRef(thunk) => JsFunction::new(
                 ctx.clone(),
-                Async(move |this: This<Class<'js, HostInstance<C>>>, args: Rest<Value<'js>>| {
+                Async(move |this: This<Class<'js, HostInstance<C>>>, args: Rest<JsValue<'js>>| {
                     let ctx = this.0.ctx().clone();
 
                     let future = this
@@ -345,7 +345,7 @@ impl<C: HostClass> MethodSpec<C> {
             ),
             Self::AsyncMut(thunk) => JsFunction::new(
                 ctx.clone(),
-                Async(move |this: This<Class<'js, HostInstance<C>>>, args: Rest<Value<'js>>| {
+                Async(move |this: This<Class<'js, HostInstance<C>>>, args: Rest<JsValue<'js>>| {
                     let ctx = this.0.ctx().clone();
 
                     let future = this
@@ -405,7 +405,7 @@ impl<'js, C: HostClass> JsClass<'js> for HostInstance<C> {
                         Accessor::new(
                             move |ctx: Ctx<'js>,
                                   this: This<Class<'js, HostInstance<C>>>|
-                                  -> rquickjs::Result<Value<'js>> {
+                                  -> rquickjs::Result<JsValue<'js>> {
                                 let scope = Scope::detached(ctx.clone());
                                 let guard = this.0.try_borrow()?;
 
@@ -415,7 +415,7 @@ impl<'js, C: HostClass> JsClass<'js> for HostInstance<C> {
                             },
                             move |ctx: Ctx<'js>,
                                   this: This<Class<'js, HostInstance<C>>>,
-                                  value: Value<'js>|
+                                  value: JsValue<'js>|
                                   -> rquickjs::Result<()> {
                                 let scope = Scope::detached(ctx.clone());
                                 let mut guard = this.0.try_borrow_mut()?;
@@ -433,7 +433,7 @@ impl<'js, C: HostClass> JsClass<'js> for HostInstance<C> {
                         Accessor::from(
                             move |ctx: Ctx<'js>,
                                   this: This<Class<'js, HostInstance<C>>>|
-                                  -> rquickjs::Result<Value<'js>> {
+                                  -> rquickjs::Result<JsValue<'js>> {
                                 let scope = Scope::detached(ctx.clone());
                                 let guard = this.0.try_borrow()?;
 
@@ -450,7 +450,7 @@ impl<'js, C: HostClass> JsClass<'js> for HostInstance<C> {
                         Accessor::new_set(
                             move |ctx: Ctx<'js>,
                                   this: This<Class<'js, HostInstance<C>>>,
-                                  value: Value<'js>|
+                                  value: JsValue<'js>|
                                   -> rquickjs::Result<()> {
                                 let scope = Scope::detached(ctx.clone());
                                 let mut guard = this.0.try_borrow_mut()?;
@@ -477,7 +477,7 @@ impl<'js, C: HostClass> JsClass<'js> for HostInstance<C> {
         Constructor::new_class::<HostInstance<C>, _, _>(
             ctx.clone(),
             |ctx: Ctx<'js>,
-             args: Rest<Value<'js>>|
+             args: Rest<JsValue<'js>>|
              -> rquickjs::Result<Class<'js, HostInstance<C>>> {
                 Class::instance(
                     ctx.clone(),
@@ -493,13 +493,13 @@ impl<'js, C: HostClass> JsClass<'js> for HostInstance<C> {
 }
 
 impl<C: HostClass> HostInstance<C> {
-    pub(crate) fn into_guest<'js>(scope: &Scope<'js>, value: C) -> Result<Value<'js>, Error> {
+    pub(crate) fn into_guest<'js>(scope: &Scope<'js>, value: C) -> Result<JsValue<'js>, Error> {
         Ok(Class::instance(scope.ctx().clone(), HostInstance(value))
             .catch(scope.ctx())?
             .into_value())
     }
 
-    pub(crate) fn cloned<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<C, Error>
+    pub(crate) fn cloned<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<C, Error>
     where
         C: Clone,
     {
@@ -508,7 +508,7 @@ impl<C: HostClass> HostInstance<C> {
             .clone())
     }
 
-    pub(crate) fn export<'js>(scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    pub(crate) fn export<'js>(scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         let constructor = Class::<HostInstance<C>>::create_constructor(scope.ctx())
             .catch(scope.ctx())?
             .ok_or_else(|| Error::unexpected("host class has no constructor"))?;
@@ -556,7 +556,7 @@ impl<'js, C: HostClass> DerefMut for RefMut<'js, C> {
 impl<'js, C: HostClass> FromGuestRef<'js> for C {
     type Ref = Ref<'js, C>;
 
-    fn from_guest_ref(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Ref, Error> {
+    fn from_guest_ref(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Ref, Error> {
         Ok(Ref(OwnedBorrow::from_js(scope.ctx(), value)?))
     }
 }
@@ -564,7 +564,7 @@ impl<'js, C: HostClass> FromGuestRef<'js> for C {
 impl<'js, C: HostClass> FromGuestMut<'js> for C {
     type Mut = RefMut<'js, C>;
 
-    fn from_guest_mut(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Mut, Error> {
+    fn from_guest_mut(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Mut, Error> {
         Ok(RefMut(OwnedBorrowMut::from_js(scope.ctx(), value)?))
     }
 }
@@ -573,7 +573,7 @@ impl<C> ToGuest for C
 where
     C: HostClass,
 {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         HostInstance::<C>::into_guest(scope, self)
     }
 }
@@ -582,7 +582,7 @@ impl<'js, C> ToGuestBound<'js> for C
 where
     C: HostClass,
 {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         HostInstance::<C>::into_guest(scope, self)
     }
 }
@@ -593,7 +593,7 @@ where
 {
     type Owned = Self;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
         HostInstance::<C>::cloned(scope, value)
     }
 }
@@ -606,7 +606,7 @@ where
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
-        value: Value<'js>,
+        value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error> {
         HostInstance::<C>::cloned(scope, value)
     }

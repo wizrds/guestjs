@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use rquickjs::{
-    CatchResultExt, Function as JsFunction, Persistent, Value, function::Args as JsArgs,
+    CatchResultExt, Function as JsFunction, Persistent, Value as JsValue, function::Args as JsArgs,
 };
 
 use crate::{
@@ -51,8 +51,8 @@ impl Function {
 }
 
 impl ToGuest for Function {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
-        Ok(Value::from(
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+        Ok(JsValue::from(
             self.value
                 .restore(scope.ctx())
                 .catch(scope.ctx())?,
@@ -61,7 +61,7 @@ impl ToGuest for Function {
 }
 
 impl<'js> ToGuestBound<'js> for Function {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.to_guest(scope)
     }
 }
@@ -69,7 +69,7 @@ impl<'js> ToGuestBound<'js> for Function {
 impl FromGuest for Function {
     type Owned = Self;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
         Ok(Function::new(
             Persistent::save(
                 scope.ctx(),
@@ -90,7 +90,7 @@ impl FromGuestBound for Function {
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
-        value: Value<'js>,
+        value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error> {
         Ok(BoundFunction::new(
             value
@@ -132,17 +132,17 @@ impl<'js> BoundFunction<'js> {
         ))
     }
 
-    fn call_value(&self, args: JsArgs<'js>) -> Result<Value<'js>, Error> {
+    fn call_value(&self, args: JsArgs<'js>) -> Result<JsValue<'js>, Error> {
         self.value
-            .call_arg::<Value>(args)
+            .call_arg::<JsValue>(args)
             .catch(self.scope.ctx())
             .map_err(Into::into)
     }
 }
 
 impl<'js> ToGuestBound<'js> for BoundFunction<'js> {
-    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<Value<'js>, Error> {
-        Ok(Value::from(self.value))
+    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+        Ok(JsValue::from(self.value))
     }
 }
 

@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use rquickjs::{
-    CatchResultExt, Ctx, Exception, Object as JsObject, Value,
+    CatchResultExt, Ctx, Exception, Object as JsObject, Value as JsValue,
     object::{Accessor, Property},
 };
 
@@ -16,15 +16,15 @@ use crate::{
     runtime::Scope,
 };
 
-pub(crate) type ValueThunk = Box<dyn for<'js> Fn(&Scope<'js>) -> Result<Value<'js>, Error>>;
-pub(crate) type SetThunk = Box<dyn for<'js> Fn(&Scope<'js>, Value<'js>) -> Result<(), Error>>;
+pub(crate) type JsValueThunk = Box<dyn for<'js> Fn(&Scope<'js>) -> Result<JsValue<'js>, Error>>;
+pub(crate) type SetThunk = Box<dyn for<'js> Fn(&Scope<'js>, JsValue<'js>) -> Result<(), Error>>;
 
 pub(crate) enum Member {
     Callable(CallableBody),
-    Constant(ValueThunk),
-    Property(ValueThunk),
+    Constant(JsValueThunk),
+    Property(JsValueThunk),
     Accessor {
-        get: Option<ValueThunk>,
+        get: Option<JsValueThunk>,
         set: Option<SetThunk>,
     },
     Object(Namespace),
@@ -237,7 +237,7 @@ impl Member {
         Ok(())
     }
 
-    pub(crate) fn into_export_value<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    pub(crate) fn into_export_value<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         match self {
             Self::Callable(body) => body.into_function(scope),
             Self::Constant(value) | Self::Property(value) => value(scope),
@@ -258,7 +258,7 @@ impl Member {
         scope: &Scope<'js>,
         object: &JsObject<'js>,
         name: &str,
-        get: Option<ValueThunk>,
+        get: Option<JsValueThunk>,
         set: Option<SetThunk>,
     ) -> Result<(), Error> {
         match (get, set) {
@@ -267,12 +267,12 @@ impl Member {
                     .prop(
                         name,
                         Accessor::new(
-                            move |ctx: Ctx<'js>| -> rquickjs::Result<Value<'js>> {
+                            move |ctx: Ctx<'js>| -> rquickjs::Result<JsValue<'js>> {
                                 get(&Scope::detached(ctx.clone())).map_err(|error| {
                                     Exception::throw_message(&ctx, &error.to_string())
                                 })
                             },
-                            move |ctx: Ctx<'js>, value: Value<'js>| -> rquickjs::Result<()> {
+                            move |ctx: Ctx<'js>, value: JsValue<'js>| -> rquickjs::Result<()> {
                                 set(&Scope::detached(ctx.clone()), value).map_err(|error| {
                                     Exception::throw_message(&ctx, &error.to_string())
                                 })
@@ -285,7 +285,7 @@ impl Member {
                 object
                     .prop(
                         name,
-                        Accessor::from(move |ctx: Ctx<'js>| -> rquickjs::Result<Value<'js>> {
+                        Accessor::from(move |ctx: Ctx<'js>| -> rquickjs::Result<JsValue<'js>> {
                             get(&Scope::detached(ctx.clone()))
                                 .map_err(|error| Exception::throw_message(&ctx, &error.to_string()))
                         }),
@@ -297,7 +297,7 @@ impl Member {
                     .prop(
                         name,
                         Accessor::new_set(
-                            move |ctx: Ctx<'js>, value: Value<'js>| -> rquickjs::Result<()> {
+                            move |ctx: Ctx<'js>, value: JsValue<'js>| -> rquickjs::Result<()> {
                                 set(&Scope::detached(ctx.clone()), value).map_err(|error| {
                                     Exception::throw_message(&ctx, &error.to_string())
                                 })

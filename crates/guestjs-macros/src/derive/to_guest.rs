@@ -45,7 +45,7 @@ impl ToGuestDerive {
                     self,
                     scope: &#crate_path::runtime::Scope<'js>,
                 ) -> Result<
-                    #crate_path::value::Value<'js>,
+                    #crate_path::__private::JsValue<'js>,
                     #crate_path::errors::Error,
                 > {
                     #crate_path::__private::to_value(self, scope)
@@ -60,7 +60,7 @@ impl ToGuestDerive {
                     self,
                     scope: &#crate_path::runtime::Scope<#bound_lifetime>,
                 ) -> Result<
-                    #crate_path::value::Value<#bound_lifetime>,
+                    #crate_path::__private::JsValue<#bound_lifetime>,
                     #crate_path::errors::Error,
                 > {
                     #crate_path::__private::to_value(self, scope)

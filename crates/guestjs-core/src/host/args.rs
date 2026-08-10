@@ -1,4 +1,4 @@
-use rquickjs::Value;
+use rquickjs::Value as JsValue;
 
 use crate::{
     errors::Error,
@@ -8,11 +8,11 @@ use crate::{
 
 /// Arguments passed from guest code into a host callable.
 pub struct Args<'js> {
-    values: Vec<Value<'js>>,
+    values: Vec<JsValue<'js>>,
 }
 
 impl<'js> Args<'js> {
-    pub(crate) fn new(values: Vec<Value<'js>>) -> Self {
+    pub(crate) fn new(values: Vec<JsValue<'js>>) -> Self {
         Self { values }
     }
 
@@ -87,7 +87,7 @@ impl<'js> Args<'js> {
             .collect()
     }
 
-    fn required(&self, index: usize) -> Result<Value<'js>, Error> {
+    fn required(&self, index: usize) -> Result<JsValue<'js>, Error> {
         self.values
             .get(index)
             .cloned()

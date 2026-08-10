@@ -1,15 +1,17 @@
-use rquickjs::{Array, CatchResultExt, FromJs, IntoJs, Type, Value, function::Args as JsArgs};
+use rquickjs::{
+    Array, CatchResultExt, FromJs, IntoJs, Type, Value as JsValue, function::Args as JsArgs,
+};
 
 use crate::{errors::Error, runtime::Scope};
 
 /// Converts a Rust value into a JavaScript value.
 pub trait ToGuest {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error>;
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error>;
 }
 
 /// Converts a Rust value into a JavaScript value within a scope.
 pub trait ToGuestBound<'js> {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error>;
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error>;
 }
 
 /// Converts a JavaScript value into an owned Rust value.
@@ -17,7 +19,7 @@ pub trait FromGuest {
     /// The owned Rust value.
     type Owned: 'static;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error>;
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error>;
 }
 
 /// Converts a JavaScript value into a scope-bound Rust value.
@@ -27,7 +29,7 @@ pub trait FromGuestBound {
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
-        value: Value<'js>,
+        value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error>;
 }
 
@@ -55,7 +57,7 @@ pub trait FromGuestRef<'js> {
     /// The shared borrow.
     type Ref;
 
-    fn from_guest_ref(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Ref, Error>;
+    fn from_guest_ref(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Ref, Error>;
 }
 
 /// Converts a JavaScript value into an exclusive Rust borrow.
@@ -63,7 +65,7 @@ pub trait FromGuestMut<'js> {
     /// The exclusive borrow.
     type Mut;
 
-    fn from_guest_mut(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Mut, Error>;
+    fn from_guest_mut(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Mut, Error>;
 }
 
 macro_rules! marshal_input {
@@ -73,7 +75,7 @@ macro_rules! marshal_input {
                 fn to_guest<'js>(
                     self,
                     scope: &Scope<'js>,
-                ) -> Result<Value<'js>, Error> {
+                ) -> Result<JsValue<'js>, Error> {
                     self.into_js(scope.ctx())
                         .catch(scope.ctx())
                         .map_err(Into::into)
@@ -84,7 +86,7 @@ macro_rules! marshal_input {
                 fn to_guest_bound(
                     self,
                     scope: &Scope<'js>,
-                ) -> Result<Value<'js>, Error> {
+                ) -> Result<JsValue<'js>, Error> {
                     self.into_js(scope.ctx())
                         .catch(scope.ctx())
                         .map_err(Into::into)
@@ -104,7 +106,7 @@ macro_rules! marshal_scalar {
 
                 fn from_guest<'js>(
                     scope: &Scope<'js>,
-                    value: Value<'js>,
+                    value: JsValue<'js>,
                 ) -> Result<Self::Owned, Error> {
                     <$value_type>::from_js(scope.ctx(), value)
                         .catch(scope.ctx())
@@ -117,7 +119,7 @@ macro_rules! marshal_scalar {
 
                 fn from_guest_bound<'js>(
                     scope: &Scope<'js>,
-                    value: Value<'js>,
+                    value: JsValue<'js>,
                 ) -> Result<Self::Bound<'js>, Error> {
                     <$value_type>::from_js(scope.ctx(), value)
                         .catch(scope.ctx())
@@ -153,10 +155,10 @@ impl<T> ToGuest for Option<T>
 where
     T: ToGuest,
 {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         match self {
             Some(value) => value.to_guest(scope),
-            None => Ok(Value::new_null(scope.ctx().clone())),
+            None => Ok(JsValue::new_null(scope.ctx().clone())),
         }
     }
 }
@@ -165,10 +167,10 @@ impl<'js, T> ToGuestBound<'js> for Option<T>
 where
     T: ToGuestBound<'js>,
 {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         match self {
             Some(value) => value.to_guest_bound(scope),
-            None => Ok(Value::new_null(scope.ctx().clone())),
+            None => Ok(JsValue::new_null(scope.ctx().clone())),
         }
     }
 }
@@ -179,7 +181,7 @@ where
 {
     type Owned = Option<T::Owned>;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
         match value.type_of() {
             Type::Undefined | Type::Uninitialized | Type::Null => Ok(None),
             _ => T::from_guest(scope, value).map(Some),
@@ -195,7 +197,7 @@ where
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
-        value: Value<'js>,
+        value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error> {
         match value.type_of() {
             Type::Undefined | Type::Uninitialized | Type::Null => Ok(None),
@@ -208,7 +210,7 @@ impl<T> ToGuest for Vec<T>
 where
     T: ToGuest,
 {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         let array = Array::new(scope.ctx().clone()).catch(scope.ctx())?;
 
         for (index, item) in self.into_iter().enumerate() {
@@ -225,7 +227,7 @@ impl<'js, T> ToGuestBound<'js> for Vec<T>
 where
     T: ToGuestBound<'js>,
 {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         let array = Array::new(scope.ctx().clone()).catch(scope.ctx())?;
 
         for (index, item) in self.into_iter().enumerate() {
@@ -244,7 +246,7 @@ where
 {
     type Owned = Vec<T::Owned>;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
         let array = value
             .into_array()
             .ok_or_else(|| Error::conversion("expected an array"))?;
@@ -255,7 +257,7 @@ where
             items.push(T::from_guest(
                 scope,
                 array
-                    .get::<Value>(index)
+                    .get::<JsValue>(index)
                     .catch(scope.ctx())?,
             )?);
         }
@@ -272,7 +274,7 @@ where
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
-        value: Value<'js>,
+        value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error> {
         let array = value
             .into_array()
@@ -284,7 +286,7 @@ where
             items.push(T::from_guest_bound(
                 scope,
                 array
-                    .get::<Value>(index)
+                    .get::<JsValue>(index)
                     .catch(scope.ctx())?,
             )?);
         }
@@ -378,11 +380,11 @@ impl<T> ToGuest for Nullish<T>
 where
     T: ToGuest,
 {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         match self {
             Self::Some(value) => value.to_guest(scope),
-            Self::Null => Ok(Value::new_null(scope.ctx().clone())),
-            Self::Undefined => Ok(Value::new_undefined(scope.ctx().clone())),
+            Self::Null => Ok(JsValue::new_null(scope.ctx().clone())),
+            Self::Undefined => Ok(JsValue::new_undefined(scope.ctx().clone())),
         }
     }
 }
@@ -391,11 +393,11 @@ impl<'js, T> ToGuestBound<'js> for Nullish<T>
 where
     T: ToGuestBound<'js>,
 {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         match self {
             Self::Some(value) => value.to_guest_bound(scope),
-            Self::Null => Ok(Value::new_null(scope.ctx().clone())),
-            Self::Undefined => Ok(Value::new_undefined(scope.ctx().clone())),
+            Self::Null => Ok(JsValue::new_null(scope.ctx().clone())),
+            Self::Undefined => Ok(JsValue::new_undefined(scope.ctx().clone())),
         }
     }
 }
@@ -406,7 +408,7 @@ where
 {
     type Owned = Nullish<T::Owned>;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
         match value.type_of() {
             Type::Undefined | Type::Uninitialized => Ok(Nullish::Undefined),
             Type::Null => Ok(Nullish::Null),
@@ -423,7 +425,7 @@ where
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
-        value: Value<'js>,
+        value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error> {
         match value.type_of() {
             Type::Undefined | Type::Uninitialized => Ok(Nullish::Undefined),
@@ -607,7 +609,7 @@ where
 #[cfg(feature = "bytes")]
 mod bytes_marshal {
     use bytes::Bytes;
-    use rquickjs::{CatchResultExt, TypedArray, Value};
+    use rquickjs::{CatchResultExt, TypedArray, Value as JsValue};
 
     use crate::{
         errors::Error,
@@ -617,7 +619,7 @@ mod bytes_marshal {
 
     // `new_copy` uses QuickJS-owned storage, required to survive transfer and GC.
     impl ToGuest for Bytes {
-        fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+        fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
             Ok(TypedArray::<u8>::new_copy(scope.ctx().clone(), self.as_ref())
                 .catch(scope.ctx())?
                 .into_value())
@@ -625,7 +627,7 @@ mod bytes_marshal {
     }
 
     impl<'js> ToGuestBound<'js> for Bytes {
-        fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+        fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
             self.to_guest(scope)
         }
     }
@@ -633,7 +635,7 @@ mod bytes_marshal {
     impl FromGuest for Bytes {
         type Owned = Self;
 
-        fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+        fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
             // Copy out: the view borrows QuickJS storage tied to the scope.
             Ok(Bytes::copy_from_slice(
                 TypedArray::<u8>::from_value(value)
@@ -649,7 +651,7 @@ mod bytes_marshal {
 
         fn from_guest_bound<'js>(
             scope: &Scope<'js>,
-            value: Value<'js>,
+            value: JsValue<'js>,
         ) -> Result<Self::Bound<'js>, Error> {
             Self::from_guest(scope, value)
         }
@@ -704,7 +706,7 @@ mod bytes_tests {
 
 #[cfg(test)]
 mod tests {
-    use rquickjs::{CatchResultExt, Function as JsFunction, Type, Value};
+    use rquickjs::{CatchResultExt, Function as JsFunction, Type, Value as JsValue};
 
     use crate::{
         errors::Error,
@@ -738,7 +740,7 @@ mod tests {
     impl FromGuest for OwnedOnly {
         type Owned = Self;
 
-        fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+        fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
             Ok(Self(i32::from_guest(scope, value)?))
         }
     }
@@ -751,7 +753,7 @@ mod tests {
 
         fn from_guest_bound<'js>(
             scope: &Scope<'js>,
-            value: Value<'js>,
+            value: JsValue<'js>,
         ) -> Result<Self::Bound<'js>, Error> {
             Ok(Self(i32::from_guest_bound(scope, value)?))
         }
@@ -926,7 +928,7 @@ mod tests {
                         &scope,
                         scope
                             .ctx()
-                            .eval::<Value, _>("6 * 7")
+                            .eval::<JsValue, _>("6 * 7")
                             .catch(scope.ctx())?,
                     )
                 })
@@ -952,7 +954,7 @@ mod tests {
                         &scope,
                         scope
                             .ctx()
-                            .eval::<Value, _>("[1, null, undefined]")
+                            .eval::<JsValue, _>("[1, null, undefined]")
                             .catch(scope.ctx())?,
                     )?,
                     vec![Nullish::Some(1), Nullish::Null, Nullish::Undefined,],
@@ -971,7 +973,7 @@ mod tests {
                             .ctx()
                             .eval::<JsFunction, _>("(a, b, c, d) => a + b + c + d",)
                             .catch(scope.ctx())?
-                            .call_arg::<Value>((1, 2, 3, 4).into_bound_args(&scope)?,)
+                            .call_arg::<JsValue>((1, 2, 3, 4).into_bound_args(&scope)?,)
                             .catch(scope.ctx())?,
                     )?,
                     10,

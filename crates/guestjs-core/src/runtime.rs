@@ -6,7 +6,8 @@ use std::{
 };
 
 use rquickjs::{
-    AsyncContext, AsyncRuntime, CatchResultExt, Ctx, Module as JsModule, Persistent, Value,
+    AsyncContext, AsyncRuntime, CatchResultExt, Ctx, Module as JsModule, Persistent,
+    Value as JsValue,
 };
 
 use crate::{
@@ -327,7 +328,7 @@ impl Guest {
                 &scope,
                 scope
                     .ctx()
-                    .eval::<Value, _>(source)
+                    .eval::<JsValue, _>(source)
                     .catch(scope.ctx())?,
             )
         })
@@ -545,11 +546,11 @@ mod tests {
         }
     }
 
-    struct ValueHost {
+    struct JsValueHost {
         value: i32,
     }
 
-    impl HostModule for ValueHost {
+    impl HostModule for JsValueHost {
         fn name(&self) -> &str {
             "shared"
         }
@@ -1334,7 +1335,7 @@ mod tests {
             .bind(
                 HostLibrary::new()
                     .with(ArithmeticHostModule)
-                    .with(ValueHost { value: 7 }),
+                    .with(JsValueHost { value: 7 }),
             )
             .bind_native(
                 NativeLibrary::new()
@@ -1414,7 +1415,7 @@ mod tests {
         assert_eq!(
             runtime
                 .guest()
-                .bind(ValueHost { value: 7 })
+                .bind(JsValueHost { value: 7 })
                 .build()
                 .await
                 .unwrap()
@@ -1431,7 +1432,7 @@ mod tests {
     #[tokio::test]
     async fn local_native_module_replaces_global_host() {
         let runtime = Runtime::builder()
-            .bind(ValueHost { value: 7 })
+            .bind(JsValueHost { value: 7 })
             .build()
             .await
             .unwrap();

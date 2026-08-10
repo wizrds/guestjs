@@ -1,4 +1,4 @@
-use rquickjs::{CatchResultExt, Object as JsObject, Value};
+use rquickjs::{CatchResultExt, Object as JsObject, Value as JsValue};
 
 use crate::{
     errors::Error,
@@ -27,7 +27,7 @@ impl HostObject {
 }
 
 impl ToGuest for HostObject {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         let object = JsObject::new(scope.ctx().clone()).catch(scope.ctx())?;
 
         self.namespace.apply(scope, &object)?;
@@ -37,7 +37,7 @@ impl ToGuest for HostObject {
 }
 
 impl<'js> ToGuestBound<'js> for HostObject {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.to_guest(scope)
     }
 }

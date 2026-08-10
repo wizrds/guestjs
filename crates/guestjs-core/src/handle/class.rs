@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use rquickjs::{
-    CatchResultExt, Constructor as JsConstructor, Object as JsObject, Persistent, Value,
+    CatchResultExt, Constructor as JsConstructor, Object as JsObject, Persistent, Value as JsValue,
     function::Args as JsArgs,
 };
 
@@ -56,8 +56,8 @@ impl Class {
 }
 
 impl ToGuest for Class {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
-        Ok(Value::from(
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+        Ok(JsValue::from(
             self.value
                 .restore(scope.ctx())
                 .catch(scope.ctx())?,
@@ -66,7 +66,7 @@ impl ToGuest for Class {
 }
 
 impl<'js> ToGuestBound<'js> for Class {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.to_guest(scope)
     }
 }
@@ -74,7 +74,7 @@ impl<'js> ToGuestBound<'js> for Class {
 impl FromGuest for Class {
     type Owned = Self;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
         Ok(Class::new(
             Persistent::save(
                 scope.ctx(),
@@ -95,7 +95,7 @@ impl FromGuestBound for Class {
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
-        value: Value<'js>,
+        value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error> {
         Ok(BoundClass::new(
             value
@@ -148,8 +148,8 @@ impl<'js> BoundClass<'js> {
 }
 
 impl<'js> ToGuestBound<'js> for BoundClass<'js> {
-    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<Value<'js>, Error> {
-        Ok(Value::from(self.value))
+    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+        Ok(JsValue::from(self.value))
     }
 }
 
