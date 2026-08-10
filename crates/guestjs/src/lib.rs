@@ -28,6 +28,58 @@
 //! enabled, the configured transpiler receives the module name and source before guest-module
 //! evaluation.
 //!
+//! # Guest buffers and carried values
+//!
+//! A host function fills a buffer the guest allocated by taking a
+//! [`Uint8Array`](crate::handle::Uint8Array) or [`ArrayBuffer`](crate::handle::ArrayBuffer) argument
+//! and writing through [`std::io::Write`](std::io::Write), which writes into the guest's own storage
+//! rather than a copy. [`std::io::Read`](std::io::Read) and [`std::io::Seek`](std::io::Seek) are
+//! available on the same handles. Any typed array additionally exposes
+//! [`get`](crate::handle::BoundTypedArray::get) and [`set`](crate::handle::BoundTypedArray::set)
+//! element access for its own element type.
+//!
+//! ```ignore
+//! use guestjs::prelude::*;
+//!
+//! exports.function("fillSync", |scope, args| {
+//!     args.get::<Uint8Array>(scope, 0)?
+//!         .write_all(&[1, 2, 3, 4])?;
+//!
+//!     Ok(())
+//! });
+//! ```
+//!
+//! An asynchronous host callable carries a guest value across its own await by taking it as an owned
+//! [`Value`](crate::handle::Value), which holds no scope, and binding it again after the await
+//! inside a [`Scoped`](crate::handle::Scoped) return. The guest receives the object it passed in,
+//! not a copy.
+//!
+//! ```ignore
+//! use guestjs::prelude::*;
+//!
+//! exports.async_function("fillAsync", |scope, args| {
+//!     let value = args.get_owned::<Value>(scope, 0)?;
+//!
+//!     Ok(async move {
+//!         tokio::task::yield_now().await;
+//!
+//!         Ok(Scoped::new(move |scope: &Scope| {
+//!             value
+//!                 .bind::<Uint8Array>(scope)?
+//!                 .write_all(&[1, 2, 3, 4])?;
+//!
+//!             Ok(value)
+//!         }))
+//!     })
+//! });
+//! ```
+//!
+//! The buffer handles have no owned byte access. A buffer view points into engine memory and is only
+//! valid inside a scope, so byte reads and writes live on the bound forms alone. The owned handles
+//! carry their guest context and expose the remaining surface, such as
+//! [`TypedArray::len`](crate::handle::TypedArray::len) and
+//! [`Array::get`](crate::handle::Array::get), by entering that context for each call.
+//!
 //! # Execution control
 //!
 //! Execution controls configured through
@@ -726,12 +778,12 @@ mod tests {
     use std::{cell::Cell, future::Future, rc::Rc};
 
     use crate::{
+        __private::JsValue,
         errors::Error,
         handle::{BoundFunction, Class, Function, Object, Promise},
         host::{Exports, Namespace},
         marshal::{FromGuestBound, Nullish},
         runtime::{Runtime, Scope},
-        __private::JsValue,
     };
 
     #[derive(

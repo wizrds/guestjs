@@ -49,7 +49,9 @@ impl CallableBody {
             Self::Sync(thunk) => Ok(JsValue::from(
                 JsFunction::new(
                     scope.ctx().clone(),
-                    move |ctx: Ctx<'js>, args: Rest<JsValue<'js>>| -> rquickjs::Result<JsValue<'js>> {
+                    move |ctx: Ctx<'js>,
+                          args: Rest<JsValue<'js>>|
+                          -> rquickjs::Result<JsValue<'js>> {
                         thunk(&Scope::detached(ctx.clone()), Args::new(args.0))
                             .map_err(|error| Exception::throw_message(&ctx, &error.to_string()))
                     },

@@ -1,4 +1,6 @@
-use rquickjs::{Array, CatchResultExt, FromJs, IntoJs, Type, Value as JsValue, function::Args as JsArgs};
+use rquickjs::{
+    Array, CatchResultExt, FromJs, IntoJs, Type, Value as JsValue, function::Args as JsArgs,
+};
 
 use crate::{errors::Error, runtime::Scope};
 

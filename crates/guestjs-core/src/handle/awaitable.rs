@@ -159,12 +159,11 @@ impl<'js, T> ToGuestBound<'js> for BoundAwaitable<'js, T> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        __private,
+        __private::{JsValue, from_value},
         errors::Error,
         handle::Awaitable,
         marshal::{FromGuest, FromGuestBound},
         runtime::{Runtime, Scope},
-        __private::JsValue,
     };
 
     const AWAITABLE_SOURCE: &str = r#"
@@ -193,7 +192,7 @@ mod tests {
         type Owned = Self;
 
         fn from_guest<'js>(_scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
-            __private::from_value(value)
+            from_value(value)
         }
     }
 
@@ -204,7 +203,7 @@ mod tests {
             _scope: &Scope<'js>,
             value: JsValue<'js>,
         ) -> Result<Self::Bound<'js>, Error> {
-            __private::from_value(value)
+            from_value(value)
         }
     }
 

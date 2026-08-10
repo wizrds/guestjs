@@ -6,7 +6,8 @@ use std::{
 };
 
 use rquickjs::{
-    AsyncContext, AsyncRuntime, CatchResultExt, Ctx, Module as JsModule, Persistent, Value as JsValue,
+    AsyncContext, AsyncRuntime, CatchResultExt, Ctx, Module as JsModule, Persistent,
+    Value as JsValue,
 };
 
 use crate::{

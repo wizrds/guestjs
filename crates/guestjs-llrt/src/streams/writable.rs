@@ -18,7 +18,9 @@ use guestjs_core::{
     marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
     runtime::Scope,
 };
-use rquickjs::{CatchResultExt, Constructor as JsConstructor, Object as JsObject, Value as JsValue};
+use rquickjs::{
+    CatchResultExt, Constructor as JsConstructor, Object as JsObject, Value as JsValue,
+};
 
 type ChunkSink<T> = Pin<Box<dyn Sink<T, Error = Error>>>;
 type WriterFuture = Pin<Box<dyn Future<Output = Result<(), Error>>>>;

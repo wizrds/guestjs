@@ -105,16 +105,16 @@ mod tests {
         }
 
         fn build(&self, exports: &mut Exports) {
-            exports.function("identity", |scope, args| {
-                Ok(args.get_owned::<Value>(scope, 0)?)
-            });
+            exports.function("identity", |scope, args| Ok(args.get_owned::<Value>(scope, 0)?));
             exports.function("detached", |scope, args| {
                 args.get_owned::<Value>(scope, 0)?;
 
                 Ok(true)
             });
             exports.function("number", |scope, args| {
-                Ok(args.get_owned::<Value>(scope, 0)?.bind::<i32>(scope)?)
+                Ok(args
+                    .get_owned::<Value>(scope, 0)?
+                    .bind::<i32>(scope)?)
             });
         }
     }
@@ -146,13 +146,15 @@ mod tests {
     #[tokio::test]
     async fn restores_a_value_within_one_sync_call() {
         let module = value_module().await;
-        assert!(module
-            .function("identityValue")
-            .await
-            .unwrap()
-            .call::<_, bool>(())
-            .await
-            .unwrap());
+        assert!(
+            module
+                .function("identityValue")
+                .await
+                .unwrap()
+                .call::<_, bool>(())
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]

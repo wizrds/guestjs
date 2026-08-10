@@ -1,11 +1,6 @@
-use rquickjs::{Value as JsValue};
+use rquickjs::Value as JsValue;
 
-use crate::{
-    errors::Error,
-    marshal::ToGuest,
-    runtime::Scope,
-    handle::value::Value,
-};
+use crate::{errors::Error, handle::value::Value, marshal::ToGuest, runtime::Scope};
 
 pub struct Scoped<F> {
     callback: F,
@@ -80,14 +75,16 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(module
-            .function("carryValue")
-            .await
-            .unwrap()
-            .call::<_, Promise<bool>>(())
-            .await
-            .unwrap()
-            .await
-            .unwrap());
+        assert!(
+            module
+                .function("carryValue")
+                .await
+                .unwrap()
+                .call::<_, Promise<bool>>(())
+                .await
+                .unwrap()
+                .await
+                .unwrap()
+        );
     }
 }
