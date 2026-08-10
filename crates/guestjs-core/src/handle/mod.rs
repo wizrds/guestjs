@@ -1,3 +1,4 @@
+pub mod array;
 pub mod awaitable;
 pub mod class;
 pub mod function;
@@ -8,6 +9,7 @@ pub mod promise;
 pub mod scoped;
 pub mod value;
 
+pub use array::*;
 pub use awaitable::*;
 pub use class::*;
 pub use function::*;
