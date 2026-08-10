@@ -5,6 +5,8 @@ pub mod instance;
 pub mod module;
 pub mod object;
 pub mod promise;
+pub mod scoped;
+pub mod value;
 
 pub use awaitable::*;
 pub use class::*;
@@ -13,3 +15,5 @@ pub use instance::*;
 pub use module::*;
 pub use object::*;
 pub use promise::*;
+pub use scoped::*;
+pub use value::*;

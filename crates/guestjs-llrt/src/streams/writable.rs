@@ -18,7 +18,7 @@ use guestjs_core::{
     marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
     runtime::Scope,
 };
-use rquickjs::{CatchResultExt, Constructor as JsConstructor, Object as JsObject, Value};
+use rquickjs::{CatchResultExt, Constructor as JsConstructor, Object as JsObject, Value as JsValue};
 
 type ChunkSink<T> = Pin<Box<dyn Sink<T, Error = Error>>>;
 type WriterFuture = Pin<Box<dyn Future<Output = Result<(), Error>>>>;
@@ -42,7 +42,7 @@ impl<T> ToGuest for HostWritableStream<T>
 where
     T: FromGuest<Owned = T> + 'static,
 {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         let sink = Rc::new(RefCell::new(Some(self.sink)));
         let underlying = JsObject::new(scope.ctx().clone()).catch(scope.ctx())?;
 
@@ -125,7 +125,7 @@ impl<'js, T> ToGuestBound<'js> for HostWritableStream<T>
 where
     T: FromGuest<Owned = T> + 'static,
 {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.to_guest(scope)
     }
 }
@@ -196,7 +196,7 @@ where
 {
     type Owned = Self;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
         Ok(Self::new(Instance::from_guest(scope, value)?))
     }
 }
@@ -206,7 +206,7 @@ impl<T> FromGuestBound for WritableStream<T> {
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
-        value: Value<'js>,
+        value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error> {
         Ok(BoundWritableStream {
             object: Instance::from_guest_bound(scope, value)?,
@@ -216,19 +216,19 @@ impl<T> FromGuestBound for WritableStream<T> {
 }
 
 impl<T> ToGuest for WritableStream<T> {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.object.to_guest(scope)
     }
 }
 
 impl<T> ToGuest for &WritableStream<T> {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.object.clone().to_guest(scope)
     }
 }
 
 impl<'js, T> ToGuestBound<'js> for WritableStream<T> {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.to_guest(scope)
     }
 }
@@ -285,7 +285,7 @@ impl<'js, T> BoundWritableStream<'js, T> {
 }
 
 impl<'js, T> ToGuestBound<'js> for BoundWritableStream<'js, T> {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.object.to_guest_bound(scope)
     }
 }

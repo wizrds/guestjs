@@ -5,7 +5,7 @@ use std::{
     rc::Rc,
 };
 
-use rquickjs::{CatchResultExt, Persistent, Promise as JsPromise, Value};
+use rquickjs::{CatchResultExt, Persistent, Promise as JsPromise, Value as JsValue};
 
 use crate::{
     errors::Error,
@@ -15,13 +15,13 @@ use crate::{
 
 /// An owned guest value awaited outside a scope.
 pub struct Awaitable<T> {
-    value: Persistent<Value<'static>>,
+    value: Persistent<JsValue<'static>>,
     context: Rc<GuestContext>,
     _result: PhantomData<fn() -> T>,
 }
 
 impl<T> Awaitable<T> {
-    fn new(value: Persistent<Value<'static>>, context: Rc<GuestContext>) -> Self {
+    fn new(value: Persistent<JsValue<'static>>, context: Rc<GuestContext>) -> Self {
         Self { value, context, _result: PhantomData }
     }
 
@@ -40,7 +40,7 @@ impl<T> Awaitable<T> {
 impl<T: 'static> FromGuest for Awaitable<T> {
     type Owned = Self;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
         Ok(Self::new(
             Persistent::save(scope.ctx(), value),
             scope
@@ -56,14 +56,14 @@ impl<T> FromGuestBound for Awaitable<T> {
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
-        value: Value<'js>,
+        value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error> {
         Ok(BoundAwaitable::new(value, scope.clone()))
     }
 }
 
 impl<T> ToGuest for Awaitable<T> {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.value
             .restore(scope.ctx())
             .catch(scope.ctx())
@@ -72,7 +72,7 @@ impl<T> ToGuest for Awaitable<T> {
 }
 
 impl<'js, T> ToGuestBound<'js> for Awaitable<T> {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.to_guest(scope)
     }
 }
@@ -101,17 +101,17 @@ where
 
 /// A guest value awaited within its scope.
 pub struct BoundAwaitable<'js, T> {
-    value: Value<'js>,
+    value: JsValue<'js>,
     scope: Scope<'js>,
     _result: PhantomData<fn() -> T>,
 }
 
 impl<'js, T> BoundAwaitable<'js, T> {
-    fn new(value: Value<'js>, scope: Scope<'js>) -> Self {
+    fn new(value: JsValue<'js>, scope: Scope<'js>) -> Self {
         Self { value, scope, _result: PhantomData }
     }
 
-    async fn resolve_value(self) -> Result<Value<'js>, Error> {
+    async fn resolve_value(self) -> Result<JsValue<'js>, Error> {
         if !self.value.is_promise() {
             return Ok(self.value);
         }
@@ -151,7 +151,7 @@ where
 }
 
 impl<'js, T> ToGuestBound<'js> for BoundAwaitable<'js, T> {
-    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         Ok(self.value)
     }
 }
@@ -164,7 +164,7 @@ mod tests {
         handle::Awaitable,
         marshal::{FromGuest, FromGuestBound},
         runtime::{Runtime, Scope},
-        value::Value,
+        __private::JsValue,
     };
 
     const AWAITABLE_SOURCE: &str = r#"
@@ -192,7 +192,7 @@ mod tests {
     impl FromGuest for Record {
         type Owned = Self;
 
-        fn from_guest<'js>(_scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+        fn from_guest<'js>(_scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
             __private::from_value(value)
         }
     }
@@ -202,7 +202,7 @@ mod tests {
 
         fn from_guest_bound<'js>(
             _scope: &Scope<'js>,
-            value: Value<'js>,
+            value: JsValue<'js>,
         ) -> Result<Self::Bound<'js>, Error> {
             __private::from_value(value)
         }

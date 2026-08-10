@@ -24,7 +24,7 @@ use llrt_modules::stream_web::{
     readable_stream_default_controller_enqueue_value,
     readable_stream_default_controller_error_stream,
 };
-use rquickjs::{CatchResultExt, Ctx, Exception, Promise as JsPromise, Value};
+use rquickjs::{CatchResultExt, Ctx, Exception, Promise as JsPromise, Value as JsValue};
 
 use crate::streams::{TransformStream, WritableStream};
 
@@ -93,7 +93,7 @@ impl<T> ToGuest for HostReadableStream<T>
 where
     T: ToGuest + 'static,
 {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         let source = Rc::new(RefCell::new(Some(self.source)));
         let cancelled = Rc::new(Cell::new(false));
 
@@ -133,7 +133,7 @@ impl<'js, T> ToGuestBound<'js> for HostReadableStream<T>
 where
     T: ToGuest + 'static,
 {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.to_guest(scope)
     }
 }
@@ -148,7 +148,7 @@ where
 {
     type Owned = Option<T::Owned>;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
         let result = value
             .into_object()
             .ok_or_else(|| Error::conversion("read() result is not an object"))?;
@@ -163,7 +163,7 @@ where
         Ok(Some(T::from_guest(
             scope,
             result
-                .get::<_, Value>("value")
+                .get::<_, JsValue>("value")
                 .catch(scope.ctx())?,
         )?))
     }
@@ -177,7 +177,7 @@ where
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
-        value: Value<'js>,
+        value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error> {
         let result = value
             .into_object()
@@ -193,7 +193,7 @@ where
         Ok(Some(T::from_guest_bound(
             scope,
             result
-                .get::<_, Value>("value")
+                .get::<_, JsValue>("value")
                 .catch(scope.ctx())?,
         )?))
     }
@@ -297,7 +297,7 @@ where
 {
     type Owned = Self;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: Value<'js>) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
         Ok(Self::new(Instance::from_guest(scope, value)?))
     }
 }
@@ -307,7 +307,7 @@ impl<T> FromGuestBound for ReadableStream<T> {
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
-        value: Value<'js>,
+        value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error> {
         Ok(BoundReadableStream {
             object: Instance::from_guest_bound(scope, value)?,
@@ -317,13 +317,13 @@ impl<T> FromGuestBound for ReadableStream<T> {
 }
 
 impl<T> ToGuest for ReadableStream<T> {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.object.to_guest(scope)
     }
 }
 
 impl<'js, T> ToGuestBound<'js> for ReadableStream<T> {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.to_guest(scope)
     }
 }
@@ -377,7 +377,7 @@ where
 }
 
 impl<'js, T> ToGuestBound<'js> for BoundReadableStream<'js, T> {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<Value<'js>, Error> {
+    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         self.object.to_guest_bound(scope)
     }
 }

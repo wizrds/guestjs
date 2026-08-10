@@ -731,7 +731,7 @@ mod tests {
         host::{Exports, Namespace},
         marshal::{FromGuestBound, Nullish},
         runtime::{Runtime, Scope},
-        value::Value,
+        __private::JsValue,
     };
 
     #[derive(
@@ -1179,7 +1179,7 @@ export function normalize(request) {
                         &scope,
                         scope
                             .ctx()
-                            .eval::<Value, _>(r#"({ userId: 7, status: "ready" })"#)
+                            .eval::<JsValue, _>(r#"({ userId: 7, status: "ready" })"#)
                             .map_err(Error::from)?,
                     )
                 })
