@@ -112,8 +112,7 @@ mod tests {
                 Ok(true)
             });
             exports.function("number", |scope, args| {
-                args
-                    .get_owned::<Value>(scope, 0)?
+                args.get_owned::<Value>(scope, 0)?
                     .bind::<i32>(scope)
             });
         }
@@ -145,9 +144,9 @@ mod tests {
 
     #[tokio::test]
     async fn restores_a_value_within_one_sync_call() {
-        let module = value_module().await;
         assert!(
-            module
+            value_module()
+                .await
                 .function("identityValue")
                 .await
                 .unwrap()
@@ -159,10 +158,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_value_can_be_carried_from_a_detached_scope() {
-        let module = value_module().await;
-
         assert!(
-            module
+            value_module()
+                .await
                 .function("detachedValue")
                 .await
                 .unwrap()
@@ -174,10 +172,9 @@ mod tests {
 
     #[tokio::test]
     async fn binds_a_value_to_another_type() {
-        let module = value_module().await;
-
         assert_eq!(
-            module
+            value_module()
+                .await
                 .function("numberValue")
                 .await
                 .unwrap()

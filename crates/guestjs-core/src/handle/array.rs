@@ -1,7 +1,7 @@
 use std::{io, marker::PhantomData, mem, ptr, rc::Rc};
 
 #[cfg(feature = "bytes")]
-use bytes::{buf::UninitSlice, Buf, BufMut};
+use bytes::{Buf, BufMut, buf::UninitSlice};
 use rquickjs::{
     Array as JsArray, ArrayBuffer as JsArrayBuffer, CatchResultExt, Persistent,
     TypedArray as JsTypedArray, Value as JsValue,
@@ -77,31 +77,20 @@ where
     }
 
     pub async fn len(&self) -> Result<usize, Error> {
-        Scope::with(&self.context, async move |scope| {
-            Ok(self.bind(&scope)?.len())
-        })
-        .await
+        Scope::with(&self.context, async move |scope| Ok(self.bind(&scope)?.len())).await
     }
 
     pub async fn is_empty(&self) -> Result<bool, Error> {
-        Scope::with(&self.context, async move |scope| {
-            Ok(self.bind(&scope)?.is_empty())
-        })
-        .await
+        Scope::with(&self.context, async move |scope| Ok(self.bind(&scope)?.is_empty())).await
     }
 
     pub async fn get(&self, index: usize) -> Result<Option<T>, Error> {
-        Scope::with(&self.context, async move |scope| {
-            Ok(self.bind(&scope)?.get(index))
-        })
-        .await
+        Scope::with(&self.context, async move |scope| Ok(self.bind(&scope)?.get(index))).await
     }
 
     pub async fn set(&self, index: usize, value: T) -> Result<bool, Error> {
-        Scope::with(&self.context, async move |scope| {
-            Ok(self.bind(&scope)?.set(index, value))
-        })
-        .await
+        Scope::with(&self.context, async move |scope| Ok(self.bind(&scope)?.set(index, value)))
+            .await
     }
 }
 
@@ -362,7 +351,9 @@ unsafe impl<'js> BufMut for BoundTypedArray<'js, u8> {
             },
             // SAFETY: a dangling but well-aligned pointer with a length of zero is a valid empty
             // slice.
-            _ => unsafe { UninitSlice::from_raw_parts_mut(ptr::NonNull::<u8>::dangling().as_ptr(), 0) },
+            _ => unsafe {
+                UninitSlice::from_raw_parts_mut(ptr::NonNull::<u8>::dangling().as_ptr(), 0)
+            },
         }
     }
 }
@@ -414,17 +405,11 @@ impl ArrayBuffer {
     }
 
     pub async fn len(&self) -> Result<usize, Error> {
-        Scope::with(&self.context, async move |scope| {
-            Ok(self.bind(&scope)?.len())
-        })
-        .await
+        Scope::with(&self.context, async move |scope| Ok(self.bind(&scope)?.len())).await
     }
 
     pub async fn is_empty(&self) -> Result<bool, Error> {
-        Scope::with(&self.context, async move |scope| {
-            Ok(self.bind(&scope)?.is_empty())
-        })
-        .await
+        Scope::with(&self.context, async move |scope| Ok(self.bind(&scope)?.is_empty())).await
     }
 }
 
@@ -633,7 +618,9 @@ unsafe impl<'js> BufMut for BoundArrayBuffer<'js> {
             },
             // SAFETY: a dangling but well-aligned pointer with a length of zero is a valid empty
             // slice.
-            _ => unsafe { UninitSlice::from_raw_parts_mut(ptr::NonNull::<u8>::dangling().as_ptr(), 0) },
+            _ => unsafe {
+                UninitSlice::from_raw_parts_mut(ptr::NonNull::<u8>::dangling().as_ptr(), 0)
+            },
         }
     }
 }
@@ -660,17 +647,11 @@ impl Array {
     }
 
     pub async fn len(&self) -> Result<usize, Error> {
-        Scope::with(&self.context, async move |scope| {
-            Ok(self.bind(&scope)?.len())
-        })
-        .await
+        Scope::with(&self.context, async move |scope| Ok(self.bind(&scope)?.len())).await
     }
 
     pub async fn is_empty(&self) -> Result<bool, Error> {
-        Scope::with(&self.context, async move |scope| {
-            Ok(self.bind(&scope)?.is_empty())
-        })
-        .await
+        Scope::with(&self.context, async move |scope| Ok(self.bind(&scope)?.is_empty())).await
     }
 
     pub async fn get<R>(&self, index: usize) -> Result<R::Owned, Error>
@@ -816,7 +797,7 @@ mod tests {
     use rquickjs::{CatchResultExt, Value as JsValue};
 
     use crate::{
-        handle::{Promise, Scoped, Array, ArrayBuffer, Float64Array, Uint8Array, Value},
+        handle::{Array, ArrayBuffer, Float64Array, Promise, Scoped, Uint8Array, Value},
         host::{Exports, HostModule},
         marshal::FromGuestBound,
         runtime::{Runtime, Scope},
@@ -1223,7 +1204,10 @@ mod tests {
             .build()
             .await
             .unwrap();
-        let array = guest.eval::<Array>("[1, 2, 3]").await.unwrap();
+        let array = guest
+            .eval::<Array>("[1, 2, 3]")
+            .await
+            .unwrap();
 
         guest
             .scope(async move |scope| {
@@ -1363,20 +1347,26 @@ mod bytes_tests {
 
         fn build(&self, exports: &mut Exports) {
             exports.function("fillBuffer", |scope, args| {
-                args.get::<Uint8Array>(scope, 0)?.put_slice(&[1, 2, 3, 4]);
+                args.get::<Uint8Array>(scope, 0)?
+                    .put_slice(&[1, 2, 3, 4]);
 
                 Ok(())
             });
             exports.function("drainBuffer", |scope, args| {
-                Ok(args.get::<Uint8Array>(scope, 0)?.copy_to_bytes(4))
+                Ok(args
+                    .get::<Uint8Array>(scope, 0)?
+                    .copy_to_bytes(4))
             });
             exports.function("fillArrayBuffer", |scope, args| {
-                args.get::<ArrayBuffer>(scope, 0)?.put_slice(&[1, 2, 3, 4]);
+                args.get::<ArrayBuffer>(scope, 0)?
+                    .put_slice(&[1, 2, 3, 4]);
 
                 Ok(())
             });
             exports.function("drainArrayBuffer", |scope, args| {
-                Ok(args.get::<ArrayBuffer>(scope, 0)?.copy_to_bytes(4))
+                Ok(args
+                    .get::<ArrayBuffer>(scope, 0)?
+                    .copy_to_bytes(4))
             });
         }
     }
