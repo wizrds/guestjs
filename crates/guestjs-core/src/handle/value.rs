@@ -105,16 +105,16 @@ mod tests {
         }
 
         fn build(&self, exports: &mut Exports) {
-            exports.function("identity", |scope, args| Ok(args.get_owned::<Value>(scope, 0)?));
+            exports.function("identity", |scope, args| args.get_owned::<Value>(scope, 0));
             exports.function("detached", |scope, args| {
                 args.get_owned::<Value>(scope, 0)?;
 
                 Ok(true)
             });
             exports.function("number", |scope, args| {
-                Ok(args
+                args
                     .get_owned::<Value>(scope, 0)?
-                    .bind::<i32>(scope)?)
+                    .bind::<i32>(scope)
             });
         }
     }
@@ -161,7 +161,7 @@ mod tests {
     async fn a_value_can_be_carried_from_a_detached_scope() {
         let module = value_module().await;
 
-        assert_eq!(
+        assert!(
             module
                 .function("detachedValue")
                 .await
@@ -169,7 +169,6 @@ mod tests {
                 .call::<_, bool>((41,))
                 .await
                 .unwrap(),
-            true,
         );
     }
 
