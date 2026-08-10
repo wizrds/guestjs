@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.3.0](https://github.com/wizrds/guestjs/compare/0.2.0..0.3.0) - 2026-08-10
+
+### Features
+
+- Add support for arrays, buffers, and contextless guest value handles  - ([e211151](https://github.com/wizrds/guestjs/commit/e211151fbe1d8ec8300b7712ca3a73bd8cddaa88)) - Timothy Pogue
+---
 ## [0.2.0](https://github.com/wizrds/guestjs/compare/0.1.7..0.2.0) - 2026-08-06
 
 ### Features
