@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.3.1](https://github.com/wizrds/guestjs/compare/0.3.0..0.3.1) - 2026-08-11
+
+### Bug Fixes
+
+- Reexpose javascript value type for downstream marshal trait impls - ([709fb64](https://github.com/wizrds/guestjs/commit/709fb6444e3023fe223f52439a1d92800729e9f2)) - Timothy Pogue
+---
 ## [0.3.0](https://github.com/wizrds/guestjs/compare/0.2.0..0.3.0) - 2026-08-10
 
 ### Features
