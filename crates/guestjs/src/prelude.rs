@@ -12,4 +12,5 @@ pub use guestjs_core::{
     native::*,
     runtime::*,
     transpiler::*,
+    value::*,
 };

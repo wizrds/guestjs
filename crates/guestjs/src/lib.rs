@@ -778,7 +778,7 @@ mod tests {
     use std::{cell::Cell, future::Future, rc::Rc};
 
     use crate::{
-        __private::JsValue,
+        value::JsValue,
         errors::Error,
         handle::{BoundFunction, Class, Function, Object, Promise},
         host::{Exports, Namespace},

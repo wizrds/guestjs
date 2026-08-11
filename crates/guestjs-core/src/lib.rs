@@ -10,6 +10,10 @@ pub mod native;
 pub mod runtime;
 pub mod transpiler;
 
+pub mod value {
+    pub use rquickjs::Value as JsValue;
+}
+
 pub(crate) mod registry;
 
 #[doc(hidden)]
