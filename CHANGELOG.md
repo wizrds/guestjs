@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.3.2](https://github.com/wizrds/guestjs/compare/0.3.1..0.3.2) - 2026-08-11
+
+### Bug Fixes
+
+- Ensure Scoped closure typed at construction to avoid explicit param hinting - ([3c8e3f3](https://github.com/wizrds/guestjs/commit/3c8e3f3b414d1a5ff0ea7354df6206f0c9ed5a00)) - Timothy Pogue
+---
 ## [0.3.1](https://github.com/wizrds/guestjs/compare/0.3.0..0.3.1) - 2026-08-11
 
 ### Bug Fixes
