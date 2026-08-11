@@ -2,11 +2,17 @@ use rquickjs::Value as JsValue;
 
 use crate::{errors::Error, handle::value::Value, marshal::ToGuest, runtime::Scope};
 
-pub struct Scoped<F> {
+pub struct Scoped<F>
+where
+    F: for<'js> FnOnce(&Scope<'js>) -> Result<Value, Error>,
+{
     callback: F,
 }
 
-impl<F> Scoped<F> {
+impl<F> Scoped<F>
+where
+    F: for<'js> FnOnce(&Scope<'js>) -> Result<Value, Error>,
+{
     pub fn new(callback: F) -> Self {
         Self { callback }
     }
@@ -26,7 +32,7 @@ mod tests {
     use crate::{
         handle::{Promise, Scoped, Value},
         host::{Exports, HostModule},
-        runtime::{Runtime, Scope},
+        runtime::Runtime,
     };
 
     struct ScopedHost;
@@ -43,7 +49,7 @@ mod tests {
                 Ok(async move {
                     tokio::task::yield_now().await;
 
-                    Ok(Scoped::new(move |scope: &Scope| {
+                    Ok(Scoped::new(move |scope| {
                         value.bind::<Value>(scope)?;
 
                         Ok(value)
@@ -55,28 +61,26 @@ mod tests {
 
     #[tokio::test]
     async fn carries_a_value_across_an_await() {
-        let module = Runtime::builder()
-            .bind(ScopedHost)
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap()
-            .guest_module(
-                "scoped.js",
-                "import { carry } from \"@host/scoped\";\n\
-                 export async function carryValue() {\n\
-                     const argument = {};\n\
-                     return (await carry(argument)) === argument;\n\
-                 }",
-            )
-            .await
-            .unwrap();
-
         assert!(
-            module
+            Runtime::builder()
+                .bind(ScopedHost)
+                .build()
+                .await
+                .unwrap()
+                .guest()
+                .build()
+                .await
+                .unwrap()
+                .guest_module(
+                    "scoped.js",
+                    "import { carry } from \"@host/scoped\";\n\
+                    export async function carryValue() {\n\
+                        const argument = {};\n\
+                        return (await carry(argument)) === argument;\n\
+                    }",
+                )
+                .await
+                .unwrap()
                 .function("carryValue")
                 .await
                 .unwrap()
