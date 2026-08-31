@@ -572,6 +572,9 @@ Receiving a host class from guest code yields an `Instance<C>`, a handle to the 
 not a copy of the Rust value. Reach the payload with `borrow_with` and `borrow_with_mut` on the
 owned handle, or `borrow` and `borrow_mut` on the bound handle:
 
+To receive the Rust value itself rather than a handle, mark the parameter `#[guestjs(detached)]`.
+The class must implement `Clone`, and the resulting value no longer tracks the guest object.
+
 ```rust
 let counter = module
     .class_as::<Counter>("Counter")
@@ -722,12 +725,18 @@ Available parameter forms include:
 #[guestjs(scope)] scope: &Scope<'_>
 #[guestjs(borrow)] vector: &Vector2
 #[guestjs(borrow_mut)] vector: &mut Vector2
+#[guestjs(detached)] points: Vec<Vector2>
 #[guestjs(as = Function)] callback: BoundFunction<'_>
 #[guestjs(rest)] values: Vec<f64>
 ```
 
 `Option<T>` accepts an omitted, undefined, or null argument as `None`. `Nullish<T>` distinguishes
 undefined and null.
+
+`#[guestjs(detached)]` clones the Rust payload out of each host-class argument instead of handing
+back a handle to the guest object. It requires `Clone` on the class, composes through `Vec`,
+`Option`, `Nullish` and tuples, and is equivalent to naming
+`#[guestjs(as = Vec<Detached<Vector2>>)]` explicitly.
 
 Callable errors may be any type implementing `Into<guestjs::Error>`. A borrowing Rust `async fn`
 class method is not supported because its future retains the class borrow. `async_method` instead

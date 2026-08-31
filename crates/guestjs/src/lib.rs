@@ -215,6 +215,9 @@
 //! [`Instance<C>`](crate::handle::Instance) rather than a detached copy of the Rust value. Reach
 //! the payload with `borrow_with`, `borrow_with_mut`, `borrow`, or `borrow_mut`. Use a separate
 //! serde data type when the same state also needs plain-data conversion.
+//! [`Detached<C>`](crate::marshal::Detached) is the descriptor that asks for the payload instead,
+//! cloning the Rust value out of the guest object and requiring
+//! [`Clone`](std::clone::Clone) on the class.
 //! [`Nullish<T>`](crate::marshal::Nullish) preserves `undefined`, `null`, and present values when
 //! converted directly, but it is not a supported field representation inside a serde-derived
 //! aggregate.
@@ -456,13 +459,14 @@
 //! Ordinary parameters use their [`FromGuestBound`](crate::marshal::FromGuestBound) descriptor.
 //! [`Option<T>`](std::option::Option) treats an omitted, undefined, or null argument as `None`,
 //! while [`Nullish<T>`](crate::marshal::Nullish) preserves undefined and null. Parameter helpers
-//! inject a [`Scope`](crate::runtime::Scope), borrow another host-class instance, select a semantic
-//! descriptor, or collect trailing arguments:
+//! inject a [`Scope`](crate::runtime::Scope), borrow another host-class instance, detach a
+//! host-class payload, select a semantic descriptor, or collect trailing arguments:
 //!
 //! ```text
 //! #[guestjs(scope)] scope: &Scope<'_>
 //! #[guestjs(borrow)] point: &Point
 //! #[guestjs(borrow_mut)] point: &mut Point
+//! #[guestjs(detached)] points: Vec<Point>
 //! #[guestjs(as = Function)] callback: BoundFunction<'_>
 //! #[guestjs(rest)] values: Vec<f64>
 //! ```
