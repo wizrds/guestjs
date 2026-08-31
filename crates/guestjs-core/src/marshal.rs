@@ -1,8 +1,15 @@
-use rquickjs::{
-    Array, CatchResultExt, FromJs, IntoJs, Type, Value as JsValue, function::Args as JsArgs,
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    hash::{BuildHasher, Hash},
+    marker::PhantomData,
 };
 
-use crate::{errors::Error, runtime::Scope};
+use rquickjs::{
+    Array, CatchResultExt, FromJs, IntoJs, Object, Type, Value as JsValue,
+    function::Args as JsArgs,
+};
+
+use crate::{errors::Error, host::class::HostClass, runtime::Scope};
 
 /// Converts a Rust value into a JavaScript value.
 pub trait ToGuest {
@@ -295,8 +302,335 @@ where
     }
 }
 
+struct TupleShape;
+
+impl TupleShape {
+    fn checked<'js>(value: JsValue<'js>, arity: usize) -> Result<Array<'js>, Error> {
+        let array = value
+            .into_array()
+            .ok_or_else(|| Error::conversion("expected an array"))?;
+
+        if array.len() != arity {
+            return Err(Error::conversion(format!(
+                "expected an array of length {arity}, found {}",
+                array.len(),
+            )));
+        }
+
+        Ok(array)
+    }
+}
+
+macro_rules! marshal_tuple {
+    ($($parameter:ident => $index:tt),+ $(,)?) => {
+        impl<$($parameter),+> ToGuest for ($($parameter,)+)
+        where
+            $($parameter: ToGuest,)+
+        {
+            fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+                let array = Array::new(scope.ctx().clone()).catch(scope.ctx())?;
+
+                $(
+                    array
+                        .set($index, self.$index.to_guest(scope)?)
+                        .catch(scope.ctx())?;
+                )+
+
+                Ok(array.into_value())
+            }
+        }
+
+        impl<'js, $($parameter),+> ToGuestBound<'js> for ($($parameter,)+)
+        where
+            $($parameter: ToGuestBound<'js>,)+
+        {
+            fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+                let array = Array::new(scope.ctx().clone()).catch(scope.ctx())?;
+
+                $(
+                    array
+                        .set($index, self.$index.to_guest_bound(scope)?)
+                        .catch(scope.ctx())?;
+                )+
+
+                Ok(array.into_value())
+            }
+        }
+
+        impl<$($parameter),+> FromGuest for ($($parameter,)+)
+        where
+            $($parameter: FromGuest,)+
+        {
+            type Owned = ($($parameter::Owned,)+);
+
+            fn from_guest<'js>(
+                scope: &Scope<'js>,
+                value: JsValue<'js>,
+            ) -> Result<Self::Owned, Error> {
+                let array = TupleShape::checked(value, [$($index),+].len())?;
+
+                Ok((
+                    $(
+                        $parameter::from_guest(
+                            scope,
+                            array
+                                .get::<JsValue>($index)
+                                .catch(scope.ctx())?,
+                        )?,
+                    )+
+                ))
+            }
+        }
+
+        impl<$($parameter),+> FromGuestBound for ($($parameter,)+)
+        where
+            $($parameter: FromGuestBound,)+
+        {
+            type Bound<'js> = ($($parameter::Bound<'js>,)+);
+
+            fn from_guest_bound<'js>(
+                scope: &Scope<'js>,
+                value: JsValue<'js>,
+            ) -> Result<Self::Bound<'js>, Error> {
+                let array = TupleShape::checked(value, [$($index),+].len())?;
+
+                Ok((
+                    $(
+                        $parameter::from_guest_bound(
+                            scope,
+                            array
+                                .get::<JsValue>($index)
+                                .catch(scope.ctx())?,
+                        )?,
+                    )+
+                ))
+            }
+        }
+    };
+}
+
+marshal_tuple!(A => 0);
+marshal_tuple!(A => 0, B => 1);
+marshal_tuple!(A => 0, B => 1, C => 2);
+marshal_tuple!(A => 0, B => 1, C => 2, D => 3);
+
+macro_rules! marshal_set {
+    ($($collection:ident $({$hasher:ident})? [$($bound:ident),+]),+ $(,)?) => {
+        $(
+            impl<T $(, $hasher)?> ToGuest for $collection<T $(, $hasher)?>
+            where
+                T: ToGuest,
+            {
+                fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+                    let array = Array::new(scope.ctx().clone()).catch(scope.ctx())?;
+
+                    for (index, item) in self.into_iter().enumerate() {
+                        array
+                            .set(index, item.to_guest(scope)?)
+                            .catch(scope.ctx())?;
+                    }
+
+                    Ok(array.into_value())
+                }
+            }
+
+            impl<'js, T $(, $hasher)?> ToGuestBound<'js> for $collection<T $(, $hasher)?>
+            where
+                T: ToGuestBound<'js>,
+            {
+                fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+                    let array = Array::new(scope.ctx().clone()).catch(scope.ctx())?;
+
+                    for (index, item) in self.into_iter().enumerate() {
+                        array
+                            .set(index, item.to_guest_bound(scope)?)
+                            .catch(scope.ctx())?;
+                    }
+
+                    Ok(array.into_value())
+                }
+            }
+
+            impl<T $(, $hasher)?> FromGuest for $collection<T $(, $hasher)?>
+            where
+                T: FromGuest,
+                T::Owned: $($bound +)+,
+                $($hasher: Default + BuildHasher + 'static,)?
+            {
+                type Owned = $collection<T::Owned $(, $hasher)?>;
+
+                fn from_guest<'js>(
+                    scope: &Scope<'js>,
+                    value: JsValue<'js>,
+                ) -> Result<Self::Owned, Error> {
+                    let array = value
+                        .into_array()
+                        .ok_or_else(|| Error::conversion("expected an array"))?;
+
+                    let mut items = Self::Owned::default();
+
+                    for index in 0..array.len() {
+                        items.insert(T::from_guest(
+                            scope,
+                            array
+                                .get::<JsValue>(index)
+                                .catch(scope.ctx())?,
+                        )?);
+                    }
+
+                    Ok(items)
+                }
+            }
+
+            impl<T $(, $hasher)?> FromGuestBound for $collection<T $(, $hasher)?>
+            where
+                T: FromGuestBound,
+                for<'js> T::Bound<'js>: $($bound +)+,
+                $($hasher: Default + BuildHasher,)?
+            {
+                type Bound<'js> = $collection<T::Bound<'js> $(, $hasher)?>;
+
+                fn from_guest_bound<'js>(
+                    scope: &Scope<'js>,
+                    value: JsValue<'js>,
+                ) -> Result<Self::Bound<'js>, Error> {
+                    let array = value
+                        .into_array()
+                        .ok_or_else(|| Error::conversion("expected an array"))?;
+
+                    let mut items = Self::Bound::default();
+
+                    for index in 0..array.len() {
+                        items.insert(T::from_guest_bound(
+                            scope,
+                            array
+                                .get::<JsValue>(index)
+                                .catch(scope.ctx())?,
+                        )?);
+                    }
+
+                    Ok(items)
+                }
+            }
+        )+
+    };
+}
+
+marshal_set!(HashSet {S} [Eq, Hash], BTreeSet [Ord]);
+
+macro_rules! marshal_map {
+    ($($collection:ident $({$hasher:ident})? [$($bound:ident),+]),+ $(,)?) => {
+        $(
+            impl<K, V $(, $hasher)?> ToGuest for $collection<K, V $(, $hasher)?>
+            where
+                K: ToGuest,
+                V: ToGuest,
+            {
+                fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+                    let object = Object::new(scope.ctx().clone()).catch(scope.ctx())?;
+
+                    for (key, value) in self {
+                        object
+                            .set(key.to_guest(scope)?, value.to_guest(scope)?)
+                            .catch(scope.ctx())?;
+                    }
+
+                    Ok(object.into_value())
+                }
+            }
+
+            impl<'js, K, V $(, $hasher)?> ToGuestBound<'js> for $collection<K, V $(, $hasher)?>
+            where
+                K: ToGuestBound<'js>,
+                V: ToGuestBound<'js>,
+            {
+                fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+                    let object = Object::new(scope.ctx().clone()).catch(scope.ctx())?;
+
+                    for (key, value) in self {
+                        object
+                            .set(
+                                key.to_guest_bound(scope)?,
+                                value.to_guest_bound(scope)?,
+                            )
+                            .catch(scope.ctx())?;
+                    }
+
+                    Ok(object.into_value())
+                }
+            }
+
+            impl<K, V $(, $hasher)?> FromGuest for $collection<K, V $(, $hasher)?>
+            where
+                K: FromGuest,
+                V: FromGuest,
+                K::Owned: $($bound +)+,
+                $($hasher: Default + BuildHasher + 'static,)?
+            {
+                type Owned = $collection<K::Owned, V::Owned $(, $hasher)?>;
+
+                fn from_guest<'js>(
+                    scope: &Scope<'js>,
+                    value: JsValue<'js>,
+                ) -> Result<Self::Owned, Error> {
+                    let object = value
+                        .into_object()
+                        .ok_or_else(|| Error::conversion("expected an object"))?;
+
+                    let mut entries = Self::Owned::default();
+
+                    for property in object.props::<JsValue, JsValue>() {
+                        let (key, value) = property.catch(scope.ctx())?;
+
+                        entries.insert(
+                            K::from_guest(scope, key)?,
+                            V::from_guest(scope, value)?,
+                        );
+                    }
+
+                    Ok(entries)
+                }
+            }
+
+            impl<K, V $(, $hasher)?> FromGuestBound for $collection<K, V $(, $hasher)?>
+            where
+                K: FromGuestBound,
+                V: FromGuestBound,
+                for<'js> K::Bound<'js>: $($bound +)+,
+                $($hasher: Default + BuildHasher,)?
+            {
+                type Bound<'js> = $collection<K::Bound<'js>, V::Bound<'js> $(, $hasher)?>;
+
+                fn from_guest_bound<'js>(
+                    scope: &Scope<'js>,
+                    value: JsValue<'js>,
+                ) -> Result<Self::Bound<'js>, Error> {
+                    let object = value
+                        .into_object()
+                        .ok_or_else(|| Error::conversion("expected an object"))?;
+
+                    let mut entries = Self::Bound::default();
+
+                    for property in object.props::<JsValue, JsValue>() {
+                        let (key, value) = property.catch(scope.ctx())?;
+
+                        entries.insert(
+                            K::from_guest_bound(scope, key)?,
+                            V::from_guest_bound(scope, value)?,
+                        );
+                    }
+
+                    Ok(entries)
+                }
+            }
+        )+
+    };
+}
+
+marshal_map!(HashMap {S} [Eq, Hash], BTreeMap [Ord]);
+
 /// A JavaScript value that distinguishes `undefined` from `null`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Nullish<T> {
     /// JavaScript `undefined`.
     Undefined,
@@ -432,6 +766,39 @@ where
             Type::Null => Ok(Nullish::Null),
             _ => T::from_guest_bound(scope, value).map(Nullish::Some),
         }
+    }
+}
+
+/// Marshals a host-class guest object into a clone of its Rust payload.
+pub struct Detached<C>
+where
+    C: HostClass + Clone,
+{
+    _class: PhantomData<fn() -> C>,
+}
+
+impl<C> FromGuest for Detached<C>
+where
+    C: HostClass + Clone,
+{
+    type Owned = C;
+
+    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
+        Ok((*C::from_guest_ref(scope, value)?).clone())
+    }
+}
+
+impl<C> FromGuestBound for Detached<C>
+where
+    C: HostClass + Clone,
+{
+    type Bound<'js> = C;
+
+    fn from_guest_bound<'js>(
+        scope: &Scope<'js>,
+        value: JsValue<'js>,
+    ) -> Result<Self::Bound<'js>, Error> {
+        Ok((*C::from_guest_ref(scope, value)?).clone())
     }
 }
 
@@ -706,13 +1073,21 @@ mod bytes_tests {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
     use rquickjs::{CatchResultExt, Function as JsFunction, Type, Value as JsValue};
 
     use crate::{
         errors::Error,
         handle::{Class, Function, Instance, Object, Promise},
+        host::{
+            args::Args,
+            class::{ClassSpec, HostClass},
+            module::{Exports, HostModule},
+        },
         marshal::{
-            FromGuest, FromGuestBound, GuestType, Nullish, ToGuest, ToGuestArgsBound, ToGuestBound,
+            Detached, FromGuest, FromGuestBound, GuestType, Nullish, ToGuest, ToGuestArgsBound,
+            ToGuestBound,
         },
         runtime::{Runtime, Scope},
     };
@@ -759,6 +1134,36 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct Marker {
+        label: String,
+    }
+
+    impl HostClass for Marker {
+        const NAME: &'static str = "Marker";
+
+        fn construct<'js>(scope: &Scope<'js>, args: Args<'js>) -> Result<Self, Error> {
+            Ok(Self { label: args.get::<String>(scope, 0)? })
+        }
+
+        fn build(_spec: &mut ClassSpec<Self>) {}
+    }
+
+    struct MarkerHost;
+
+    impl HostModule for MarkerHost {
+        fn name(&self) -> &str {
+            "@host/marker"
+        }
+
+        fn build(&self, exports: &mut Exports) {
+            exports.class::<Marker>();
+            exports.function("label", |scope, args| {
+                Ok(args.get::<Detached<Marker>>(scope, 0)?.label)
+            });
+        }
+    }
+
     #[test]
     fn guest_type_projects_existing_descriptors() {
         GuestTypeContract::accepts::<i32>();
@@ -771,6 +1176,10 @@ mod tests {
         GuestTypeContract::accepts::<Instance>();
         GuestTypeContract::accepts::<Promise<Function>>();
         GuestTypeContract::accepts::<InputOnly>();
+        GuestTypeContract::accepts::<Detached<Marker>>();
+        GuestTypeContract::accepts::<(i32, String)>();
+        GuestTypeContract::accepts::<BTreeSet<i32>>();
+        GuestTypeContract::accepts::<BTreeMap<String, i32>>();
     }
 
     #[tokio::test]
@@ -939,6 +1348,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn detached_yields_the_host_class_payload() {
+        assert_eq!(
+            Runtime::builder()
+                .bind(MarkerHost)
+                .build()
+                .await
+                .unwrap()
+                .guest()
+                .build()
+                .await
+                .unwrap()
+                .guest_module(
+                    "marker.js",
+                    "import { Marker, label } from \"@host/marker\";\n\
+                    export function read() {\n\
+                        return label(new Marker(\"north\"));\n\
+                    }",
+                )
+                .await
+                .unwrap()
+                .function("read")
+                .await
+                .unwrap()
+                .call::<_, String>(())
+                .await
+                .unwrap(),
+            "north",
+        );
+    }
+
+    #[tokio::test]
     async fn scoped_values_convert_recursively() {
         Runtime::builder()
             .build()
@@ -977,6 +1417,136 @@ mod tests {
                             .catch(scope.ctx())?,
                     )?,
                     10,
+                );
+
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn tuples_round_trip_through_fixed_length_arrays() {
+        let guest = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        assert_eq!(
+            guest
+                .eval::<(i32, String)>("[1, \"a\"]")
+                .await
+                .unwrap(),
+            (1, String::from("a")),
+        );
+        assert_eq!(
+            guest
+                .eval::<Vec<(i32, i32)>>("[[1, 2], [3, 4]]")
+                .await
+                .unwrap(),
+            vec![(1, 2), (3, 4)],
+        );
+        assert!(
+            guest
+                .eval::<(i32, i32)>("[1, 2, 3]")
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn sets_round_trip_through_arrays() {
+        let guest = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        assert_eq!(
+            guest
+                .eval::<BTreeSet<i32>>("[3, 1, 2, 1]")
+                .await
+                .unwrap(),
+            BTreeSet::from([1, 2, 3]),
+        );
+        assert_eq!(
+            guest
+                .eval::<HashSet<String>>("[\"a\", \"b\"]")
+                .await
+                .unwrap(),
+            HashSet::from([String::from("a"), String::from("b")]),
+        );
+    }
+
+    #[tokio::test]
+    async fn maps_round_trip_through_plain_objects() {
+        let guest = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        assert_eq!(
+            guest
+                .eval::<BTreeMap<String, i32>>("({ a: 1, b: 2 })")
+                .await
+                .unwrap(),
+            BTreeMap::from([(String::from("a"), 1), (String::from("b"), 2)]),
+        );
+        assert_eq!(
+            guest
+                .eval::<HashMap<String, Vec<i32>>>("({ a: [1, 2] })")
+                .await
+                .unwrap(),
+            HashMap::from([(String::from("a"), vec![1, 2])]),
+        );
+    }
+
+    #[tokio::test]
+    async fn containers_convert_recursively_within_a_scope() {
+        Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap()
+            .scope(async |scope| {
+                assert_eq!(
+                    <(i32, Option<i32>)>::from_guest_bound(
+                        &scope,
+                        (7, None::<i32>).to_guest_bound(&scope)?,
+                    )?,
+                    (7, None),
+                );
+                assert_eq!(
+                    BTreeMap::<String, Option<i32>>::from_guest_bound(
+                        &scope,
+                        BTreeMap::from([(String::from("a"), None::<i32>)])
+                            .to_guest_bound(&scope)?,
+                    )?,
+                    BTreeMap::from([(String::from("a"), None)]),
+                );
+                assert_eq!(
+                    BTreeSet::<Nullish<i32>>::from_guest_bound(
+                        &scope,
+                        scope
+                            .ctx()
+                            .eval::<JsValue, _>("[1, null, undefined]")
+                            .catch(scope.ctx())?,
+                    )?,
+                    BTreeSet::from([Nullish::Some(1), Nullish::Null, Nullish::Undefined]),
                 );
 
                 Ok(())
