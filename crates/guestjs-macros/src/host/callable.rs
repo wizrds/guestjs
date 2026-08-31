@@ -81,6 +81,7 @@ struct ParameterOptions {
     borrow: Flag,
     borrow_mut: Flag,
     rest: Flag,
+    detached: Flag,
     #[darling(rename = "as")]
     descriptor: Option<TypePath>,
 }
@@ -158,9 +159,9 @@ enum ValueKind {
 }
 
 enum ParameterRole {
-    Value { descriptor: Type, kind: ValueKind },
+    Value { descriptor: Type, kind: ValueKind, detached: bool },
     Borrow { value_type: Type, mutable: bool },
-    Rest { descriptor: Type },
+    Rest { descriptor: Type, detached: bool },
     Scope,
 }
 
@@ -194,17 +195,26 @@ impl Parameter {
             .into());
         }
 
+        if options.detached.is_present() && options.descriptor.is_some() {
+            return Err(syn::Error::new(
+                argument.span(),
+                "a detached parameter cannot also select a conversion descriptor",
+            )
+            .into());
+        }
+
         let materialized = argument.ty.as_ref().clone();
+        let detached = options.detached.is_present();
         let role = if options.scope.is_present() {
-            Self::scope_role(&materialized, options.descriptor.map(Type::Path))?
+            Self::scope_role(&materialized, options.descriptor.map(Type::Path), detached)?
         } else if options.borrow.is_present() {
-            Self::borrow_role(&materialized, options.descriptor.map(Type::Path), false)?
+            Self::borrow_role(&materialized, options.descriptor.map(Type::Path), false, detached)?
         } else if options.borrow_mut.is_present() {
-            Self::borrow_role(&materialized, options.descriptor.map(Type::Path), true)?
+            Self::borrow_role(&materialized, options.descriptor.map(Type::Path), true, detached)?
         } else if options.rest.is_present() {
-            Self::rest_role(&materialized, options.descriptor.map(Type::Path))?
+            Self::rest_role(&materialized, options.descriptor.map(Type::Path), detached)?
         } else {
-            Self::value_role(&materialized, options.descriptor.map(Type::Path))
+            Self::value_role(&materialized, options.descriptor.map(Type::Path), detached)
         };
 
         Ok(Self {
@@ -219,11 +229,20 @@ impl Parameter {
     fn scope_role(
         materialized: &Type,
         descriptor: Option<Type>,
+        detached: bool,
     ) -> Result<ParameterRole, HostMacroError> {
         if descriptor.is_some() {
             return Err(syn::Error::new(
                 materialized.span(),
                 "a scope parameter cannot select a conversion descriptor",
+            )
+            .into());
+        }
+
+        if detached {
+            return Err(syn::Error::new(
+                materialized.span(),
+                "a scope parameter cannot be detached",
             )
             .into());
         }
@@ -247,11 +266,20 @@ impl Parameter {
         materialized: &Type,
         descriptor: Option<Type>,
         mutable: bool,
+        detached: bool,
     ) -> Result<ParameterRole, HostMacroError> {
         if descriptor.is_some() {
             return Err(syn::Error::new(
                 materialized.span(),
                 "a borrowed parameter cannot select a conversion descriptor",
+            )
+            .into());
+        }
+
+        if detached {
+            return Err(syn::Error::new(
+                materialized.span(),
+                "a borrowed parameter cannot be detached",
             )
             .into());
         }
@@ -284,10 +312,12 @@ impl Parameter {
     fn rest_role(
         materialized: &Type,
         descriptor: Option<Type>,
+        detached: bool,
     ) -> Result<ParameterRole, HostMacroError> {
         match TypeShape::single_argument(materialized, "Vec") {
             Some(value_type) => Ok(ParameterRole::Rest {
                 descriptor: descriptor.unwrap_or(value_type),
+                detached,
             }),
             None => {
                 Err(syn::Error::new(materialized.span(), "a rest parameter must have type Vec<T>")
@@ -296,11 +326,16 @@ impl Parameter {
         }
     }
 
-    fn value_role(materialized: &Type, descriptor: Option<Type>) -> ParameterRole {
+    fn value_role(
+        materialized: &Type,
+        descriptor: Option<Type>,
+        detached: bool,
+    ) -> ParameterRole {
         if let Some(value_type) = TypeShape::single_argument(materialized, "Option") {
             return ParameterRole::Value {
                 descriptor: descriptor.unwrap_or(value_type),
                 kind: ValueKind::Optional,
+                detached,
             };
         }
 
@@ -308,12 +343,21 @@ impl Parameter {
             return ParameterRole::Value {
                 descriptor: descriptor.unwrap_or(value_type),
                 kind: ValueKind::Nullish,
+                detached,
             };
         }
 
         ParameterRole::Value {
             descriptor: descriptor.unwrap_or_else(|| materialized.clone()),
             kind: ValueKind::Required,
+            detached,
+        }
+    }
+
+    fn descriptor_tokens(descriptor: &Type, detached: bool, crate_path: &Path) -> TokenStream {
+        match detached {
+            true => TypeShape::detached(descriptor, crate_path),
+            false => quote!(#descriptor),
         }
     }
 
@@ -360,14 +404,16 @@ impl Parameter {
 
     fn setter_descriptor(&self, crate_path: &Path) -> Option<TokenStream> {
         match &self.role {
-            ParameterRole::Value { descriptor, kind: ValueKind::Required } => {
-                Some(quote!(#descriptor))
-            }
-            ParameterRole::Value { descriptor, kind: ValueKind::Optional } => {
-                Some(quote!(::std::option::Option<#descriptor>))
-            }
-            ParameterRole::Value { descriptor, kind: ValueKind::Nullish } => {
-                Some(quote!(#crate_path::marshal::Nullish<#descriptor>))
+            ParameterRole::Value { descriptor, kind, detached } => {
+                let descriptor = Self::descriptor_tokens(descriptor, *detached, crate_path);
+
+                match kind {
+                    ValueKind::Required => Some(descriptor),
+                    ValueKind::Optional => Some(quote!(::std::option::Option<#descriptor>)),
+                    ValueKind::Nullish => {
+                        Some(quote!(#crate_path::marshal::Nullish<#descriptor>))
+                    }
+                }
             }
             ParameterRole::Borrow { .. } | ParameterRole::Rest { .. } | ParameterRole::Scope => {
                 None
@@ -379,32 +425,38 @@ impl Parameter {
         let index = self.guest_index;
 
         match &self.role {
-            ParameterRole::Value { descriptor, kind: ValueKind::Required } => {
-                quote!(args.get::<#descriptor>(scope, #index)?)
+            ParameterRole::Value { descriptor, kind, detached } => {
+                let descriptor = Self::descriptor_tokens(descriptor, *detached, crate_path);
+
+                match kind {
+                    ValueKind::Required => quote!(args.get::<#descriptor>(scope, #index)?),
+                    ValueKind::Optional => quote!(
+                        args
+                            .get_opt::<::std::option::Option<#descriptor>>(
+                                scope,
+                                #index,
+                            )?
+                            .flatten()
+                    ),
+                    ValueKind::Nullish => quote!(
+                        args
+                            .get_opt::<#crate_path::marshal::Nullish<#descriptor>>(
+                                scope,
+                                #index,
+                            )?
+                            .unwrap_or(#crate_path::marshal::Nullish::Undefined)
+                    ),
+                }
             }
-            ParameterRole::Value { descriptor, kind: ValueKind::Optional } => quote!(
-                args
-                    .get_opt::<::std::option::Option<#descriptor>>(
-                        scope,
-                        #index,
-                    )?
-                    .flatten()
-            ),
-            ParameterRole::Value { descriptor, kind: ValueKind::Nullish } => quote!(
-                args
-                    .get_opt::<#crate_path::marshal::Nullish<#descriptor>>(
-                        scope,
-                        #index,
-                    )?
-                    .unwrap_or(#crate_path::marshal::Nullish::Undefined)
-            ),
             ParameterRole::Borrow { value_type, mutable: false } => {
                 quote!(&*args.get_borrow::<#value_type>(scope, #index)?)
             }
             ParameterRole::Borrow { value_type, mutable: true } => {
                 quote!(&mut *args.get_borrow_mut::<#value_type>(scope, #index)?)
             }
-            ParameterRole::Rest { descriptor } => {
+            ParameterRole::Rest { descriptor, detached } => {
+                let descriptor = Self::descriptor_tokens(descriptor, *detached, crate_path);
+
                 quote!(args.get_rest::<#descriptor>(scope, #index)?)
             }
             ParameterRole::Scope => quote!(scope),
@@ -425,9 +477,12 @@ impl Parameter {
 
     fn add_predicates(&self, generics: &mut Generics, crate_path: &Path, target: &Type) {
         match &self.role {
-            ParameterRole::Value { descriptor, .. } | ParameterRole::Rest { descriptor }
+            ParameterRole::Value { descriptor, detached, .. }
+            | ParameterRole::Rest { descriptor, detached }
                 if !TypeShape::is_target(descriptor, target) =>
             {
+                let descriptor = Self::descriptor_tokens(descriptor, *detached, crate_path);
+
                 generics
                     .make_where_clause()
                     .predicates
@@ -454,7 +509,10 @@ impl Parameter {
 
     fn add_module_predicates(&self, generics: &mut Generics, crate_path: &Path) {
         match &self.role {
-            ParameterRole::Value { descriptor, .. } | ParameterRole::Rest { descriptor } => {
+            ParameterRole::Value { descriptor, detached, .. }
+            | ParameterRole::Rest { descriptor, detached } => {
+                let descriptor = Self::descriptor_tokens(descriptor, *detached, crate_path);
+
                 generics
                     .make_where_clause()
                     .predicates
@@ -477,14 +535,18 @@ impl Parameter {
     fn add_async_predicate(&self, generics: &mut Generics, crate_path: &Path) {
         let materialized = &self.materialized;
         let descriptor = match &self.role {
-            ParameterRole::Value { descriptor, kind: ValueKind::Required } => quote!(#descriptor),
-            ParameterRole::Value { descriptor, kind: ValueKind::Optional } => {
-                quote!(::std::option::Option<#descriptor>)
+            ParameterRole::Value { descriptor, kind, detached } => {
+                let descriptor = Self::descriptor_tokens(descriptor, *detached, crate_path);
+
+                match kind {
+                    ValueKind::Required => descriptor,
+                    ValueKind::Optional => quote!(::std::option::Option<#descriptor>),
+                    ValueKind::Nullish => quote!(#crate_path::marshal::Nullish<#descriptor>),
+                }
             }
-            ParameterRole::Value { descriptor, kind: ValueKind::Nullish } => {
-                quote!(#crate_path::marshal::Nullish<#descriptor>)
-            }
-            ParameterRole::Rest { descriptor } => {
+            ParameterRole::Rest { descriptor, detached } => {
+                let descriptor = Self::descriptor_tokens(descriptor, *detached, crate_path);
+
                 quote!(::std::vec::Vec<#descriptor>)
             }
             ParameterRole::Borrow { .. } | ParameterRole::Scope => return,
@@ -1857,6 +1919,40 @@ impl TypeShape {
         }
     }
 
+    fn detached(value_type: &Type, crate_path: &Path) -> TokenStream {
+        if let Some(item) = Self::single_argument(value_type, "Vec") {
+            let item = Self::detached(&item, crate_path);
+
+            return quote!(::std::vec::Vec<#item>);
+        }
+
+        if let Some(item) = Self::single_argument(value_type, "Option") {
+            let item = Self::detached(&item, crate_path);
+
+            return quote!(::std::option::Option<#item>);
+        }
+
+        if let Some(item) = Self::single_argument(value_type, "Nullish") {
+            let item = Self::detached(&item, crate_path);
+
+            return quote!(#crate_path::marshal::Nullish<#item>);
+        }
+
+        match value_type {
+            Type::Group(group) => Self::detached(group.elem.as_ref(), crate_path),
+            Type::Paren(paren) => Self::detached(paren.elem.as_ref(), crate_path),
+            Type::Tuple(tuple) => {
+                let elements = tuple
+                    .elems
+                    .iter()
+                    .map(|element| Self::detached(element, crate_path));
+
+                quote!((#(#elements,)*))
+            }
+            _ => quote!(#crate_path::marshal::Detached<#value_type>),
+        }
+    }
+
     fn has_name(value_type: &Type, name: &str) -> bool {
         match value_type {
             Type::Path(path) => path
@@ -2093,6 +2189,9 @@ mod tests {
                 #[guestjs(borrow)] other: &Point,
                 #[guestjs(borrow_mut)] target: &mut Point,
                 #[guestjs(as = Function)] callback: BoundFunction<'_>,
+                #[guestjs(detached)] detached: Point,
+                #[guestjs(detached)] detached_many: Vec<Point>,
+                #[guestjs(detached)] detached_optional: Option<Point>,
                 #[guestjs(scope)] scope: &Scope<'_>,
                 #[guestjs(rest)] rest: Vec<i32>,
             ) -> Result<i32, DomainError> {
@@ -2109,7 +2208,40 @@ mod tests {
         assert!(output.contains("get_borrow :: < Point > (scope , 3"));
         assert!(output.contains("get_borrow_mut :: < Point > (scope , 4"));
         assert!(output.contains("get :: < Function > (scope , 5"));
-        assert!(output.contains("get_rest :: < i32 > (scope , 6"));
+        assert!(output.contains(
+            "get :: < crate :: marshal :: Detached < Point > > (scope , 6",
+        ),);
+        assert!(
+            output.contains(
+                ":: std :: vec :: Vec < crate :: marshal :: Detached < Point > >",
+            ),
+        );
+        assert!(
+            output.contains(
+                ":: std :: option :: Option < crate :: marshal :: Detached < Point > >",
+            ),
+        );
+        assert!(output.contains("get_rest :: < i32 > (scope , 9"));
+    }
+
+    #[test]
+    fn detaches_rest_parameter_elements() {
+        let mut method = parse_quote! {
+            #[guestjs(method)]
+            fn read(
+                &self,
+                #[guestjs(rest, detached)] points: Vec<Point>,
+            ) -> Result<i32, DomainError> {
+                Ok(0)
+            }
+        };
+
+        assert!(
+            CallableFixture::parse(&mut method)
+                .registration(&parse_quote!(crate))
+                .to_string()
+                .contains("get_rest :: < crate :: marshal :: Detached < Point > > (scope , 0",),
+        );
     }
 
     #[test]
@@ -2306,6 +2438,42 @@ mod tests {
                 fn malformed_rest(
                     &self,
                     #[guestjs(rest)] values: i32,
+                ) -> Result<(), Error> {
+                    Ok(())
+                }
+            },
+            parse_quote! {
+                #[guestjs(method)]
+                fn detached_with_descriptor(
+                    &self,
+                    #[guestjs(detached, as = Point)] value: Point,
+                ) -> Result<(), Error> {
+                    Ok(())
+                }
+            },
+            parse_quote! {
+                #[guestjs(method)]
+                fn detached_scope(
+                    &self,
+                    #[guestjs(scope, detached)] scope: &Scope<'_>,
+                ) -> Result<(), Error> {
+                    Ok(())
+                }
+            },
+            parse_quote! {
+                #[guestjs(method)]
+                fn detached_borrow(
+                    &self,
+                    #[guestjs(borrow, detached)] value: &Point,
+                ) -> Result<(), Error> {
+                    Ok(())
+                }
+            },
+            parse_quote! {
+                #[guestjs(method)]
+                fn detached_borrow_mut(
+                    &self,
+                    #[guestjs(borrow_mut, detached)] value: &mut Point,
                 ) -> Result<(), Error> {
                     Ok(())
                 }
