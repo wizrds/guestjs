@@ -7,7 +7,7 @@ use rquickjs::{
 
 use crate::{
     errors::Error,
-    handle::{BoundClass, BoundFunction, BoundObject, Class, Function, Object},
+    handle::{BoundClass, BoundFunction, BoundObject, Class, Function, Instance, Object},
     marshal::{FromGuest, FromGuestBound, ToGuestBound},
     runtime::{GuestContext, Scope},
 };
@@ -68,9 +68,16 @@ impl Module {
 
     /// Returns an exported class.
     pub async fn class(&self, name: &str) -> Result<Class, Error> {
+        self.class_as::<Instance>(name).await
+    }
+
+    pub async fn class_as<R>(&self, name: &str) -> Result<Class<R>, Error>
+    where
+        R: 'static,
+    {
         Scope::with(&self.context, async move |scope| {
             self.bind(&scope)?
-                .class(name)?
+                .class_as::<R>(name)?
                 .into_owned()
         })
         .await
@@ -125,6 +132,10 @@ impl<'js> BoundModule<'js> {
 
     /// Returns an exported class.
     pub fn class(&self, name: &str) -> Result<BoundClass<'js>, Error> {
+        self.class_as::<Instance>(name)
+    }
+
+    pub fn class_as<R>(&self, name: &str) -> Result<BoundClass<'js, R>, Error> {
         Ok(BoundClass::new(
             self.namespace
                 .get::<_, JsConstructor>(name)
