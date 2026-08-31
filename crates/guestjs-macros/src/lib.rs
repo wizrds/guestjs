@@ -11,7 +11,7 @@ mod path;
 
 use crate::{
     derive::{FromGuestDerive, ToGuestDerive},
-    guest::GuestModuleMacro,
+    guest::{GuestClassMacro, GuestModuleMacro},
     host::{HostClassMacro, HostModuleMacro},
 };
 
@@ -64,6 +64,16 @@ pub fn host_module(args: TokenStream, input: TokenStream) -> TokenStream {
 pub fn guest_module(input: TokenStream) -> TokenStream {
     match GuestModuleMacro::new(input.into()) {
         Ok(module) => module.expand(),
+        Err(error) => error.write_errors(),
+    }
+    .into()
+}
+
+/// Defines typed access to a guest class.
+#[proc_macro]
+pub fn guest_class(input: TokenStream) -> TokenStream {
+    match GuestClassMacro::new(input.into()) {
+        Ok(class) => class.expand(),
         Err(error) => error.write_errors(),
     }
     .into()

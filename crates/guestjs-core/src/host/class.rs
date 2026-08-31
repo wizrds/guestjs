@@ -14,6 +14,7 @@ use rquickjs::{
 
 use crate::{
     errors::Error,
+    handle::{BoundInstance, Instance},
     host::{args::Args, namespace::Namespace},
     marshal::{FromGuest, FromGuestBound, FromGuestMut, FromGuestRef, ToGuest, ToGuestBound},
     runtime::Scope,
@@ -499,15 +500,6 @@ impl<C: HostClass> HostInstance<C> {
             .into_value())
     }
 
-    pub(crate) fn cloned<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<C, Error>
-    where
-        C: Clone,
-    {
-        Ok((*OwnedBorrow::<HostInstance<C>>::from_js(scope.ctx(), value)?)
-            .0
-            .clone())
-    }
-
     pub(crate) fn export<'js>(scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         let constructor = Class::<HostInstance<C>>::create_constructor(scope.ctx())
             .catch(scope.ctx())?
@@ -589,26 +581,34 @@ where
 
 impl<C> FromGuest for C
 where
-    C: HostClass + Clone,
+    C: HostClass,
 {
-    type Owned = Self;
+    type Owned = Instance<C>;
 
     fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
-        HostInstance::<C>::cloned(scope, value)
+        // Use `from_guest_ref` to ensure that the value is a valid instance of the host class,
+        // but we don't need to keep the borrow around, so we drop it immediately.
+        drop(C::from_guest_ref(scope, value.clone())?);
+
+        Instance::<C>::from_guest(scope, value)
     }
 }
 
 impl<C> FromGuestBound for C
 where
-    C: HostClass + Clone,
+    C: HostClass,
 {
-    type Bound<'js> = Self;
+    type Bound<'js> = BoundInstance<'js, C>;
 
     fn from_guest_bound<'js>(
         scope: &Scope<'js>,
         value: JsValue<'js>,
     ) -> Result<Self::Bound<'js>, Error> {
-        HostInstance::<C>::cloned(scope, value)
+        // Use `from_guest_ref` to ensure that the value is a valid instance of the host class,
+        // but we don't need to keep the borrow around, so we drop it immediately.
+        drop(C::from_guest_ref(scope, value.clone())?);
+
+        Instance::<C>::from_guest_bound(scope, value)
     }
 }
 
@@ -762,7 +762,6 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
     struct Coord {
         value: f64,
     }
@@ -790,17 +789,19 @@ mod tests {
             exports.class::<Coord>();
             exports.function("make", |scope, args| Ok(Coord { value: args.get::<f64>(scope, 0)? }));
             exports.function("total", |scope, args| {
-                Ok(args
-                    .get::<Vec<Coord>>(scope, 0)?
-                    .into_iter()
-                    .map(|coord| coord.value)
-                    .sum::<f64>())
+                let mut total = 0.0;
+
+                for coord in args.get::<Vec<Coord>>(scope, 0)? {
+                    total += coord.borrow()?.value;
+                }
+
+                Ok(total)
             });
         }
     }
 
     #[test]
-    fn cloneable_host_classes_are_guest_types() {
+    fn host_classes_are_guest_types() {
         GuestTypeContract::accepts::<Coord>();
     }
 
@@ -1134,7 +1135,9 @@ mod tests {
                 .call::<_, Coord>((42.0,))
                 .await
                 .unwrap()
-                .value,
+                .borrow_with(|coord| coord.value)
+                .await
+                .unwrap(),
             42.0,
         );
         assert_eq!(
@@ -1149,5 +1152,37 @@ mod tests {
                 .unwrap(),
             3.0,
         );
+    }
+
+    #[tokio::test]
+    async fn host_class_conversion_stays_attached_to_the_guest_object() {
+        let counter = Runtime::builder()
+            .bind(MathHost)
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap()
+            .host_module("@host/math")
+            .await
+            .unwrap()
+            .class_as::<Counter>("Counter")
+            .await
+            .unwrap()
+            .construct((5,))
+            .await
+            .unwrap();
+
+        assert_eq!(counter.call::<_, i32>("add", (3,)).await.unwrap(), 8);
+        assert_eq!(counter.borrow_with(|counter| counter.n).await.unwrap(), 8);
+
+        counter
+            .borrow_with_mut(|counter| counter.n = 40)
+            .await
+            .unwrap();
+
+        assert_eq!(counter.call::<_, i32>("add", (2,)).await.unwrap(), 42);
     }
 }
