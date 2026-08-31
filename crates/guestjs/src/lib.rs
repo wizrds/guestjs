@@ -51,7 +51,7 @@
 //!
 //! An asynchronous host callable carries a guest value across its own await by taking it as an owned
 //! [`Value`](crate::handle::Value), which holds no scope, and binding it again after the await
-//! inside a [`Scoped`](crate::handle::Scoped) return. The guest receives the object it passed in,
+//! inside a [`Deferred`](crate::host::Deferred) return. The guest receives the object it passed in,
 //! not a copy.
 //!
 //! ```ignore
@@ -63,7 +63,7 @@
 //!     Ok(async move {
 //!         tokio::task::yield_now().await;
 //!
-//!         Ok(Scoped::new(move |scope: &Scope| {
+//!         Ok(Deferred::new(move |scope: &Scope| {
 //!             value
 //!                 .bind::<Uint8Array>(scope)?
 //!                 .write_all(&[1, 2, 3, 4])?;

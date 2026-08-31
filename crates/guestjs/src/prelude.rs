@@ -5,9 +5,12 @@ pub use guestjs_core::{
     execution::*,
     handle::{
         array::*, awaitable::*, class::*, function::*, instance::*, module::*, object::*,
-        promise::*, scoped::*, value::*,
+        promise::*, value::*,
     },
-    host::{args::*, callable::*, class::*, library::*, module::*, namespace::*, object::*},
+    host::{
+        args::*, callable::*, class::*, deferred::*, library::*, module::*, namespace::*,
+        object::*,
+    },
     marshal::*,
     native::*,
     runtime::*,

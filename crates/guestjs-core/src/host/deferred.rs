@@ -2,14 +2,15 @@ use rquickjs::Value as JsValue;
 
 use crate::{errors::Error, handle::value::Value, marshal::ToGuest, runtime::Scope};
 
-pub struct Scoped<F>
+/// Defers a guest conversion until a [`Scope`](crate::runtime::Scope) is available.
+pub struct Deferred<F>
 where
     F: for<'js> FnOnce(&Scope<'js>) -> Result<Value, Error>,
 {
     callback: F,
 }
 
-impl<F> Scoped<F>
+impl<F> Deferred<F>
 where
     F: for<'js> FnOnce(&Scope<'js>) -> Result<Value, Error>,
 {
@@ -18,7 +19,7 @@ where
     }
 }
 
-impl<F> ToGuest for Scoped<F>
+impl<F> ToGuest for Deferred<F>
 where
     F: for<'js> FnOnce(&Scope<'js>) -> Result<Value, Error>,
 {
@@ -30,16 +31,16 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        handle::{Promise, Scoped, Value},
-        host::{Exports, HostModule},
+        handle::{Promise, Value},
+        host::{Deferred, Exports, HostModule},
         runtime::Runtime,
     };
 
-    struct ScopedHost;
+    struct DeferredHost;
 
-    impl HostModule for ScopedHost {
+    impl HostModule for DeferredHost {
         fn name(&self) -> &str {
-            "@host/scoped"
+            "@host/deferred"
         }
 
         fn build(&self, exports: &mut Exports) {
@@ -49,7 +50,7 @@ mod tests {
                 Ok(async move {
                     tokio::task::yield_now().await;
 
-                    Ok(Scoped::new(move |scope| {
+                    Ok(Deferred::new(move |scope| {
                         value.bind::<Value>(scope)?;
 
                         Ok(value)
@@ -63,7 +64,7 @@ mod tests {
     async fn carries_a_value_across_an_await() {
         assert!(
             Runtime::builder()
-                .bind(ScopedHost)
+                .bind(DeferredHost)
                 .build()
                 .await
                 .unwrap()
@@ -72,8 +73,8 @@ mod tests {
                 .await
                 .unwrap()
                 .guest_module(
-                    "scoped.js",
-                    "import { carry } from \"@host/scoped\";\n\
+                    "deferred.js",
+                    "import { carry } from \"@host/deferred\";\n\
                     export async function carryValue() {\n\
                         const argument = {};\n\
                         return (await carry(argument)) === argument;\n\
