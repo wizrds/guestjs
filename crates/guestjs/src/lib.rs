@@ -467,7 +467,7 @@
 //! #[guestjs(borrow)] point: &Point
 //! #[guestjs(borrow_mut)] point: &mut Point
 //! #[guestjs(detached)] points: Vec<Point>
-//! #[guestjs(as = Function)] callback: BoundFunction<'_>
+//! #[guestjs(as = "Function")] callback: BoundFunction<'_>
 //! #[guestjs(rest)] values: Vec<f64>
 //! ```
 //!
@@ -1057,7 +1057,7 @@ export function advance() {
         #[guestjs(method)]
         fn apply(
             &self,
-            #[guestjs(as = Function)] callback: BoundFunction<'_>,
+            #[guestjs(as = "Function")] callback: BoundFunction<'_>,
             value: i32,
         ) -> Result<i32, HostClassError> {
             callback

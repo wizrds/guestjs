@@ -726,7 +726,7 @@ Available parameter forms include:
 #[guestjs(borrow)] vector: &Vector2
 #[guestjs(borrow_mut)] vector: &mut Vector2
 #[guestjs(detached)] points: Vec<Vector2>
-#[guestjs(as = Function)] callback: BoundFunction<'_>
+#[guestjs(as = "Function")] callback: BoundFunction<'_>
 #[guestjs(rest)] values: Vec<f64>
 ```
 
@@ -736,7 +736,7 @@ undefined and null.
 `#[guestjs(detached)]` clones the Rust payload out of each host-class argument instead of handing
 back a handle to the guest object. It requires `Clone` on the class, composes through `Vec`,
 `Option`, `Nullish` and tuples, and is equivalent to naming
-`#[guestjs(as = Vec<Detached<Vector2>>)]` explicitly.
+`#[guestjs(as = "Vec<Detached<Vector2>>")]` explicitly.
 
 Callable errors may be any type implementing `Into<guestjs::Error>`. A borrowing Rust `async fn`
 class method is not supported because its future retains the class borrow. `async_method` instead

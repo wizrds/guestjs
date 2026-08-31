@@ -3,7 +3,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
     AngleBracketedGenericArguments, FnArg, GenericArgument, Generics, Ident, ImplItemFn, Pat,
-    PatType, Path, PathArguments, ReturnType, Type, TypeParamBound, TypePath, spanned::Spanned,
+    PatType, Path, PathArguments, ReturnType, Type, TypeParamBound, spanned::Spanned,
 };
 
 use crate::host::{
@@ -83,7 +83,7 @@ struct ParameterOptions {
     rest: Flag,
     detached: Flag,
     #[darling(rename = "as")]
-    descriptor: Option<TypePath>,
+    descriptor: Option<Type>,
 }
 
 impl ParameterOptions {
@@ -216,15 +216,15 @@ impl Parameter {
         let materialized = argument.ty.as_ref().clone();
         let detached = options.detached.is_present();
         let role = if options.scope.is_present() {
-            Self::scope_role(&materialized, options.descriptor.map(Type::Path), detached)?
+            Self::scope_role(&materialized, options.descriptor, detached)?
         } else if options.borrow.is_present() {
-            Self::borrow_role(&materialized, options.descriptor.map(Type::Path), false, detached)?
+            Self::borrow_role(&materialized, options.descriptor, false, detached)?
         } else if options.borrow_mut.is_present() {
-            Self::borrow_role(&materialized, options.descriptor.map(Type::Path), true, detached)?
+            Self::borrow_role(&materialized, options.descriptor, true, detached)?
         } else if options.rest.is_present() {
-            Self::rest_role(&materialized, options.descriptor.map(Type::Path), detached)?
+            Self::rest_role(&materialized, options.descriptor, detached)?
         } else {
-            Self::value_role(&materialized, options.descriptor.map(Type::Path), detached)
+            Self::value_role(&materialized, options.descriptor, detached)
         };
 
         Ok(Self {
