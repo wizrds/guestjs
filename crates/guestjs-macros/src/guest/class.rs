@@ -9,7 +9,7 @@ use crate::{
     guest::{
         GuestMacroError,
         facade::{
-            GuestAttributes, GuestFacadeKind, GuestMember, GuestMemberInput, GuestMembers, keyword,
+            GuestAttributes, GuestFacadeKind, GuestMembers, GuestMemberInput, keyword,
         },
     },
     path::CratePath,
@@ -62,7 +62,7 @@ pub(crate) struct GuestClassMacro {
     bound_ident: Ident,
     crate_path: Path,
     identity: Option<Path>,
-    members: Vec<GuestMember>,
+    members: GuestMembers,
 }
 
 impl GuestClassMacro {

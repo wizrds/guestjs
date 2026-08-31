@@ -666,30 +666,13 @@ impl GuestMember {
     }
 }
 
-pub(crate) struct GuestMembers;
+pub(crate) struct GuestMembers(Vec<GuestMember>);
 
 impl GuestMembers {
-    fn insert_name(
-        names: &mut HashMap<String, Span>,
-        name: String,
-        span: Span,
-        kind: GuestFacadeKind,
-        role: &str,
-    ) -> Result<(), GuestMacroError> {
-        let Some(previous) = names.insert(name.clone(), span) else {
-            return Ok(());
-        };
-        let mut error = syn::Error::new(span, format!("duplicate {} {role} {name:?}", kind.noun()));
-
-        error.combine(syn::Error::new(previous, format!("the first {role} is here")));
-
-        Err(error.into())
-    }
-
     pub(crate) fn new(
         inputs: Vec<GuestMemberInput>,
         kind: GuestFacadeKind,
-    ) -> Result<Vec<GuestMember>, GuestMacroError> {
+    ) -> Result<Self, GuestMacroError> {
         let members = inputs
             .into_iter()
             .map(|input| GuestMember::new(input, kind))
@@ -714,6 +697,36 @@ impl GuestMembers {
             )?;
         }
 
-        Ok(members)
+        Ok(Self(members))
+    }
+
+    fn insert_name(
+        names: &mut HashMap<String, Span>,
+        name: String,
+        span: Span,
+        kind: GuestFacadeKind,
+        role: &str,
+    ) -> Result<(), GuestMacroError> {
+        let Some(previous) = names.insert(name.clone(), span) else {
+            return Ok(());
+        };
+        let mut error = syn::Error::new(span, format!("duplicate {} {role} {name:?}", kind.noun()));
+
+        error.combine(syn::Error::new(previous, format!("the first {role} is here")));
+
+        Err(error.into())
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &GuestMember> {
+        self.0.iter()
+    }
+}
+
+impl IntoIterator for GuestMembers {
+    type Item = GuestMember;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
