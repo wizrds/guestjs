@@ -1175,14 +1175,32 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(counter.call::<_, i32>("add", (3,)).await.unwrap(), 8);
-        assert_eq!(counter.borrow_with(|counter| counter.n).await.unwrap(), 8);
+        assert_eq!(
+            counter
+                .call::<_, i32>("add", (3,))
+                .await
+                .unwrap(),
+            8
+        );
+        assert_eq!(
+            counter
+                .borrow_with(|counter| counter.n)
+                .await
+                .unwrap(),
+            8
+        );
 
         counter
             .borrow_with_mut(|counter| counter.n = 40)
             .await
             .unwrap();
 
-        assert_eq!(counter.call::<_, i32>("add", (2,)).await.unwrap(), 42);
+        assert_eq!(
+            counter
+                .call::<_, i32>("add", (2,))
+                .await
+                .unwrap(),
+            42
+        );
     }
 }

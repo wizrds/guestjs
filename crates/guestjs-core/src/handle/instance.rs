@@ -25,11 +25,7 @@ pub struct Instance<T = Object> {
 
 impl<T> Instance<T> {
     pub(crate) fn new(value: Persistent<JsObject<'static>>, context: Rc<GuestContext>) -> Self {
-        Self {
-            value,
-            context,
-            _identity: PhantomData,
-        }
+        Self { value, context, _identity: PhantomData }
     }
 
     /// Binds the instance to a scope.
@@ -128,7 +124,9 @@ impl<T> Instance<T> {
         R: 'static,
     {
         Scope::with(&self.context, async move |scope| {
-            Ok(f(&mut *self.bind(&scope)?.borrow_as_mut::<C>()?))
+            Ok(f(&mut *self
+                .bind(&scope)?
+                .borrow_as_mut::<C>()?))
         })
         .await
     }
@@ -151,7 +149,8 @@ where
         F: FnOnce(&mut C) -> R,
         R: 'static,
     {
-        self.borrow_as_with_mut::<C, F, R>(f).await
+        self.borrow_as_with_mut::<C, F, R>(f)
+            .await
     }
 }
 
@@ -224,11 +223,7 @@ pub struct BoundInstance<'js, T = Object> {
 
 impl<'js, T> BoundInstance<'js, T> {
     pub(crate) fn new(value: JsObject<'js>, scope: Scope<'js>) -> Self {
-        Self {
-            value,
-            scope,
-            _identity: PhantomData,
-        }
+        Self { value, scope, _identity: PhantomData }
     }
 
     fn call_value(&self, method: &str, mut args: JsArgs<'js>) -> Result<JsValue<'js>, Error> {
@@ -310,7 +305,8 @@ impl<'js, T> BoundInstance<'js, T> {
     }
 
     pub fn is_instance_of<R>(&self, class: &BoundClass<'js, R>) -> bool {
-        self.value.is_instance_of(class.constructor())
+        self.value
+            .is_instance_of(class.constructor())
     }
 
     pub fn borrow_as<C>(&self) -> Result<Ref<'js, C>, Error>
@@ -337,7 +333,6 @@ impl<'js, T> BoundInstance<'js, T> {
                 .clone(),
         ))
     }
-
 }
 
 impl<'js, C> BoundInstance<'js, C>
@@ -407,9 +402,7 @@ mod tests {
         const NAME: &'static str = "Tally";
 
         fn construct<'js>(scope: &Scope<'js>, args: Args<'js>) -> Result<Self, Error> {
-            Ok(Self {
-                hits: args.get::<i32>(scope, 0)?,
-            })
+            Ok(Self { hits: args.get::<i32>(scope, 0)? })
         }
 
         fn build(spec: &mut ClassSpec<Self>) {
@@ -655,7 +648,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(counter.call::<_, i32>("add", (2,)).await.unwrap(), 3);
+        assert_eq!(
+            counter
+                .call::<_, i32>("add", (2,))
+                .await
+                .unwrap(),
+            3
+        );
         assert_eq!(
             counter
                 .as_untyped()
@@ -691,15 +690,33 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(tally.call::<_, i32>("bump", ()).await.unwrap(), 8);
-        assert_eq!(tally.borrow_with(|tally| tally.hits).await.unwrap(), 8);
+        assert_eq!(
+            tally
+                .call::<_, i32>("bump", ())
+                .await
+                .unwrap(),
+            8
+        );
+        assert_eq!(
+            tally
+                .borrow_with(|tally| tally.hits)
+                .await
+                .unwrap(),
+            8
+        );
 
         tally
             .borrow_with_mut(|tally| tally.hits = 100)
             .await
             .unwrap();
 
-        assert_eq!(tally.borrow_with(|tally| tally.hits).await.unwrap(), 100);
+        assert_eq!(
+            tally
+                .borrow_with(|tally| tally.hits)
+                .await
+                .unwrap(),
+            100
+        );
         assert!(
             guest
                 .guest_module("plain.js", "export class Plain { constructor() {} }")

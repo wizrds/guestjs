@@ -24,11 +24,7 @@ impl<R> Class<R> {
         value: Persistent<JsConstructor<'static>>,
         context: Rc<GuestContext>,
     ) -> Self {
-        Self {
-            value,
-            context,
-            _result: PhantomData,
-        }
+        Self { value, context, _result: PhantomData }
     }
 
     /// Binds the class to a scope.
@@ -148,11 +144,7 @@ pub struct BoundClass<'js, R = Instance> {
 
 impl<'js, R> BoundClass<'js, R> {
     pub(crate) fn new(value: JsConstructor<'js>, scope: Scope<'js>) -> Self {
-        Self {
-            value,
-            scope,
-            _result: PhantomData,
-        }
+        Self { value, scope, _result: PhantomData }
     }
 
     pub(crate) fn constructor(&self) -> &JsConstructor<'js> {
@@ -179,10 +171,7 @@ impl<'js, R> BoundClass<'js, R> {
         A: ToGuestArgsBound<'js>,
         O: FromGuestBound,
     {
-        O::from_guest_bound(
-            &self.scope,
-            self.construct_value(args.into_bound_args(&self.scope)?)?,
-        )
+        O::from_guest_bound(&self.scope, self.construct_value(args.into_bound_args(&self.scope)?)?)
     }
 
     /// Converts the class into an owned handle.
@@ -327,7 +316,11 @@ mod tests {
                 .scope(async move |scope| {
                     let class = module.bind(&scope)?.class("Counter")?;
 
-                    assert!(class.construct((5,))?.is_instance_of(&class));
+                    assert!(
+                        class
+                            .construct((5,))?
+                            .is_instance_of(&class)
+                    );
 
                     class
                         .with_result::<Object>()

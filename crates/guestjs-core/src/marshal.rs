@@ -5,8 +5,7 @@ use std::{
 };
 
 use rquickjs::{
-    Array, CatchResultExt, FromJs, IntoJs, Object, Type, Value as JsValue,
-    function::Args as JsArgs,
+    Array, CatchResultExt, FromJs, IntoJs, Object, Type, Value as JsValue, function::Args as JsArgs,
 };
 
 use crate::{errors::Error, host::class::HostClass, runtime::Scope};
@@ -1159,7 +1158,9 @@ mod tests {
         fn build(&self, exports: &mut Exports) {
             exports.class::<Marker>();
             exports.function("label", |scope, args| {
-                Ok(args.get::<Detached<Marker>>(scope, 0)?.label)
+                Ok(args
+                    .get::<Detached<Marker>>(scope, 0)?
+                    .label)
             });
         }
     }

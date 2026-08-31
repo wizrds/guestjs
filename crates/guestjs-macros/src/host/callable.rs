@@ -159,9 +159,19 @@ enum ValueKind {
 }
 
 enum ParameterRole {
-    Value { descriptor: Type, kind: ValueKind, detached: bool },
-    Borrow { value_type: Type, mutable: bool },
-    Rest { descriptor: Type, detached: bool },
+    Value {
+        descriptor: Type,
+        kind: ValueKind,
+        detached: bool,
+    },
+    Borrow {
+        value_type: Type,
+        mutable: bool,
+    },
+    Rest {
+        descriptor: Type,
+        detached: bool,
+    },
     Scope,
 }
 
@@ -326,11 +336,7 @@ impl Parameter {
         }
     }
 
-    fn value_role(
-        materialized: &Type,
-        descriptor: Option<Type>,
-        detached: bool,
-    ) -> ParameterRole {
+    fn value_role(materialized: &Type, descriptor: Option<Type>, detached: bool) -> ParameterRole {
         if let Some(value_type) = TypeShape::single_argument(materialized, "Option") {
             return ParameterRole::Value {
                 descriptor: descriptor.unwrap_or(value_type),
@@ -410,9 +416,7 @@ impl Parameter {
                 match kind {
                     ValueKind::Required => Some(descriptor),
                     ValueKind::Optional => Some(quote!(::std::option::Option<#descriptor>)),
-                    ValueKind::Nullish => {
-                        Some(quote!(#crate_path::marshal::Nullish<#descriptor>))
-                    }
+                    ValueKind::Nullish => Some(quote!(#crate_path::marshal::Nullish<#descriptor>)),
                 }
             }
             ParameterRole::Borrow { .. } | ParameterRole::Rest { .. } | ParameterRole::Scope => {
@@ -2208,18 +2212,13 @@ mod tests {
         assert!(output.contains("get_borrow :: < Point > (scope , 3"));
         assert!(output.contains("get_borrow_mut :: < Point > (scope , 4"));
         assert!(output.contains("get :: < Function > (scope , 5"));
-        assert!(output.contains(
-            "get :: < crate :: marshal :: Detached < Point > > (scope , 6",
-        ),);
+        assert!(output.contains("get :: < crate :: marshal :: Detached < Point > > (scope , 6",),);
         assert!(
-            output.contains(
-                ":: std :: vec :: Vec < crate :: marshal :: Detached < Point > >",
-            ),
+            output.contains(":: std :: vec :: Vec < crate :: marshal :: Detached < Point > >",),
         );
         assert!(
-            output.contains(
-                ":: std :: option :: Option < crate :: marshal :: Detached < Point > >",
-            ),
+            output
+                .contains(":: std :: option :: Option < crate :: marshal :: Detached < Point > >",),
         );
         assert!(output.contains("get_rest :: < i32 > (scope , 9"));
     }

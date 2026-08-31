@@ -1,18 +1,16 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    braced,
+    Attribute, Ident, Path, Visibility, braced,
     parse::{Parse, ParseStream},
-    Attribute, Ident, Path, Visibility,
 };
 
 use crate::{
     guest::{
-        facade::{
-            keyword, GuestAttributes, GuestFacadeKind, GuestMember, GuestMemberInput,
-            GuestMembers,
-        },
         GuestMacroError,
+        facade::{
+            GuestAttributes, GuestFacadeKind, GuestMember, GuestMemberInput, GuestMembers, keyword,
+        },
     },
     path::CratePath,
 };
@@ -52,12 +50,7 @@ impl Parse for GuestModuleInput {
             return Err(input.error("unexpected tokens after the guest module declaration"));
         }
 
-        Ok(Self {
-            attributes,
-            visibility,
-            ident,
-            members,
-        })
+        Ok(Self { attributes, visibility, ident, members })
     }
 }
 
@@ -97,12 +90,12 @@ impl GuestModuleMacro {
             members,
         } = self;
         let attributes = &attributes;
-        let owned_methods = members.iter().map(|member| {
-            member.owned_method(GuestFacadeKind::Module, &visibility, &crate_path)
-        });
-        let bound_methods = members.iter().map(|member| {
-            member.bound_method(GuestFacadeKind::Module, &visibility, &crate_path)
-        });
+        let owned_methods = members
+            .iter()
+            .map(|member| member.owned_method(GuestFacadeKind::Module, &visibility, &crate_path));
+        let bound_methods = members
+            .iter()
+            .map(|member| member.bound_method(GuestFacadeKind::Module, &visibility, &crate_path));
 
         quote! {
             #(#attributes)*
@@ -232,9 +225,11 @@ mod tests {
         assert!(output.contains("get :: < crate :: handle :: Function > (\"operation\")"));
         assert!(output.contains("get :: < crate :: handle :: Promise"));
         assert!(output.contains("(\"pending\")"));
-        assert!(output.contains(
-            "< crate :: handle :: Object as crate :: marshal :: FromGuest > :: Owned",
-        ));
+        assert!(
+            output.contains(
+                "< crate :: handle :: Object as crate :: marshal :: FromGuest > :: Owned",
+            )
+        );
         assert!(output.contains(concat!(
             "< crate :: handle :: Object as crate :: marshal :: FromGuestBound > :: ",
             "Bound < 'js >",
@@ -260,7 +255,12 @@ mod tests {
         assert!(output.contains("custom :: guestjs :: handle :: Module"));
         assert!(output.contains("pub (crate) async fn read"));
         assert!(output.contains("pub (crate) fn read"));
-        assert_eq!(output.matches("allow (dead_code)").count(), 2);
+        assert_eq!(
+            output
+                .matches("allow (dead_code)")
+                .count(),
+            2
+        );
         assert_eq!(
             output
                 .matches("allow (clippy :: needless_lifetimes)")

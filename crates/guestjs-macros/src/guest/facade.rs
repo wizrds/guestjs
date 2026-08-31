@@ -1,34 +1,12 @@
 use std::collections::HashMap;
 
-use darling::{
-    ast::NestedMeta,
-    FromMeta,
-};
-use proc_macro2::{
-    Span,
-    TokenStream,
-};
-use quote::{
-    format_ident,
-    quote,
-};
+use darling::{FromMeta, ast::NestedMeta};
+use proc_macro2::{Span, TokenStream};
+use quote::{format_ident, quote};
 use syn::{
-    parse::{
-        Parse,
-        ParseStream,
-    },
+    Attribute, FnArg, Ident, Meta, Pat, Path, ReturnType, Signature, Token, Type, Visibility,
+    parse::{Parse, ParseStream},
     spanned::Spanned,
-    Attribute,
-    FnArg,
-    Ident,
-    Meta,
-    Pat,
-    Path,
-    ReturnType,
-    Signature,
-    Token,
-    Type,
-    Visibility,
 };
 
 use crate::guest::GuestMacroError;
@@ -133,11 +111,7 @@ pub(crate) struct GuestFunctionInput {
 
 impl GuestFunctionInput {
     fn parse(attributes: Vec<Attribute>, input: ParseStream<'_>) -> syn::Result<Self> {
-        Self {
-            attributes,
-            signature: input.parse()?,
-        }
-        .with_semicolon(input)
+        Self { attributes, signature: input.parse()? }.with_semicolon(input)
     }
 
     fn with_semicolon(self, input: ParseStream<'_>) -> syn::Result<Self> {
@@ -165,11 +139,7 @@ impl GuestValueInput {
 
         input.parse::<Token![;]>()?;
 
-        Ok(Self {
-            attributes,
-            ident,
-            descriptor,
-        })
+        Ok(Self { attributes, ident, descriptor })
     }
 }
 
@@ -284,10 +254,7 @@ pub(crate) struct GuestFunction {
 }
 
 impl GuestFunction {
-    fn new(
-        mut input: GuestFunctionInput,
-        kind: GuestFacadeKind,
-    ) -> Result<Self, GuestMacroError> {
+    fn new(mut input: GuestFunctionInput, kind: GuestFacadeKind) -> Result<Self, GuestMacroError> {
         Self::validate_signature(&input.signature, kind)?;
 
         let parameters = input
@@ -353,7 +320,12 @@ impl GuestFunction {
             .into());
         }
 
-        if !signature.generics.params.is_empty() || signature.generics.where_clause.is_some() {
+        if !signature.generics.params.is_empty()
+            || signature
+                .generics
+                .where_clause
+                .is_some()
+        {
             return Err(syn::Error::new(
                 signature.generics.span(),
                 format!("a {noun} {callable} declaration cannot be generic"),
@@ -707,10 +679,7 @@ impl GuestMembers {
         let Some(previous) = names.insert(name.clone(), span) else {
             return Ok(());
         };
-        let mut error = syn::Error::new(
-            span,
-            format!("duplicate {} {role} {name:?}", kind.noun()),
-        );
+        let mut error = syn::Error::new(span, format!("duplicate {} {role} {name:?}", kind.noun()));
 
         error.combine(syn::Error::new(previous, format!("the first {role} is here")));
 

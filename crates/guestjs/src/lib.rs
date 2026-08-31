@@ -822,12 +822,12 @@ mod tests {
     use std::{cell::Cell, future::Future, rc::Rc};
 
     use crate::{
-        value::JsValue,
         errors::Error,
         handle::{BoundFunction, Class, Function, Object, Promise},
         host::{Exports, Namespace},
         marshal::{FromGuestBound, Nullish},
         runtime::{Runtime, Scope},
+        value::JsValue,
     };
 
     #[derive(
