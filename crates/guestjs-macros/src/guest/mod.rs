@@ -1,8 +1,10 @@
 use proc_macro2::TokenStream;
 
+mod class;
+mod facade;
 mod module;
 
-pub(crate) use crate::guest::module::GuestModuleMacro;
+pub(crate) use crate::guest::{class::GuestClassMacro, module::GuestModuleMacro};
 
 #[derive(Debug)]
 pub(crate) enum GuestMacroError {

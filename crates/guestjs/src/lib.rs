@@ -51,7 +51,7 @@
 //!
 //! An asynchronous host callable carries a guest value across its own await by taking it as an owned
 //! [`Value`](crate::handle::Value), which holds no scope, and binding it again after the await
-//! inside a [`Scoped`](crate::handle::Scoped) return. The guest receives the object it passed in,
+//! inside a [`Deferred`](crate::host::Deferred) return. The guest receives the object it passed in,
 //! not a copy.
 //!
 //! ```ignore
@@ -63,7 +63,7 @@
 //!     Ok(async move {
 //!         tokio::task::yield_now().await;
 //!
-//!         Ok(Scoped::new(move |scope: &Scope| {
+//!         Ok(Deferred::new(move |scope: &Scope| {
 //!             value
 //!                 .bind::<Uint8Array>(scope)?
 //!                 .write_all(&[1, 2, 3, 4])?;
@@ -210,11 +210,17 @@
 //! );
 //! ```
 //!
-//! A [`HostClass`](crate::host::class::HostClass) already represents a guest object with identity
-//! and borrowing behavior. Use a separate serde data type when the same state also needs plain-data
-//! conversion. [`Nullish<T>`](crate::marshal::Nullish) preserves `undefined`, `null`, and present
-//! values when converted directly, but it is not a supported field representation inside a
-//! serde-derived aggregate.
+//! A [`HostClass`](crate::host::class::HostClass) already represents a guest object with identity,
+//! so receiving one from guest code yields an
+//! [`Instance<C>`](crate::handle::Instance) rather than a detached copy of the Rust value. Reach
+//! the payload with `borrow_with`, `borrow_with_mut`, `borrow`, or `borrow_mut`. Use a separate
+//! serde data type when the same state also needs plain-data conversion.
+//! [`Detached<C>`](crate::marshal::Detached) is the descriptor that asks for the payload instead,
+//! cloning the Rust value out of the guest object and requiring
+//! [`Clone`](std::clone::Clone) on the class.
+//! [`Nullish<T>`](crate::marshal::Nullish) preserves `undefined`, `null`, and present values when
+//! converted directly, but it is not a supported field representation inside a serde-derived
+//! aggregate.
 //!
 //! # Running guest code
 //!
@@ -389,6 +395,42 @@
 //! );
 //! ```
 //!
+//! [`guest_class!`](crate::guest_class) defines typed owned and bound access to a guest class
+//! instance. Its declaration has the same member syntax as
+//! [`guest_module!`](crate::guest_module): `fn` declares a method and `value` declares a property.
+//! The optional `identity` attribute names the host class the guest class must extend, so conversion
+//! produces an [`Instance`](crate::handle::Instance) carrying that identity and verifies the guest
+//! object's Rust payload:
+//!
+//! ```ignore
+//! use guestjs::prelude::*;
+//!
+//! guestjs::guest_class! {
+//!     #[guestjs(identity = Plugin)]
+//!     pub class GuestPlugin {
+//!         fn handle(
+//!             who: String,
+//!         ) -> Promise<String>;
+//!
+//!         value greeting: String;
+//!     }
+//! }
+//!
+//! let plugin = guest
+//!     .guest_module("plugin.js", source)
+//!     .await?
+//!     .class_as::<GuestPlugin>("default")
+//!     .await?
+//!     .construct((config,))
+//!     .await?;
+//!
+//! let reply = plugin.handle(String::from("world")).await?.await?;
+//! let calls = plugin
+//!     .instance()
+//!     .borrow_with(|plugin| plugin.calls)
+//!     .await?;
+//! ```
+//!
 //! [`GuestType`](crate::marshal::GuestType) projects each declared input descriptor into its owned
 //! or scope-bound argument type. Function declarations accept up to four parameters, matching the
 //! current tuple conversion contract. Within a live scope, requesting the semantic descriptor
@@ -411,19 +453,21 @@
 //! static members, and owned asynchronous methods are exposed explicitly. A shared receiver
 //! defines a shared method, while an exclusive receiver defines an exclusive method. Callable
 //! errors may be any type that converts into [`Error`](crate::errors::Error). The guest class name
-//! defaults to the Rust type name and can be overridden with `name`.
+//! defaults to the Rust type name and can be overridden with `name`. A host class does not need to
+//! implement [`Clone`](std::clone::Clone).
 //!
 //! Ordinary parameters use their [`FromGuestBound`](crate::marshal::FromGuestBound) descriptor.
 //! [`Option<T>`](std::option::Option) treats an omitted, undefined, or null argument as `None`,
 //! while [`Nullish<T>`](crate::marshal::Nullish) preserves undefined and null. Parameter helpers
-//! inject a [`Scope`](crate::runtime::Scope), borrow another host-class instance, select a semantic
-//! descriptor, or collect trailing arguments:
+//! inject a [`Scope`](crate::runtime::Scope), borrow another host-class instance, detach a
+//! host-class payload, select a semantic descriptor, or collect trailing arguments:
 //!
 //! ```text
 //! #[guestjs(scope)] scope: &Scope<'_>
 //! #[guestjs(borrow)] point: &Point
 //! #[guestjs(borrow_mut)] point: &mut Point
-//! #[guestjs(as = Function)] callback: BoundFunction<'_>
+//! #[guestjs(detached)] points: Vec<Point>
+//! #[guestjs(as = "Function")] callback: BoundFunction<'_>
 //! #[guestjs(rest)] values: Vec<f64>
 //! ```
 //!
@@ -778,12 +822,12 @@ mod tests {
     use std::{cell::Cell, future::Future, rc::Rc};
 
     use crate::{
-        value::JsValue,
         errors::Error,
         handle::{BoundFunction, Class, Function, Object, Promise},
         host::{Exports, Namespace},
         marshal::{FromGuestBound, Nullish},
         runtime::{Runtime, Scope},
+        value::JsValue,
     };
 
     #[derive(
@@ -1013,7 +1057,7 @@ export function advance() {
         #[guestjs(method)]
         fn apply(
             &self,
-            #[guestjs(as = Function)] callback: BoundFunction<'_>,
+            #[guestjs(as = "Function")] callback: BoundFunction<'_>,
             value: i32,
         ) -> Result<i32, HostClassError> {
             callback

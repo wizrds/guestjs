@@ -797,8 +797,8 @@ mod tests {
     use rquickjs::{CatchResultExt, Value as JsValue};
 
     use crate::{
-        handle::{Array, ArrayBuffer, Float64Array, Promise, Scoped, Uint8Array, Value},
-        host::{Exports, HostModule},
+        handle::{Array, ArrayBuffer, Float64Array, Promise, Uint8Array, Value},
+        host::{Deferred, Exports, HostModule},
         marshal::FromGuestBound,
         runtime::{Runtime, Scope},
     };
@@ -823,7 +823,7 @@ mod tests {
                 Ok(async move {
                     tokio::task::yield_now().await;
 
-                    Ok(Scoped::new(move |scope: &Scope| {
+                    Ok(Deferred::new(move |scope: &Scope| {
                         value
                             .bind::<Uint8Array>(scope)?
                             .write_all(&[1, 2, 3, 4])?;

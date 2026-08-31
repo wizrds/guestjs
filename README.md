@@ -273,9 +273,16 @@ as `Error::Timeout` or `Error::Cancelled`.
 
 ## Owned and scope-bound handles
 
-Owned handles such as `Module`, `Function`, `Object`, `Class`, `Instance`, `Promise<T>`, and
+Owned handles such as `Module`, `Function`, `Object`, `Class<R>`, `Instance<T>`, `Promise<T>`, and
 `Awaitable<T>` can be retained outside a guest scope. Their operations are asynchronous because
 each operation enters the guest context.
+
+`Class<R>` names the value produced by constructing the class, and `Instance<T>` names the
+identity of an instance. Both parameters default, so `Class` and `Instance` remain valid spellings
+and mean `Class<Instance>` and `Instance<Object>`. Neither parameter changes what the handle can
+do: every method is available at every parameter. They exist so that a host can say what a class
+constructs and what an instance is, and so that an instance whose identity is a host class can hand
+back the Rust payload it carries.
 
 `Guest::scope` enters the context once. Operations inside the callback return bound handles tied to
 that live scope, and most operations become synchronous:
@@ -437,6 +444,54 @@ conversion contract.
 Values are looked up on every invocation. The facade does not silently cache mutable module
 exports. Handle descriptors return owned handles outside a scope and bound handles inside one.
 
+### Typed guest classes
+
+`guest_class!` does for a guest class what `guest_module!` does for a guest module. It takes a
+declaration of the shape of an instance and emits an owned facade and a scope-bound facade over
+`Instance` and `BoundInstance`.
+
+```rust
+guestjs::guest_class! {
+    #[guestjs(identity = Plugin)]
+    pub class GuestPlugin {
+        fn handle(
+            who: String,
+        ) -> Promise<String>;
+
+        value greeting: String;
+    }
+}
+```
+
+A `fn` becomes a method call on the instance, and a `value` becomes a property read. The
+`#[guestjs(name = "..")]` attribute renames a member on the guest side, exactly as it does for
+`guest_module!`. Methods take at most four parameters and name their successful result descriptor,
+not `Result`. The member names `bind`, `instance`, and `into_instance` are reserved.
+
+The optional `identity` attribute names a host class the guest class is expected to extend. It types
+the wrapped handle as `Instance<Plugin>` rather than `Instance`, and it makes the conversion verify
+that the guest object really does carry the host class's Rust payload. A guest class that does not
+extend the host base, or one that forgets to call `super()`, fails at construction rather than at
+its first method call.
+
+Pass the facade as the result type of a class handle to construct one:
+
+```rust
+let plugin = guest
+    .guest_module("plugin.js", source)
+    .await?
+    .class_as::<GuestPlugin>("default")
+    .await?
+    .construct((config,))
+    .await?;
+
+let reply = plugin.handle(String::from("world")).await?.await?;
+let calls = plugin
+    .instance()
+    .borrow_with(|plugin| plugin.calls)
+    .await?;
+```
+
 ## Plain Rust data
 
 Derive `ToGuest` and `FromGuest` for ordinary serde-backed structs and enums. Types using these
@@ -512,6 +567,28 @@ serialization.
 `#[guestjs::host_class]` generates `HostClass` and its conversion implementations from an inherent
 Rust implementation. The guest class name defaults to the Rust type name; `name = "..."` overrides
 it.
+
+Receiving a host class from guest code yields an `Instance<C>`, a handle to the live guest object,
+not a copy of the Rust value. Reach the payload with `borrow_with` and `borrow_with_mut` on the
+owned handle, or `borrow` and `borrow_mut` on the bound handle:
+
+To receive the Rust value itself rather than a handle, mark the parameter `#[guestjs(detached)]`.
+The class must implement `Clone`, and the resulting value no longer tracks the guest object.
+
+```rust
+let counter = module
+    .class_as::<Counter>("Counter")
+    .await?
+    .construct((5,))
+    .await?;
+
+counter.borrow_with_mut(|counter| counter.n = 40).await?;
+
+assert_eq!(counter.call::<_, i32>("add", (2,)).await?, 42);
+```
+
+Because the handle stays attached to the guest object, a mutation made from Rust is visible to
+guest code and the reverse. Host classes do not need to implement `Clone`.
 
 The following class exposes construction, shared and mutable methods, an accessor, iteration, a
 well-known symbol, a constant, a static method, a statics hook, and an owned asynchronous method:
@@ -648,12 +725,18 @@ Available parameter forms include:
 #[guestjs(scope)] scope: &Scope<'_>
 #[guestjs(borrow)] vector: &Vector2
 #[guestjs(borrow_mut)] vector: &mut Vector2
-#[guestjs(as = Function)] callback: BoundFunction<'_>
+#[guestjs(detached)] points: Vec<Vector2>
+#[guestjs(as = "Function")] callback: BoundFunction<'_>
 #[guestjs(rest)] values: Vec<f64>
 ```
 
 `Option<T>` accepts an omitted, undefined, or null argument as `None`. `Nullish<T>` distinguishes
 undefined and null.
+
+`#[guestjs(detached)]` clones the Rust payload out of each host-class argument instead of handing
+back a handle to the guest object. It requires `Clone` on the class, composes through `Vec`,
+`Option`, `Nullish` and tuples, and is equivalent to naming
+`#[guestjs(as = "Vec<Detached<Vector2>>")]` explicitly.
 
 Callable errors may be any type implementing `Into<guestjs::Error>`. A borrowing Rust `async fn`
 class method is not supported because its future retains the class borrow. `async_method` instead
