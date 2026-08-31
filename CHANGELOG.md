@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.4.0](https://github.com/wizrds/guestjs/compare/0.3.2..0.4.0) - 2026-08-31
+
+### Features
+
+- Add more complete class support with identity tracking and live borrows of host classes  - ([04118fb](https://github.com/wizrds/guestjs/commit/04118fbe385ea7cf0b544e919da3b56336b36d73)) - Timothy Pogue
+---
 ## [0.3.2](https://github.com/wizrds/guestjs/compare/0.3.1..0.3.2) - 2026-08-11
 
 ### Bug Fixes
