@@ -241,9 +241,11 @@ mod tests {
             "crate :: handle :: BoundObjectProtocol :: get :: < crate :: handle :: Function > ",
             "(& self . module , \"operation\")",
         )));
-        assert!(output.contains(
-            "crate :: handle :: ObjectProtocol :: get :: < crate :: handle :: Promise",
-        ));
+        assert!(
+            output.contains(
+                "crate :: handle :: ObjectProtocol :: get :: < crate :: handle :: Promise",
+            )
+        );
         assert!(output.contains("(& self . module , \"pending\")"));
         assert!(
             output.contains(
