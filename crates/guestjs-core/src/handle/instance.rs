@@ -1,18 +1,12 @@
 use std::{marker::PhantomData, rc::Rc};
 
-use rquickjs::{
-    CatchResultExt, Function as JsFunction, Object as JsObject, Persistent, Value as JsValue,
-    function::Args as JsArgs,
-};
+use rquickjs::{CatchResultExt, Object as JsObject, Persistent, Value as JsValue};
 
 use crate::{
     errors::Error,
-    handle::{BoundClass, Object},
+    handle::{BoundHandle, Object, OwnedHandle},
     host::class::{HostClass, Ref, RefMut},
-    marshal::{
-        FromGuest, FromGuestBound, FromGuestMut, FromGuestRef, ToGuest, ToGuestArgs,
-        ToGuestArgsBound, ToGuestBound,
-    },
+    marshal::{FromGuest, FromGuestBound, FromGuestMut, FromGuestRef, ToGuest, ToGuestBound},
     runtime::{GuestContext, Scope},
 };
 
@@ -66,45 +60,6 @@ impl<T> Instance<T> {
         self.as_typed::<C>().await
     }
 
-    /// Calls a guest method.
-    pub async fn call<A, R>(&self, method: &str, args: A) -> Result<R::Owned, Error>
-    where
-        A: ToGuestArgs,
-        R: FromGuest,
-    {
-        Scope::with(&self.context, async move |scope| {
-            R::from_guest(
-                &scope,
-                self.bind(&scope)?
-                    .call_value(method, args.into_args(&scope)?)?,
-            )
-        })
-        .await
-    }
-
-    /// Returns a property value.
-    pub async fn get<R>(&self, property: &str) -> Result<R::Owned, Error>
-    where
-        R: FromGuest,
-    {
-        Scope::with(&self.context, async move |scope| {
-            R::from_guest(&scope, self.bind(&scope)?.get_value(property)?)
-        })
-        .await
-    }
-
-    /// Sets a property value.
-    pub async fn set<V>(&self, property: &str, value: V) -> Result<(), Error>
-    where
-        V: ToGuest,
-    {
-        Scope::with(&self.context, async move |scope| {
-            self.bind(&scope)?
-                .set_value(property, value.to_guest(&scope)?)
-        })
-        .await
-    }
-
     pub async fn borrow_as_with<C, F, R>(&self, f: F) -> Result<R, Error>
     where
         C: HostClass,
@@ -129,6 +84,20 @@ impl<T> Instance<T> {
                 .borrow_as_mut::<C>()?))
         })
         .await
+    }
+}
+
+impl<T> OwnedHandle for Instance<T> {
+    fn guest_context(&self) -> &Rc<GuestContext> {
+        &self.context
+    }
+
+    fn bind_object<'js>(&self, scope: &Scope<'js>) -> Result<JsObject<'js>, Error> {
+        self.value
+            .clone()
+            .restore(scope.ctx())
+            .catch(scope.ctx())
+            .map_err(Into::into)
     }
 }
 
@@ -226,32 +195,6 @@ impl<'js, T> BoundInstance<'js, T> {
         Self { value, scope, _identity: PhantomData }
     }
 
-    fn call_value(&self, method: &str, mut args: JsArgs<'js>) -> Result<JsValue<'js>, Error> {
-        args.this(self.value.clone())
-            .catch(self.scope.ctx())?;
-
-        self.value
-            .get::<_, JsFunction>(method)
-            .catch(self.scope.ctx())?
-            .call_arg(args)
-            .catch(self.scope.ctx())
-            .map_err(Into::into)
-    }
-
-    fn get_value(&self, property: &str) -> Result<JsValue<'js>, Error> {
-        self.value
-            .get(property)
-            .catch(self.scope.ctx())
-            .map_err(Into::into)
-    }
-
-    fn set_value(&self, property: &str, value: JsValue<'js>) -> Result<(), Error> {
-        self.value
-            .set(property, value)
-            .catch(self.scope.ctx())
-            .map_err(Into::into)
-    }
-
     pub fn as_untyped(&self) -> BoundInstance<'js> {
         BoundInstance::new(self.value.clone(), self.scope.clone())
     }
@@ -274,39 +217,6 @@ impl<'js, T> BoundInstance<'js, T> {
         C: HostClass,
     {
         self.as_typed::<C>()
-    }
-
-    /// Calls a guest method.
-    pub fn call<A, R>(&self, method: &str, args: A) -> Result<R::Bound<'js>, Error>
-    where
-        A: ToGuestArgsBound<'js>,
-        R: FromGuestBound,
-    {
-        R::from_guest_bound(
-            &self.scope,
-            self.call_value(method, args.into_bound_args(&self.scope)?)?,
-        )
-    }
-
-    /// Returns a property value.
-    pub fn get<R>(&self, property: &str) -> Result<R::Bound<'js>, Error>
-    where
-        R: FromGuestBound,
-    {
-        R::from_guest_bound(&self.scope, self.get_value(property)?)
-    }
-
-    /// Sets a property value.
-    pub fn set<V>(&self, property: &str, value: V) -> Result<(), Error>
-    where
-        V: ToGuestBound<'js>,
-    {
-        self.set_value(property, value.to_guest_bound(&self.scope)?)
-    }
-
-    pub fn is_instance_of<R>(&self, class: &BoundClass<'js, R>) -> bool {
-        self.value
-            .is_instance_of(class.constructor())
     }
 
     pub fn borrow_as<C>(&self) -> Result<Ref<'js, C>, Error>
@@ -335,6 +245,16 @@ impl<'js, T> BoundInstance<'js, T> {
     }
 }
 
+impl<'js, T> BoundHandle<'js> for BoundInstance<'js, T> {
+    fn js_object(&self) -> &JsObject<'js> {
+        &self.value
+    }
+
+    fn js_scope(&self) -> &Scope<'js> {
+        &self.scope
+    }
+}
+
 impl<'js, C> BoundInstance<'js, C>
 where
     C: HostClass,
@@ -358,7 +278,10 @@ impl<'js, T> ToGuestBound<'js> for BoundInstance<'js, T> {
 mod tests {
     use crate::{
         errors::Error,
-        handle::{Function, Object},
+        handle::{
+            BoundCallableProtocol, BoundConstructorProtocol, BoundObjectProtocol, CallableProtocol,
+            ConstructorProtocol, Function, Object, ObjectProtocol,
+        },
         host::{
             args::Args,
             class::{ClassSpec, HostClass},
@@ -454,7 +377,7 @@ mod tests {
 
         assert_eq!(
             counter
-                .call::<_, i32>("add", (5,))
+                .call_method::<_, i32>("add", (5,))
                 .await
                 .unwrap(),
             15
@@ -465,7 +388,7 @@ mod tests {
 
         assert_eq!(
             counter
-                .call::<_, i32>("add", (5,))
+                .call_method::<_, i32>("add", (5,))
                 .await
                 .unwrap(),
             25
@@ -512,7 +435,7 @@ mod tests {
             .scope(async move |scope| {
                 let counter = class.bind(&scope)?.construct((10,))?;
 
-                assert_eq!(counter.call::<_, i32>("add", (5,))?, 15);
+                assert_eq!(counter.call_method::<_, i32>("add", (5,))?, 15);
 
                 counter.set("n", 20)?;
 
@@ -553,7 +476,7 @@ mod tests {
                     .unwrap(),))
                 .await
                 .unwrap()
-                .call::<_, Object>("getObject", ())
+                .call_method::<_, Object>("getObject", ())
                 .await
                 .unwrap()
                 .get::<i32>("value")
@@ -579,13 +502,13 @@ mod tests {
                     );
                     assert_eq!(
                         holder
-                            .call::<_, Object>("getObject", ())?
+                            .call_method::<_, Object>("getObject", ())?
                             .get::<i32>("value")?,
                         3,
                     );
                     assert_eq!(
                         holder
-                            .call::<_, Function>("getFunction", ())?
+                            .call_method::<_, Function>("getFunction", ())?
                             .call::<_, i32>((4,))?,
                         7,
                     );
@@ -598,7 +521,7 @@ mod tests {
                     )?;
                     assert_eq!(
                         holder
-                            .call::<_, Object>(
+                            .call_method::<_, Object>(
                                 "replace",
                                 (module
                                     .function("makeObject")?
@@ -650,7 +573,7 @@ mod tests {
 
         assert_eq!(
             counter
-                .call::<_, i32>("add", (2,))
+                .call_method::<_, i32>("add", (2,))
                 .await
                 .unwrap(),
             3
@@ -658,7 +581,7 @@ mod tests {
         assert_eq!(
             counter
                 .as_untyped()
-                .call::<_, i32>("add", (2,))
+                .call_method::<_, i32>("add", (2,))
                 .await
                 .unwrap(),
             5,
@@ -692,7 +615,7 @@ mod tests {
 
         assert_eq!(
             tally
-                .call::<_, i32>("bump", ())
+                .call_method::<_, i32>("bump", ())
                 .await
                 .unwrap(),
             8
@@ -731,6 +654,40 @@ mod tests {
                 .into_typed::<Tally>()
                 .await
                 .is_err(),
+        );
+    }
+
+    #[tokio::test]
+    async fn owned_instance_reports_its_class() {
+        let module = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap()
+            .guest_module(
+                "identity.js",
+                "export class Counter { constructor(start) { this.n = start; } }\n\
+                 export class Other {}",
+            )
+            .await
+            .unwrap();
+        let counter = module.class("Counter").await.unwrap();
+        let instance = counter.construct((1,)).await.unwrap();
+
+        assert!(
+            instance
+                .is_instance_of(&counter)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !instance
+                .is_instance_of(&module.class("Other").await.unwrap())
+                .await
+                .unwrap()
         );
     }
 }

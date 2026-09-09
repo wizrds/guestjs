@@ -4,6 +4,7 @@ use rquickjs::{CatchResultExt, Object as JsObject, Persistent, Value as JsValue}
 
 use crate::{
     errors::Error,
+    handle::{BoundHandle, OwnedHandle},
     marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
     runtime::{GuestContext, Scope},
 };
@@ -30,28 +31,19 @@ impl Object {
             scope.clone(),
         ))
     }
+}
 
-    /// Returns a property value.
-    pub async fn get<R>(&self, property: &str) -> Result<R::Owned, Error>
-    where
-        R: FromGuest,
-    {
-        Scope::with(&self.context, async move |scope| {
-            R::from_guest(&scope, self.bind(&scope)?.get_value(property)?)
-        })
-        .await
+impl OwnedHandle for Object {
+    fn guest_context(&self) -> &Rc<GuestContext> {
+        &self.context
     }
 
-    /// Sets a property value.
-    pub async fn set<V>(&self, property: &str, value: V) -> Result<(), Error>
-    where
-        V: ToGuest,
-    {
-        Scope::with(&self.context, async move |scope| {
-            self.bind(&scope)?
-                .set_value(property, value.to_guest(&scope)?)
-        })
-        .await
+    fn bind_object<'js>(&self, scope: &Scope<'js>) -> Result<JsObject<'js>, Error> {
+        self.value
+            .clone()
+            .restore(scope.ctx())
+            .catch(scope.ctx())
+            .map_err(Into::into)
     }
 }
 
@@ -117,22 +109,6 @@ impl<'js> BoundObject<'js> {
         Self { value, scope }
     }
 
-    /// Returns a property value.
-    pub fn get<R>(&self, property: &str) -> Result<R::Bound<'js>, Error>
-    where
-        R: FromGuestBound,
-    {
-        R::from_guest_bound(&self.scope, self.get_value(property)?)
-    }
-
-    /// Sets a property value.
-    pub fn set<V>(&self, property: &str, value: V) -> Result<(), Error>
-    where
-        V: ToGuestBound<'js>,
-    {
-        self.set_value(property, value.to_guest_bound(&self.scope)?)
-    }
-
     /// Converts the object into an owned handle.
     pub fn into_owned(self) -> Result<Object, Error> {
         Ok(Object::new(
@@ -143,19 +119,15 @@ impl<'js> BoundObject<'js> {
                 .clone(),
         ))
     }
+}
 
-    fn get_value(&self, property: &str) -> Result<JsValue<'js>, Error> {
-        self.value
-            .get(property)
-            .catch(self.scope.ctx())
-            .map_err(Into::into)
+impl<'js> BoundHandle<'js> for BoundObject<'js> {
+    fn js_object(&self) -> &JsObject<'js> {
+        &self.value
     }
 
-    fn set_value(&self, property: &str, value: JsValue<'js>) -> Result<(), Error> {
-        self.value
-            .set(property, value)
-            .catch(self.scope.ctx())
-            .map_err(Into::into)
+    fn js_scope(&self) -> &Scope<'js> {
+        &self.scope
     }
 }
 
@@ -167,7 +139,12 @@ impl<'js> ToGuestBound<'js> for BoundObject<'js> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{handle::Function, runtime::Runtime};
+    use crate::{
+        handle::{
+            BoundCallableProtocol, BoundObjectProtocol, CallableProtocol, Function, ObjectProtocol,
+        },
+        runtime::Runtime,
+    };
 
     const OBJECT_SOURCE: &str = r#"
         export const holder = {
@@ -177,6 +154,17 @@ mod tests {
         export function makeFunction() {
             return (value) => value * 3;
         }
+    "#;
+
+    const PROTOCOL_SOURCE: &str = r#"
+        export const point = {
+            x: 3,
+            y: 4,
+
+            sum() {
+                return this.x + this.y;
+            },
+        };
     "#;
 
     #[tokio::test]
@@ -235,6 +223,47 @@ mod tests {
                 .await
                 .unwrap(),
             15,
+        );
+    }
+
+    #[tokio::test]
+    async fn object_protocol_covers_the_property_surface() {
+        let guest = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+        let point = guest
+            .guest_module("protocol.js", PROTOCOL_SOURCE)
+            .await
+            .unwrap()
+            .object("point")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            point
+                .call_method::<_, i32>("sum", ())
+                .await
+                .unwrap(),
+            7
+        );
+        assert!(point.has("x").await.unwrap());
+        assert!(!point.has("z").await.unwrap());
+        assert_eq!(point.keys().await.unwrap(), ["x", "y", "sum"]);
+
+        point.delete("y").await.unwrap();
+
+        assert!(!point.has("y").await.unwrap());
+        assert!(
+            point
+                .prototype()
+                .await
+                .unwrap()
+                .is_some()
         );
     }
 }

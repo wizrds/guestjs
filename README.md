@@ -368,6 +368,35 @@ functions inside one.
 Use `into_owned` when a bound handle must outlive the scope callback. Promotion requires a scope
 with an owning guest context; detached host callbacks cannot create owned guest handles.
 
+## Handle protocols
+
+Property access, method invocation, and construction are defined by traits rather than by each
+handle separately. `ObjectProtocol`, `BoundObjectProtocol`, `CallableProtocol`,
+`BoundCallableProtocol`, `ConstructorProtocol` and `BoundConstructorProtocol` define the capabilities
+available to each handle type. The traits are implemented for the handle types that support them.
+
+```rust
+use guestjs::prelude::*;
+// or
+// ```
+// use guestjs::handle::{
+//     ObjectProtocol,
+//     BoundObjectProtocol,
+//     CallableProtocol,
+//     BoundCallableProtocol,
+//     ConstructorProtocol,
+//     BoundConstructorProtocol,
+// };
+// ```
+
+let settings = module.object("settings").await?;
+
+settings.set("unit", "em").await?;
+
+assert_eq!(settings.get::<String>("unit").await?, "em");
+assert!(settings.has("unit").await?);
+```
+
 ## Loading and accessing guest modules
 
 `Guest::guest_module` loads JavaScript source and returns an owned module. `Scope::guest_module`
@@ -584,7 +613,7 @@ let counter = module
 
 counter.borrow_with_mut(|counter| counter.n = 40).await?;
 
-assert_eq!(counter.call::<_, i32>("add", (2,)).await?, 42);
+assert_eq!(counter.call_method::<_, i32>("add", (2,)).await?, 42);
 ```
 
 Because the handle stays attached to the guest object, a mutation made from Rust is visible to

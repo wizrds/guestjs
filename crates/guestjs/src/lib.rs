@@ -78,7 +78,7 @@
 //! valid inside a scope, so byte reads and writes live on the bound forms alone. The owned handles
 //! carry their guest context and expose the remaining surface, such as
 //! [`TypedArray::len`](crate::handle::TypedArray::len) and
-//! [`Array::get`](crate::handle::Array::get), by entering that context for each call.
+//! [`Array::at`](crate::handle::Array::at), by entering that context for each call.
 //!
 //! # Execution control
 //!
@@ -224,6 +224,25 @@
 //!
 //! # Running guest code
 //!
+//! Property access, method invocation, and construction come from traits rather than from each
+//! handle separately. [`ObjectProtocol`](crate::handle::ObjectProtocol) and
+//! [`BoundObjectProtocol`](crate::handle::BoundObjectProtocol) give `get`, `set`, `has`,
+//! `delete`, `keys`, `prototype`, `call_method`, and `is_instance_of` to every object-like
+//! handle. [`CallableProtocol`](crate::handle::CallableProtocol) and
+//! [`BoundCallableProtocol`](crate::handle::BoundCallableProtocol) add `call` to
+//! [`Function`](crate::handle::Function) and [`Instance<T>`](crate::handle::Instance).
+//! [`ConstructorProtocol`](crate::handle::ConstructorProtocol) and
+//! [`BoundConstructorProtocol`](crate::handle::BoundConstructorProtocol) add `construct` and
+//! `construct_as` to [`Class<R>`](crate::handle::Class).
+//!
+//! [`Class<R>`](crate::handle::Class) is not callable. Calling a class without `new` is an
+//! unconditional `TypeError` in the guest, so the class handle carries the constructor protocol
+//! alone and the mistake is a compile error in the host.
+//!
+//! The traits are re-exported from [`prelude`](crate::prelude), so `use guestjs::prelude::*;`
+//! brings them into scope. A handle type imported on its own does not carry these methods; the
+//! trait must be in scope as well.
+//!
 //! Owned operations are useful when values must be retained independently. A
 //! [`Promise<T>`](crate::handle::Promise) requires a JavaScript promise.
 //! [`Awaitable<T>`](crate::handle::Awaitable) accepts either a direct `T` or a promise resolving to
@@ -355,7 +374,7 @@
 //!         .await?
 //!         .construct((1,))
 //!         .await?
-//!         .call::<_, i32>("increment", ())
+//!         .call_method::<_, i32>("increment", ())
 //!         .await?,
 //!     2,
 //! );
@@ -823,7 +842,11 @@ mod tests {
 
     use crate::{
         errors::Error,
-        handle::{BoundFunction, Class, Function, Object, Promise},
+        handle::{
+            BoundCallableProtocol, BoundConstructorProtocol, BoundFunction, BoundObjectProtocol,
+            CallableProtocol, Class, ConstructorProtocol, Function, Object, ObjectProtocol,
+            Promise,
+        },
         host::{Exports, Namespace},
         marshal::{FromGuestBound, Nullish},
         runtime::{Runtime, Scope},
@@ -1597,7 +1620,7 @@ export async function exercise() {
                 .construct((1,))
                 .await
                 .unwrap()
-                .call::<_, i32>("increment", ())
+                .call_method::<_, i32>("increment", ())
                 .await
                 .unwrap(),
             2,
@@ -1653,7 +1676,7 @@ export async function exercise() {
                     module
                         .counter()?
                         .construct((1,))?
-                        .call::<_, i32>("increment", ())?,
+                        .call_method::<_, i32>("increment", ())?,
                     2,
                 );
                 assert_eq!(

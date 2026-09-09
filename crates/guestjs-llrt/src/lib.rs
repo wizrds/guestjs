@@ -257,7 +257,7 @@ mod tests {
 
     #[cfg(feature = "process-env")]
     use guestjs_core::native::{NativeInitializer, NativeLibrary};
-    use guestjs_core::runtime::Runtime;
+    use guestjs_core::{handle::ObjectProtocol, runtime::Runtime};
     #[cfg(feature = "process-env")]
     use rquickjs::Object as JsObject;
     #[cfg(feature = "fs")]

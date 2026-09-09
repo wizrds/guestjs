@@ -490,7 +490,9 @@ mod tests {
     use crate::{
         errors::Error,
         execution::Cancellation,
-        handle::Function,
+        handle::{
+            BoundCallableProtocol, BoundObjectProtocol, CallableProtocol, Function, ObjectProtocol,
+        },
         host::{Exports, HostInitializer, HostLibrary, HostModule},
         native::{NativeInitializer, NativeLibrary, NativeModule},
         runtime::{Runtime, Scope},

@@ -7,8 +7,11 @@ use rquickjs::{
 
 use crate::{
     errors::Error,
-    handle::{BoundClass, BoundFunction, BoundObject, Class, Function, Instance, Object},
-    marshal::{FromGuest, FromGuestBound, ToGuestBound},
+    handle::{
+        BoundClass, BoundFunction, BoundHandle, BoundObject, Class, Function, Instance, Object,
+        OwnedHandle,
+    },
+    marshal::ToGuestBound,
     runtime::{GuestContext, Scope},
 };
 
@@ -33,17 +36,6 @@ impl Module {
                 .catch(scope.ctx())?,
             scope.clone(),
         ))
-    }
-
-    /// Returns an exported value.
-    pub async fn get<R>(&self, name: &str) -> Result<R::Owned, Error>
-    where
-        R: FromGuest,
-    {
-        Scope::with(&self.context, async move |scope| {
-            R::from_guest(&scope, self.bind(&scope)?.get_value(name)?)
-        })
-        .await
     }
 
     /// Returns an exported function.
@@ -84,6 +76,20 @@ impl Module {
     }
 }
 
+impl OwnedHandle for Module {
+    fn guest_context(&self) -> &Rc<GuestContext> {
+        &self.context
+    }
+
+    fn bind_object<'js>(&self, scope: &Scope<'js>) -> Result<JsObject<'js>, Error> {
+        self.namespace
+            .clone()
+            .restore(scope.ctx())
+            .catch(scope.ctx())
+            .map_err(Into::into)
+    }
+}
+
 /// A guest module bound to a scope.
 pub struct BoundModule<'js> {
     namespace: JsObject<'js>,
@@ -93,21 +99,6 @@ pub struct BoundModule<'js> {
 impl<'js> BoundModule<'js> {
     pub(crate) fn new(namespace: JsObject<'js>, scope: Scope<'js>) -> Self {
         Self { namespace, scope }
-    }
-
-    fn get_value(&self, name: &str) -> Result<JsValue<'js>, Error> {
-        self.namespace
-            .get(name)
-            .catch(self.scope.ctx())
-            .map_err(Into::into)
-    }
-
-    /// Returns an exported value.
-    pub fn get<R>(&self, name: &str) -> Result<R::Bound<'js>, Error>
-    where
-        R: FromGuestBound,
-    {
-        R::from_guest_bound(&self.scope, self.get_value(name)?)
     }
 
     /// Returns an exported function.
@@ -156,6 +147,16 @@ impl<'js> BoundModule<'js> {
     }
 }
 
+impl<'js> BoundHandle<'js> for BoundModule<'js> {
+    fn js_object(&self) -> &JsObject<'js> {
+        &self.namespace
+    }
+
+    fn js_scope(&self) -> &Scope<'js> {
+        &self.scope
+    }
+}
+
 impl<'js> ToGuestBound<'js> for BoundModule<'js> {
     fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         Ok(JsValue::from(self.namespace))
@@ -164,7 +165,13 @@ impl<'js> ToGuestBound<'js> for BoundModule<'js> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{handle::Function, runtime::Runtime};
+    use crate::{
+        handle::{
+            BoundCallableProtocol, BoundConstructorProtocol, BoundObjectProtocol, CallableProtocol,
+            Function, ObjectProtocol,
+        },
+        runtime::Runtime,
+    };
 
     const MODULE_SOURCE: &str = r#"
         export function add(a, b) {
@@ -232,7 +239,7 @@ mod tests {
                     module
                         .class("Counter")?
                         .construct((4,))?
-                        .call::<_, i32>("increment", ())?,
+                        .call_method::<_, i32>("increment", ())?,
                     5,
                 );
 

@@ -13,7 +13,7 @@ use bytes::Bytes;
 use futures::{Sink, SinkExt};
 use guestjs_core::{
     errors::Error,
-    handle::{BoundInstance, Instance, Promise},
+    handle::{BoundInstance, BoundObjectProtocol, Instance, ObjectProtocol, Promise},
     host::{args::Args, callable::HostFn},
     marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
     runtime::Scope,
@@ -156,7 +156,7 @@ impl<T> WritableStream<T> {
         Ok(Writer {
             writer: self
                 .object
-                .call::<_, Instance>("getWriter", ())
+                .call_method::<_, Instance>("getWriter", ())
                 .await?,
             pending: None,
             closing: false,
@@ -178,7 +178,7 @@ impl<T> WritableStream<T> {
     /// Closes the writable stream.
     pub async fn close(&self) -> Result<(), Error> {
         self.object
-            .call::<_, Promise<()>>("close", ())
+            .call_method::<_, Promise<()>>("close", ())
             .await?
             .await
     }
@@ -186,7 +186,7 @@ impl<T> WritableStream<T> {
     /// Aborts the writable stream.
     pub async fn abort(&self) -> Result<(), Error> {
         self.object
-            .call::<_, Promise<()>>("abort", ())
+            .call_method::<_, Promise<()>>("abort", ())
             .await?
             .await
     }
@@ -247,7 +247,7 @@ impl<'js, T> BoundWritableStream<'js, T> {
         Ok(BoundWriter {
             writer: self
                 .object
-                .call::<_, Instance>("getWriter", ())?,
+                .call_method::<_, Instance>("getWriter", ())?,
             _chunk: PhantomData,
         })
     }
@@ -266,14 +266,14 @@ impl<'js, T> BoundWritableStream<'js, T> {
     /// Closes the writable stream.
     pub async fn close(&self) -> Result<(), Error> {
         self.object
-            .call::<_, Promise<()>>("close", ())?
+            .call_method::<_, Promise<()>>("close", ())?
             .await
     }
 
     /// Aborts the writable stream.
     pub async fn abort(&self) -> Result<(), Error> {
         self.object
-            .call::<_, Promise<()>>("abort", ())?
+            .call_method::<_, Promise<()>>("abort", ())?
             .await
     }
 
@@ -324,7 +324,7 @@ impl<T> Writer<T> {
         T: ToGuest + 'static,
     {
         self.writer
-            .call::<_, Promise<()>>("write", (chunk,))
+            .call_method::<_, Promise<()>>("write", (chunk,))
             .await?
             .await
     }
@@ -332,7 +332,7 @@ impl<T> Writer<T> {
     /// Closes the writer.
     pub async fn close(&self) -> Result<(), Error> {
         self.writer
-            .call::<_, Promise<()>>("close", ())
+            .call_method::<_, Promise<()>>("close", ())
             .await?
             .await
     }
@@ -340,7 +340,7 @@ impl<T> Writer<T> {
     /// Aborts the writer.
     pub async fn abort(&self) -> Result<(), Error> {
         self.writer
-            .call::<_, Promise<()>>("abort", ())
+            .call_method::<_, Promise<()>>("abort", ())
             .await?
             .await
     }
@@ -348,7 +348,7 @@ impl<T> Writer<T> {
     /// Releases the writer lock.
     pub async fn release(&self) -> Result<(), Error> {
         self.writer
-            .call::<_, ()>("releaseLock", ())
+            .call_method::<_, ()>("releaseLock", ())
             .await
     }
 }
@@ -379,7 +379,7 @@ where
 
         self.pending = Some(Box::pin(async move {
             writer
-                .call::<_, Promise<()>>("write", (chunk,))
+                .call_method::<_, Promise<()>>("write", (chunk,))
                 .await?
                 .await
         }));
@@ -414,7 +414,7 @@ where
 
         self.pending = Some(Box::pin(async move {
             writer
-                .call::<_, Promise<()>>("close", ())
+                .call_method::<_, Promise<()>>("close", ())
                 .await?
                 .await
         }));
@@ -436,28 +436,28 @@ impl<'js, T> BoundWriter<'js, T> {
         T: ToGuestBound<'js>,
     {
         self.writer
-            .call::<_, Promise<()>>("write", (chunk,))?
+            .call_method::<_, Promise<()>>("write", (chunk,))?
             .await
     }
 
     /// Closes the writer.
     pub async fn close(&self) -> Result<(), Error> {
         self.writer
-            .call::<_, Promise<()>>("close", ())?
+            .call_method::<_, Promise<()>>("close", ())?
             .await
     }
 
     /// Aborts the writer.
     pub async fn abort(&self) -> Result<(), Error> {
         self.writer
-            .call::<_, Promise<()>>("abort", ())?
+            .call_method::<_, Promise<()>>("abort", ())?
             .await
     }
 
     /// Releases the writer lock.
     pub fn release(&self) -> Result<(), Error> {
         self.writer
-            .call::<_, ()>("releaseLock", ())
+            .call_method::<_, ()>("releaseLock", ())
     }
 
     /// Converts the writer into an owned handle.
@@ -479,7 +479,7 @@ mod tests {
     use futures::{SinkExt, StreamExt, channel::mpsc};
     use guestjs_core::{
         errors::Error,
-        handle::Promise,
+        handle::{CallableProtocol, Promise},
         host::{Exports, HostModule},
         runtime::Runtime,
     };

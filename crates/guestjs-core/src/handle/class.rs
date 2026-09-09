@@ -1,14 +1,16 @@
 use std::{marker::PhantomData, rc::Rc};
 
 use rquickjs::{
-    CatchResultExt, Constructor as JsConstructor, Persistent, Value as JsValue,
-    function::Args as JsArgs,
+    CatchResultExt, Constructor as JsConstructor, Object as JsObject, Persistent, Value as JsValue,
 };
 
 use crate::{
     errors::Error,
-    handle::Instance,
-    marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestArgs, ToGuestArgsBound, ToGuestBound},
+    handle::{
+        BoundConstructor, BoundHandle, BoundObjectProtocol, Instance, Object, OwnedConstructor,
+        OwnedHandle,
+    },
+    marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
     runtime::{GuestContext, Scope},
 };
 
@@ -46,32 +48,41 @@ impl<R> Class<R> {
         Class::new(self.value, self.context)
     }
 
-    pub async fn construct_as<A, O>(&self, args: A) -> Result<O::Owned, Error>
-    where
-        A: ToGuestArgs,
-        O: FromGuest,
-    {
+    /// Reports whether the class is a strict subclass of another class.
+    pub async fn is_subclass_of<O>(&self, class: &Class<O>) -> Result<bool, Error> {
         Scope::with(&self.context, async move |scope| {
-            O::from_guest(
-                &scope,
-                self.bind(&scope)?
-                    .construct_value(args.into_args(&scope)?)?,
-            )
+            self.bind(&scope)?
+                .is_subclass_of(&class.bind(&scope)?)
         })
         .await
     }
 }
 
-impl<R> Class<R>
-where
-    R: FromGuest,
-{
-    /// Constructs a guest instance.
-    pub async fn construct<A>(&self, args: A) -> Result<R::Owned, Error>
-    where
-        A: ToGuestArgs,
-    {
-        self.construct_as::<A, R>(args).await
+impl<R> OwnedHandle for Class<R> {
+    fn guest_context(&self) -> &Rc<GuestContext> {
+        &self.context
+    }
+
+    fn bind_object<'js>(&self, scope: &Scope<'js>) -> Result<JsObject<'js>, Error> {
+        Ok(self
+            .value
+            .clone()
+            .restore(scope.ctx())
+            .catch(scope.ctx())?
+            .into_inner()
+            .into_inner())
+    }
+}
+
+impl<R> OwnedConstructor for Class<R> {
+    type Result = R;
+
+    fn bind_constructor<'js>(&self, scope: &Scope<'js>) -> Result<JsConstructor<'js>, Error> {
+        self.value
+            .clone()
+            .restore(scope.ctx())
+            .catch(scope.ctx())
+            .map_err(Into::into)
     }
 }
 
@@ -147,31 +158,12 @@ impl<'js, R> BoundClass<'js, R> {
         Self { value, scope, _result: PhantomData }
     }
 
-    pub(crate) fn constructor(&self) -> &JsConstructor<'js> {
-        &self.value
-    }
-
-    fn construct_value(&self, args: JsArgs<'js>) -> Result<JsValue<'js>, Error> {
-        self.value
-            .construct_args(args)
-            .catch(self.scope.ctx())
-            .map_err(Into::into)
-    }
-
     pub fn with_result<O>(&self) -> BoundClass<'js, O> {
         BoundClass::new(self.value.clone(), self.scope.clone())
     }
 
     pub fn into_result<O>(self) -> BoundClass<'js, O> {
         BoundClass::new(self.value, self.scope)
-    }
-
-    pub fn construct_as<A, O>(&self, args: A) -> Result<O::Bound<'js>, Error>
-    where
-        A: ToGuestArgsBound<'js>,
-        O: FromGuestBound,
-    {
-        O::from_guest_bound(&self.scope, self.construct_value(args.into_bound_args(&self.scope)?)?)
     }
 
     /// Converts the class into an owned handle.
@@ -184,18 +176,30 @@ impl<'js, R> BoundClass<'js, R> {
                 .clone(),
         ))
     }
+
+    /// Reports whether the class is a strict subclass of another class.
+    pub fn is_subclass_of<O>(&self, class: &BoundClass<'js, O>) -> Result<bool, Error> {
+        Ok(self
+            .get::<Object>("prototype")?
+            .is_instance_of(class))
+    }
 }
 
-impl<'js, R> BoundClass<'js, R>
-where
-    R: FromGuestBound,
-{
-    /// Constructs a guest instance.
-    pub fn construct<A>(&self, args: A) -> Result<R::Bound<'js>, Error>
-    where
-        A: ToGuestArgsBound<'js>,
-    {
-        self.construct_as::<A, R>(args)
+impl<'js, R> BoundHandle<'js> for BoundClass<'js, R> {
+    fn js_object(&self) -> &JsObject<'js> {
+        &self.value
+    }
+
+    fn js_scope(&self) -> &Scope<'js> {
+        &self.scope
+    }
+}
+
+impl<'js, R> BoundConstructor<'js> for BoundClass<'js, R> {
+    type Result = R;
+
+    fn js_constructor(&self) -> &JsConstructor<'js> {
+        &self.value
     }
 }
 
@@ -207,7 +211,13 @@ impl<'js, R> ToGuestBound<'js> for BoundClass<'js, R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{handle::Object, runtime::Runtime};
+    use crate::{
+        handle::{
+            BoundConstructorProtocol, BoundObjectProtocol, ConstructorProtocol, Object,
+            ObjectProtocol,
+        },
+        runtime::Runtime,
+    };
 
     const CLASS_SOURCE: &str = r#"
         export class Counter {
@@ -219,6 +229,22 @@ mod tests {
                 return ++this.value;
             }
         }
+    "#;
+
+    const HIERARCHY_SOURCE: &str = r#"
+        export class Shape {
+            static kind = "shape";
+
+            static describe() {
+                return this.kind;
+            }
+        }
+
+        export class Circle extends Shape {
+            static kind = "circle";
+        }
+
+        export class Unrelated {}
     "#;
 
     #[tokio::test]
@@ -244,7 +270,7 @@ mod tests {
                 .construct((1,))
                 .await
                 .unwrap()
-                .call::<_, i32>("increment", ())
+                .call_method::<_, i32>("increment", ())
                 .await
                 .unwrap(),
             2,
@@ -262,7 +288,7 @@ mod tests {
                 .construct((9,))
                 .await
                 .unwrap()
-                .call::<_, i32>("increment", ())
+                .call_method::<_, i32>("increment", ())
                 .await
                 .unwrap(),
             10,
@@ -358,5 +384,121 @@ mod tests {
                 .unwrap(),
             8,
         );
+    }
+
+    #[tokio::test]
+    async fn class_reads_static_members() {
+        let guest = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+        let module = guest
+            .guest_module("hierarchy.js", HIERARCHY_SOURCE)
+            .await
+            .unwrap();
+        let circle = module.class("Circle").await.unwrap();
+
+        assert_eq!(
+            circle
+                .get::<String>("kind")
+                .await
+                .unwrap(),
+            "circle"
+        );
+        assert!(circle.has("describe").await.unwrap());
+        assert_eq!(
+            circle
+                .call_method::<_, String>("describe", ())
+                .await
+                .unwrap(),
+            "circle",
+        );
+        assert!(
+            circle
+                .keys()
+                .await
+                .unwrap()
+                .contains(&String::from("kind"))
+        );
+
+        guest
+            .scope(async move |scope| {
+                let circle = module.bind(&scope)?.class("Circle")?;
+
+                assert_eq!(circle.get::<String>("kind")?, "circle");
+                assert_eq!(circle.call_method::<_, String>("describe", ())?, "circle");
+
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn class_reports_strict_subclasses() {
+        let guest = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+        let module = guest
+            .guest_module("hierarchy.js", HIERARCHY_SOURCE)
+            .await
+            .unwrap();
+        let shape = module.class("Shape").await.unwrap();
+        let circle = module.class("Circle").await.unwrap();
+        let unrelated = module.class("Unrelated").await.unwrap();
+
+        assert!(
+            circle
+                .is_subclass_of(&shape)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !shape
+                .is_subclass_of(&circle)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !shape
+                .is_subclass_of(&shape)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !unrelated
+                .is_subclass_of(&shape)
+                .await
+                .unwrap()
+        );
+
+        guest
+            .scope(async move |scope| {
+                let module = module.bind(&scope)?;
+
+                assert!(
+                    module
+                        .class("Circle")?
+                        .is_subclass_of(&module.class("Shape")?)?
+                );
+                assert!(
+                    !module
+                        .class("Shape")?
+                        .is_subclass_of(&module.class("Circle")?)?
+                );
+
+                Ok(())
+            })
+            .await
+            .unwrap();
     }
 }

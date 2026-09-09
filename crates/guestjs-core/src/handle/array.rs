@@ -3,12 +3,13 @@ use std::{io, marker::PhantomData, mem, ptr, rc::Rc};
 #[cfg(feature = "bytes")]
 use bytes::{Buf, BufMut, buf::UninitSlice};
 use rquickjs::{
-    Array as JsArray, ArrayBuffer as JsArrayBuffer, CatchResultExt, Persistent,
+    Array as JsArray, ArrayBuffer as JsArrayBuffer, CatchResultExt, Object as JsObject, Persistent,
     TypedArray as JsTypedArray, Value as JsValue,
 };
 
 use crate::{
     errors::Error,
+    handle::{BoundHandle, OwnedHandle},
     marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
     runtime::{GuestContext, Scope},
 };
@@ -654,7 +655,7 @@ impl Array {
         Scope::with(&self.context, async move |scope| Ok(self.bind(&scope)?.is_empty())).await
     }
 
-    pub async fn get<R>(&self, index: usize) -> Result<R::Owned, Error>
+    pub async fn at<R>(&self, index: usize) -> Result<R::Owned, Error>
     where
         R: FromGuest,
     {
@@ -664,7 +665,7 @@ impl Array {
         .await
     }
 
-    pub async fn set<V>(&self, index: usize, value: V) -> Result<(), Error>
+    pub async fn set_at<V>(&self, index: usize, value: V) -> Result<(), Error>
     where
         V: ToGuest,
     {
@@ -673,6 +674,21 @@ impl Array {
                 .set_value(index, value.to_guest(&scope)?)
         })
         .await
+    }
+}
+
+impl OwnedHandle for Array {
+    fn guest_context(&self) -> &Rc<GuestContext> {
+        &self.context
+    }
+
+    fn bind_object<'js>(&self, scope: &Scope<'js>) -> Result<JsObject<'js>, Error> {
+        Ok(self
+            .value
+            .clone()
+            .restore(scope.ctx())
+            .catch(scope.ctx())?
+            .into_inner())
     }
 }
 
@@ -759,14 +775,14 @@ impl<'js> BoundArray<'js> {
         self.value.is_empty()
     }
 
-    pub fn get<R>(&self, index: usize) -> Result<R::Bound<'js>, Error>
+    pub fn at<R>(&self, index: usize) -> Result<R::Bound<'js>, Error>
     where
         R: FromGuestBound,
     {
         R::from_guest_bound(&self.scope, self.get_value(index)?)
     }
 
-    pub fn set<V>(&self, index: usize, value: V) -> Result<(), Error>
+    pub fn set_at<V>(&self, index: usize, value: V) -> Result<(), Error>
     where
         V: ToGuestBound<'js>,
     {
@@ -784,6 +800,16 @@ impl<'js> BoundArray<'js> {
     }
 }
 
+impl<'js> BoundHandle<'js> for BoundArray<'js> {
+    fn js_object(&self) -> &JsObject<'js> {
+        &self.value
+    }
+
+    fn js_scope(&self) -> &Scope<'js> {
+        &self.scope
+    }
+}
+
 impl<'js> ToGuestBound<'js> for BoundArray<'js> {
     fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
         Ok(self.value.into_value())
@@ -797,7 +823,10 @@ mod tests {
     use rquickjs::{CatchResultExt, Value as JsValue};
 
     use crate::{
-        handle::{Array, ArrayBuffer, Float64Array, Promise, Uint8Array, Value},
+        handle::{
+            Array, ArrayBuffer, CallableProtocol, Float64Array, ObjectProtocol, Promise,
+            Uint8Array, Value,
+        },
         host::{Deferred, Exports, HostModule},
         marshal::FromGuestBound,
         runtime::{Runtime, Scope},
@@ -1182,11 +1211,11 @@ mod tests {
                 )?;
 
                 assert_eq!(array.len(), 3);
-                assert_eq!(array.get::<i32>(1)?, 20);
+                assert_eq!(array.at::<i32>(1)?, 20);
 
-                array.set(1, 99)?;
+                array.set_at(1, 99)?;
 
-                assert_eq!(array.get::<i32>(1)?, 99);
+                assert_eq!(array.at::<i32>(1)?, 99);
 
                 Ok(())
             })
@@ -1211,7 +1240,7 @@ mod tests {
 
         guest
             .scope(async move |scope| {
-                assert_eq!(array.bind(&scope)?.get::<i32>(0)?, 1);
+                assert_eq!(array.bind(&scope)?.at::<i32>(0)?, 1);
 
                 Ok(())
             })
@@ -1234,11 +1263,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(array.len().await.unwrap(), 3);
-        assert_eq!(array.get::<i32>(1).await.unwrap(), 20);
+        assert_eq!(array.at::<i32>(1).await.unwrap(), 20);
 
-        array.set(1, 99).await.unwrap();
+        array.set_at(1, 99).await.unwrap();
 
-        assert_eq!(array.get::<i32>(1).await.unwrap(), 99);
+        assert_eq!(array.at::<i32>(1).await.unwrap(), 99);
     }
 
     #[tokio::test]
@@ -1326,6 +1355,37 @@ mod tests {
             "1,2,3,4;true",
         );
     }
+
+    #[tokio::test]
+    async fn array_exposes_both_element_and_property_access() {
+        let array = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap()
+            .guest_module("array.js", "export const values = [10, 20, 30];")
+            .await
+            .unwrap()
+            .get::<Array>("values")
+            .await
+            .unwrap();
+
+        assert_eq!(array.at::<i32>(1).await.unwrap(), 20);
+        assert_eq!(
+            array
+                .get::<usize>("length")
+                .await
+                .unwrap(),
+            3
+        );
+
+        array.set_at(1, 99).await.unwrap();
+
+        assert_eq!(array.at::<i32>(1).await.unwrap(), 99);
+    }
 }
 
 #[cfg(all(test, feature = "bytes"))]
@@ -1333,7 +1393,7 @@ mod bytes_tests {
     use bytes::{Buf, BufMut};
 
     use crate::{
-        handle::{ArrayBuffer, Uint8Array},
+        handle::{ArrayBuffer, CallableProtocol, Uint8Array},
         host::{Exports, HostModule},
         runtime::Runtime,
     };

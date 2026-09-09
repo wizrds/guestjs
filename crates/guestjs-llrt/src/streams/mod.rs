@@ -10,7 +10,7 @@ pub use writable::{BoundWritableStream, BoundWriter, HostWritableStream, Writabl
 
 #[cfg(test)]
 mod tests {
-    use guestjs_core::runtime::Runtime;
+    use guestjs_core::{handle::ObjectProtocol, runtime::Runtime};
 
     use crate::Llrt;
 

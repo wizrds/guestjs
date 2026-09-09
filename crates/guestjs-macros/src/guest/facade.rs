@@ -408,7 +408,7 @@ impl GuestFunction {
         }
     }
 
-    fn owned_body(&self, kind: GuestFacadeKind) -> TokenStream {
+    fn owned_body(&self, kind: GuestFacadeKind, crate_path: &Path) -> TokenStream {
         let field = kind.field();
         let name = &self.name;
         let arguments = self.arguments();
@@ -416,21 +416,24 @@ impl GuestFunction {
 
         match kind {
             GuestFacadeKind::Class => quote! {
-                self.#field
-                    .call::<_, #result>(#name, #arguments)
-                    .await
+                #crate_path::handle::ObjectProtocol::call_method::<_, #result>(
+                    &self.#field,
+                    #name,
+                    #arguments
+                )
+                .await
             },
             GuestFacadeKind::Module => quote! {
-                self.#field
-                    .function(#name)
-                    .await?
-                    .call::<_, #result>(#arguments)
-                    .await
+                #crate_path::handle::CallableProtocol::call::<_, #result>(
+                    &self.#field.function(#name).await?,
+                    #arguments
+                )
+                .await
             },
         }
     }
 
-    fn bound_body(&self, kind: GuestFacadeKind) -> TokenStream {
+    fn bound_body(&self, kind: GuestFacadeKind, crate_path: &Path) -> TokenStream {
         let field = kind.field();
         let name = &self.name;
         let arguments = self.arguments();
@@ -438,12 +441,17 @@ impl GuestFunction {
 
         match kind {
             GuestFacadeKind::Class => quote! {
-                self.#field.call::<_, #result>(#name, #arguments)
+                #crate_path::handle::BoundObjectProtocol::call_method::<_, #result>(
+                    &self.#field,
+                    #name,
+                    #arguments
+                )
             },
             GuestFacadeKind::Module => quote! {
-                self.#field
-                    .function(#name)?
-                    .call::<_, #result>(#arguments)
+                #crate_path::handle::BoundCallableProtocol::call::<_, #result>(
+                    &self.#field.function(#name)?,
+                    #arguments
+                )
             },
         }
     }
@@ -463,7 +471,7 @@ impl GuestFunction {
             .iter()
             .map(|parameter| parameter.owned(crate_path));
         let result = &self.result;
-        let body = self.owned_body(kind);
+        let body = self.owned_body(kind, crate_path);
 
         quote! {
             #(#attributes)*
@@ -495,7 +503,7 @@ impl GuestFunction {
             .iter()
             .map(|parameter| parameter.bound(crate_path));
         let result = &self.result;
-        let body = self.bound_body(kind);
+        let body = self.bound_body(kind, crate_path);
 
         quote! {
             #(#attributes)*
@@ -570,9 +578,11 @@ impl GuestValue {
                 <#descriptor as #crate_path::marshal::FromGuest>::Owned,
                 #crate_path::errors::Error,
             > {
-                self.#field
-                    .get::<#descriptor>(#name)
-                    .await
+                #crate_path::handle::ObjectProtocol::get::<#descriptor>(
+                    &self.#field,
+                    #name
+                )
+                .await
             }
         }
     }
@@ -599,7 +609,10 @@ impl GuestValue {
                 <#descriptor as #crate_path::marshal::FromGuestBound>::Bound<'js>,
                 #crate_path::errors::Error,
             > {
-                self.#field.get::<#descriptor>(#name)
+                #crate_path::handle::BoundObjectProtocol::get::<#descriptor>(
+                    &self.#field,
+                    #name
+                )
             }
         }
     }

@@ -318,6 +318,7 @@ mod tests {
     use std::{cell::Cell, rc::Rc};
 
     use crate::{
+        handle::CallableProtocol,
         host::module::{Exports, HostModule},
         runtime::Runtime,
     };

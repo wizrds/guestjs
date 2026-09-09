@@ -5,7 +5,7 @@ use std::{cell::RefCell, future::Future, marker::PhantomData, pin::Pin, rc::Rc};
 use bytes::Bytes;
 use guestjs_core::{
     errors::Error,
-    handle::Instance,
+    handle::{Instance, ObjectProtocol},
     host::{args::Args, callable::HostFn},
     marshal::{FromGuest, ToGuest},
     runtime::Scope,
@@ -166,7 +166,10 @@ where
 mod tests {
     use bytes::Bytes;
     use futures::future::try_join;
-    use guestjs_core::{handle::Promise, runtime::Runtime};
+    use guestjs_core::{
+        handle::{CallableProtocol, ObjectProtocol, Promise},
+        runtime::Runtime,
+    };
 
     use crate::{
         Llrt,

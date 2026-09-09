@@ -8,9 +8,7 @@ use syn::{
 use crate::{
     guest::{
         GuestMacroError,
-        facade::{
-            GuestAttributes, GuestFacadeKind, GuestMembers, GuestMemberInput, keyword,
-        },
+        facade::{GuestAttributes, GuestFacadeKind, GuestMemberInput, GuestMembers, keyword},
     },
     path::CratePath,
 };
@@ -316,11 +314,23 @@ mod tests {
         assert!(output.contains("pub fn instance (& self)"));
         assert!(output.contains("pub fn into_instance (self)"));
         assert!(output.contains("pub async fn ping (& self)"));
-        assert!(output.contains("call :: < _ , bool > (\"ping\" , ())"));
-        assert!(output.contains("call :: < _ , crate :: handle :: Promise"));
-        assert!(output.contains("(\"handleRequest\" , (request ,))"));
-        assert!(output.contains("get :: < std :: string :: String > (\"name\")"));
-        assert!(output.contains("get :: < crate :: handle :: Object > (\"config\")"));
+        assert!(output.contains(concat!(
+            "crate :: handle :: ObjectProtocol :: call_method :: < _ , bool > ",
+            "(& self . instance , \"ping\" , ())",
+        )));
+        assert!(output.contains(concat!(
+            "crate :: handle :: BoundObjectProtocol :: call_method :: < _ , ",
+            "crate :: handle :: Promise",
+        )));
+        assert!(output.contains("(& self . instance , \"handleRequest\" , (request ,))"));
+        assert!(output.contains(concat!(
+            "crate :: handle :: ObjectProtocol :: get :: < std :: string :: String > ",
+            "(& self . instance , \"name\")",
+        )));
+        assert!(output.contains(concat!(
+            "crate :: handle :: BoundObjectProtocol :: get :: < crate :: handle :: Object > ",
+            "(& self . instance , \"config\")",
+        )));
         assert!(output.contains("impl crate :: marshal :: FromGuest for Greeter"));
         assert!(output.contains("impl crate :: marshal :: FromGuestBound for Greeter"));
         assert!(output.contains("type Bound < 'js > = BoundGreeter < 'js >"));

@@ -616,7 +616,10 @@ where
 mod tests {
     use crate::{
         errors::Error,
-        handle::{Module, Promise},
+        handle::{
+            BoundCallableProtocol, CallableProtocol, ConstructorProtocol, Module, ObjectProtocol,
+            Promise,
+        },
         host::{
             args::Args,
             callable::HostFn,
@@ -1036,7 +1039,7 @@ mod tests {
                 .construct((3.0, 4.0))
                 .await
                 .unwrap()
-                .call::<_, f64>("length", ())
+                .call_method::<_, f64>("length", ())
                 .await
                 .unwrap(),
             5.0,
@@ -1177,7 +1180,7 @@ mod tests {
 
         assert_eq!(
             counter
-                .call::<_, i32>("add", (3,))
+                .call_method::<_, i32>("add", (3,))
                 .await
                 .unwrap(),
             8
@@ -1197,7 +1200,7 @@ mod tests {
 
         assert_eq!(
             counter
-                .call::<_, i32>("add", (2,))
+                .call_method::<_, i32>("add", (2,))
                 .await
                 .unwrap(),
             42

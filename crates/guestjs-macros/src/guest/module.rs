@@ -8,9 +8,7 @@ use syn::{
 use crate::{
     guest::{
         GuestMacroError,
-        facade::{
-            GuestAttributes, GuestFacadeKind, GuestMemberInput, GuestMembers, keyword,
-        },
+        facade::{GuestAttributes, GuestFacadeKind, GuestMemberInput, GuestMembers, keyword},
     },
     path::CratePath,
 };
@@ -199,7 +197,10 @@ mod tests {
         assert!(output.contains("for BoundMath < 'js >"));
         assert!(output.contains("pub fn bind < 'js >"));
         assert!(output.contains("pub async fn ping (& self)"));
-        assert!(output.contains("call :: < _ , bool > (())"));
+        assert!(output.contains(concat!(
+            "crate :: handle :: CallableProtocol :: call :: < _ , bool > ",
+            "(& self . module . function (\"ping\") . await ? , ())",
+        )));
         assert!(output.contains(
             "callback : < crate :: handle :: Function as crate :: marshal :: GuestType > :: Owned",
         ));
@@ -207,7 +208,10 @@ mod tests {
             "callback : < crate :: handle :: Function as ",
             "crate :: marshal :: GuestType > :: Bound < 'js >",
         ),));
-        assert!(output.contains("call :: < _ , i32 > ((callback ,))"));
+        assert!(output.contains(concat!(
+            "crate :: handle :: BoundCallableProtocol :: call :: < _ , i32 > ",
+            "(& self . module . function (\"apply\") ? , (callback ,))",
+        )));
         assert!(output.contains("function (\"combine\")"));
         assert!(output.contains(
             "< crate :: handle :: Promise < i32 > as crate :: marshal :: FromGuest > :: Owned",
@@ -216,15 +220,33 @@ mod tests {
             "< crate :: handle :: Promise < i32 > as ",
             "crate :: marshal :: FromGuestBound > :: Bound < 'js >",
         ),));
-        assert!(output.contains("call :: < _ , crate :: handle :: Promise < i32 > >"));
+        assert!(output.contains(concat!(
+            "crate :: handle :: CallableProtocol :: call :: < _ , ",
+            "crate :: handle :: Promise < i32 > >",
+        )));
         assert!(output.contains("pub async fn answer"));
         assert!(output.contains("pub fn answer"));
-        assert!(output.contains("get :: < i32 > (\"answer\")"));
-        assert!(output.contains("get :: < crate :: handle :: Object > (\"settings\")"));
-        assert!(output.contains("get :: < crate :: handle :: Class > (\"counter\")"));
-        assert!(output.contains("get :: < crate :: handle :: Function > (\"operation\")"));
-        assert!(output.contains("get :: < crate :: handle :: Promise"));
-        assert!(output.contains("(\"pending\")"));
+        assert!(output.contains(
+            "crate :: handle :: ObjectProtocol :: get :: < i32 > (& self . module , \"answer\")",
+        ));
+        assert!(output.contains(concat!(
+            "crate :: handle :: BoundObjectProtocol :: get :: < crate :: handle :: Object > ",
+            "(& self . module , \"settings\")",
+        )));
+        assert!(output.contains(concat!(
+            "crate :: handle :: ObjectProtocol :: get :: < crate :: handle :: Class > ",
+            "(& self . module , \"counter\")",
+        )));
+        assert!(output.contains(concat!(
+            "crate :: handle :: BoundObjectProtocol :: get :: < crate :: handle :: Function > ",
+            "(& self . module , \"operation\")",
+        )));
+        assert!(
+            output.contains(
+                "crate :: handle :: ObjectProtocol :: get :: < crate :: handle :: Promise",
+            )
+        );
+        assert!(output.contains("(& self . module , \"pending\")"));
         assert!(
             output.contains(
                 "< crate :: handle :: Object as crate :: marshal :: FromGuest > :: Owned",

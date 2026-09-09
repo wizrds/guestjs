@@ -145,7 +145,7 @@ mod tests {
 
     use super::{Exports, HostModule};
     use crate::{
-        handle::Promise,
+        handle::{CallableProtocol, Promise},
         registry::{LibraryBinding, ModuleLoader, ModuleRegistry, ModuleResolver, RegistryHandle},
         runtime::Runtime,
     };
