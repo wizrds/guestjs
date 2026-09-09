@@ -141,11 +141,7 @@ impl<'js> ToGuestBound<'js> for BoundObject<'js> {
 mod tests {
     use crate::{
         handle::{
-            BoundCallableProtocol,
-            BoundObjectProtocol,
-            CallableProtocol,
-            Function,
-            ObjectProtocol,
+            BoundCallableProtocol, BoundObjectProtocol, CallableProtocol, Function, ObjectProtocol,
         },
         runtime::Runtime,
     };
@@ -248,7 +244,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(point.call_method::<_, i32>("sum", ()).await.unwrap(), 7);
+        assert_eq!(
+            point
+                .call_method::<_, i32>("sum", ())
+                .await
+                .unwrap(),
+            7
+        );
         assert!(point.has("x").await.unwrap());
         assert!(!point.has("z").await.unwrap());
         assert_eq!(point.keys().await.unwrap(), ["x", "y", "sum"]);
@@ -256,6 +258,12 @@ mod tests {
         point.delete("y").await.unwrap();
 
         assert!(!point.has("y").await.unwrap());
-        assert!(point.prototype().await.unwrap().is_some());
+        assert!(
+            point
+                .prototype()
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 }

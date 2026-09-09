@@ -8,8 +8,7 @@ pub use guestjs_core::{
         promise::*, traits::*, value::*,
     },
     host::{
-        args::*, callable::*, class::*, deferred::*, library::*, module::*, namespace::*,
-        object::*,
+        args::*, callable::*, class::*, deferred::*, library::*, module::*, namespace::*, object::*,
     },
     marshal::*,
     native::*,

@@ -7,12 +7,7 @@ use rquickjs::{
 use crate::{
     errors::Error,
     handle::{
-        BoundConstructor,
-        BoundHandle,
-        BoundObjectProtocol,
-        Instance,
-        Object,
-        OwnedConstructor,
+        BoundConstructor, BoundHandle, BoundObjectProtocol, Instance, Object, OwnedConstructor,
         OwnedHandle,
     },
     marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
@@ -218,10 +213,7 @@ impl<'js, R> ToGuestBound<'js> for BoundClass<'js, R> {
 mod tests {
     use crate::{
         handle::{
-            BoundConstructorProtocol,
-            BoundObjectProtocol,
-            ConstructorProtocol,
-            Object,
+            BoundConstructorProtocol, BoundObjectProtocol, ConstructorProtocol, Object,
             ObjectProtocol,
         },
         runtime::Runtime,
@@ -408,12 +400,15 @@ mod tests {
             .guest_module("hierarchy.js", HIERARCHY_SOURCE)
             .await
             .unwrap();
-        let circle = module
-            .class("Circle")
-            .await
-            .unwrap();
+        let circle = module.class("Circle").await.unwrap();
 
-        assert_eq!(circle.get::<String>("kind").await.unwrap(), "circle");
+        assert_eq!(
+            circle
+                .get::<String>("kind")
+                .await
+                .unwrap(),
+            "circle"
+        );
         assert!(circle.has("describe").await.unwrap());
         assert_eq!(
             circle
@@ -432,9 +427,7 @@ mod tests {
 
         guest
             .scope(async move |scope| {
-                let circle = module
-                    .bind(&scope)?
-                    .class("Circle")?;
+                let circle = module.bind(&scope)?.class("Circle")?;
 
                 assert_eq!(circle.get::<String>("kind")?, "circle");
                 assert_eq!(circle.call_method::<_, String>("describe", ())?, "circle");
@@ -461,15 +454,32 @@ mod tests {
             .unwrap();
         let shape = module.class("Shape").await.unwrap();
         let circle = module.class("Circle").await.unwrap();
-        let unrelated = module
-            .class("Unrelated")
-            .await
-            .unwrap();
+        let unrelated = module.class("Unrelated").await.unwrap();
 
-        assert!(circle.is_subclass_of(&shape).await.unwrap());
-        assert!(!shape.is_subclass_of(&circle).await.unwrap());
-        assert!(!shape.is_subclass_of(&shape).await.unwrap());
-        assert!(!unrelated.is_subclass_of(&shape).await.unwrap());
+        assert!(
+            circle
+                .is_subclass_of(&shape)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !shape
+                .is_subclass_of(&circle)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !shape
+                .is_subclass_of(&shape)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !unrelated
+                .is_subclass_of(&shape)
+                .await
+                .unwrap()
+        );
 
         guest
             .scope(async move |scope| {

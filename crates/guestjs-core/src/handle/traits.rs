@@ -8,9 +8,7 @@ use rquickjs::{CatchResultExt, Function as JsFunction};
 use crate::{
     errors::Error,
     handle::{BoundClass, BoundObject, Class, Object},
-    marshal::{
-        FromGuest, FromGuestBound, ToGuest, ToGuestArgs, ToGuestArgsBound, ToGuestBound,
-    },
+    marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestArgs, ToGuestArgsBound, ToGuestBound},
     runtime::Scope,
 };
 
@@ -53,10 +51,7 @@ mod sealed {
     pub trait OwnedConstructor: OwnedHandle {
         type Result;
 
-        fn bind_constructor<'js>(
-            &self,
-            scope: &Scope<'js>,
-        ) -> Result<JsConstructor<'js>, Error>;
+        fn bind_constructor<'js>(&self, scope: &Scope<'js>) -> Result<JsConstructor<'js>, Error>;
     }
 }
 
@@ -325,10 +320,7 @@ pub trait BoundConstructorProtocol<'js>: BoundConstructor<'js> {
     }
 
     /// Constructs an instance.
-    fn construct<A>(
-        &self,
-        args: A,
-    ) -> Result<<Self::Result as FromGuestBound>::Bound<'js>, Error>
+    fn construct<A>(&self, args: A) -> Result<<Self::Result as FromGuestBound>::Bound<'js>, Error>
     where
         A: ToGuestArgsBound<'js>,
         Self::Result: FromGuestBound,
@@ -364,7 +356,8 @@ pub trait ConstructorProtocol: OwnedConstructor {
         A: ToGuestArgs,
         Self::Result: FromGuest,
     {
-        self.construct_as::<A, Self::Result>(args).await
+        self.construct_as::<A, Self::Result>(args)
+            .await
     }
 }
 

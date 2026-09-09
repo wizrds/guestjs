@@ -617,11 +617,7 @@ mod tests {
     use crate::{
         errors::Error,
         handle::{
-            BoundCallableProtocol,
-            CallableProtocol,
-            ConstructorProtocol,
-            Module,
-            ObjectProtocol,
+            BoundCallableProtocol, CallableProtocol, ConstructorProtocol, Module, ObjectProtocol,
             Promise,
         },
         host::{

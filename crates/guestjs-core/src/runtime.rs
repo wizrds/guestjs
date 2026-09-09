@@ -491,11 +491,7 @@ mod tests {
         errors::Error,
         execution::Cancellation,
         handle::{
-            BoundCallableProtocol,
-            BoundObjectProtocol,
-            CallableProtocol,
-            Function,
-            ObjectProtocol,
+            BoundCallableProtocol, BoundObjectProtocol, CallableProtocol, Function, ObjectProtocol,
         },
         host::{Exports, HostInitializer, HostLibrary, HostModule},
         native::{NativeInitializer, NativeLibrary, NativeModule},

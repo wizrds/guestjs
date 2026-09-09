@@ -8,9 +8,7 @@ use syn::{
 use crate::{
     guest::{
         GuestMacroError,
-        facade::{
-            GuestAttributes, GuestFacadeKind, GuestMembers, GuestMemberInput, keyword,
-        },
+        facade::{GuestAttributes, GuestFacadeKind, GuestMemberInput, GuestMembers, keyword},
     },
     path::CratePath,
 };

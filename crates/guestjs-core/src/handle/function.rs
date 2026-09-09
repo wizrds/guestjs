@@ -162,15 +162,8 @@ mod tests {
     use crate::{
         errors::Error,
         handle::{
-            BoundCallableProtocol,
-            BoundConstructorProtocol,
-            BoundObjectProtocol,
-            CallableProtocol,
-            Class,
-            Instance,
-            Object,
-            ObjectProtocol,
-            Promise,
+            BoundCallableProtocol, BoundConstructorProtocol, BoundObjectProtocol, CallableProtocol,
+            Class, Instance, Object, ObjectProtocol, Promise,
         },
         runtime::{Runtime, Scope},
     };

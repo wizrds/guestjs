@@ -165,16 +165,8 @@ impl<'js, T> ToGuestBound<'js> for BoundPromise<'js, T> {
 mod tests {
     use crate::{
         handle::{
-            BoundCallableProtocol,
-            BoundConstructorProtocol,
-            BoundObjectProtocol,
-            CallableProtocol,
-            Class,
-            ConstructorProtocol,
-            Function,
-            Object,
-            ObjectProtocol,
-            Promise,
+            BoundCallableProtocol, BoundConstructorProtocol, BoundObjectProtocol, CallableProtocol,
+            Class, ConstructorProtocol, Function, Object, ObjectProtocol, Promise,
         },
         marshal::Nullish,
         runtime::Runtime,

@@ -279,14 +279,8 @@ mod tests {
     use crate::{
         errors::Error,
         handle::{
-            BoundCallableProtocol,
-            BoundConstructorProtocol,
-            BoundObjectProtocol,
-            CallableProtocol,
-            ConstructorProtocol,
-            Function,
-            Object,
-            ObjectProtocol,
+            BoundCallableProtocol, BoundConstructorProtocol, BoundObjectProtocol, CallableProtocol,
+            ConstructorProtocol, Function, Object, ObjectProtocol,
         },
         host::{
             args::Args,
@@ -659,7 +653,7 @@ mod tests {
                 .unwrap()
                 .into_typed::<Tally>()
                 .await
-            .is_err(),
+                .is_err(),
         );
     }
 
@@ -683,7 +677,12 @@ mod tests {
         let counter = module.class("Counter").await.unwrap();
         let instance = counter.construct((1,)).await.unwrap();
 
-        assert!(instance.is_instance_of(&counter).await.unwrap());
+        assert!(
+            instance
+                .is_instance_of(&counter)
+                .await
+                .unwrap()
+        );
         assert!(
             !instance
                 .is_instance_of(&module.class("Other").await.unwrap())

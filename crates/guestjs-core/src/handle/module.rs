@@ -167,12 +167,8 @@ impl<'js> ToGuestBound<'js> for BoundModule<'js> {
 mod tests {
     use crate::{
         handle::{
-            BoundCallableProtocol,
-            BoundConstructorProtocol,
-            BoundObjectProtocol,
-            CallableProtocol,
-            Function,
-            ObjectProtocol,
+            BoundCallableProtocol, BoundConstructorProtocol, BoundObjectProtocol, CallableProtocol,
+            Function, ObjectProtocol,
         },
         runtime::Runtime,
     };

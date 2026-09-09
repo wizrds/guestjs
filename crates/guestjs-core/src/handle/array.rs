@@ -824,14 +824,8 @@ mod tests {
 
     use crate::{
         handle::{
-            Array,
-            ArrayBuffer,
-            CallableProtocol,
-            Float64Array,
-            ObjectProtocol,
-            Promise,
-            Uint8Array,
-            Value,
+            Array, ArrayBuffer, CallableProtocol, Float64Array, ObjectProtocol, Promise,
+            Uint8Array, Value,
         },
         host::{Deferred, Exports, HostModule},
         marshal::FromGuestBound,
@@ -1326,7 +1320,7 @@ mod tests {
                 .call::<_, String>(())
                 .await
                 .unwrap()
-            .contains("expected")
+                .contains("expected")
         );
     }
 
@@ -1380,7 +1374,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(array.at::<i32>(1).await.unwrap(), 20);
-        assert_eq!(array.get::<usize>("length").await.unwrap(), 3);
+        assert_eq!(
+            array
+                .get::<usize>("length")
+                .await
+                .unwrap(),
+            3
+        );
 
         array.set_at(1, 99).await.unwrap();
 

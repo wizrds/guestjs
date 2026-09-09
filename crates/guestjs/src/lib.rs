@@ -843,16 +843,8 @@ mod tests {
     use crate::{
         errors::Error,
         handle::{
-            BoundCallableProtocol,
-            BoundConstructorProtocol,
-            BoundFunction,
-            BoundObjectProtocol,
-            CallableProtocol,
-            Class,
-            ConstructorProtocol,
-            Function,
-            Object,
-            ObjectProtocol,
+            BoundCallableProtocol, BoundConstructorProtocol, BoundFunction, BoundObjectProtocol,
+            CallableProtocol, Class, ConstructorProtocol, Function, Object, ObjectProtocol,
             Promise,
         },
         host::{Exports, Namespace},
