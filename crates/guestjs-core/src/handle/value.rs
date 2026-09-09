@@ -92,7 +92,7 @@ impl<'js> ToGuestBound<'js> for BoundValue<'js> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        handle::Value,
+        handle::{CallableProtocol, Value},
         host::{Exports, HostModule},
         runtime::Runtime,
     };

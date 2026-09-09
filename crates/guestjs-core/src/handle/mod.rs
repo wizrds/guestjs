@@ -6,6 +6,7 @@ pub mod instance;
 pub mod module;
 pub mod object;
 pub mod promise;
+pub mod traits;
 pub mod value;
 
 pub use array::*;
@@ -16,4 +17,5 @@ pub use instance::*;
 pub use module::*;
 pub use object::*;
 pub use promise::*;
+pub use traits::*;
 pub use value::*;

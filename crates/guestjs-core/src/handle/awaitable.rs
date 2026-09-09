@@ -161,7 +161,7 @@ mod tests {
     use crate::{
         __private::{JsValue, from_value},
         errors::Error,
-        handle::Awaitable,
+        handle::{Awaitable, BoundObjectProtocol, ObjectProtocol},
         marshal::{FromGuest, FromGuestBound},
         runtime::{Runtime, Scope},
     };

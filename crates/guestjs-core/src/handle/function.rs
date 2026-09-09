@@ -1,12 +1,13 @@
 use std::rc::Rc;
 
 use rquickjs::{
-    CatchResultExt, Function as JsFunction, Persistent, Value as JsValue, function::Args as JsArgs,
+    CatchResultExt, Function as JsFunction, Object as JsObject, Persistent, Value as JsValue,
 };
 
 use crate::{
     errors::Error,
-    marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestArgs, ToGuestArgsBound, ToGuestBound},
+    handle::{BoundCallable, BoundHandle, OwnedCallable, OwnedHandle},
+    marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
     runtime::{GuestContext, Scope},
 };
 
@@ -32,21 +33,30 @@ impl Function {
             scope.clone(),
         ))
     }
+}
 
-    /// Calls the guest function.
-    pub async fn call<A, R>(&self, args: A) -> Result<R::Owned, Error>
-    where
-        A: ToGuestArgs,
-        R: FromGuest,
-    {
-        Scope::with(&self.context, async move |scope| {
-            R::from_guest(
-                &scope,
-                self.bind(&scope)?
-                    .call_value(args.into_args(&scope)?)?,
-            )
-        })
-        .await
+impl OwnedHandle for Function {
+    fn guest_context(&self) -> &Rc<GuestContext> {
+        &self.context
+    }
+
+    fn bind_object<'js>(&self, scope: &Scope<'js>) -> Result<JsObject<'js>, Error> {
+        Ok(self
+            .value
+            .clone()
+            .restore(scope.ctx())
+            .catch(scope.ctx())?
+            .into_inner())
+    }
+}
+
+impl OwnedCallable for Function {
+    fn bind_function<'js>(&self, scope: &Scope<'js>) -> Result<JsFunction<'js>, Error> {
+        self.value
+            .clone()
+            .restore(scope.ctx())
+            .catch(scope.ctx())
+            .map_err(Into::into)
     }
 }
 
@@ -112,15 +122,6 @@ impl<'js> BoundFunction<'js> {
         Self { value, scope }
     }
 
-    /// Calls the guest function.
-    pub fn call<A, R>(&self, args: A) -> Result<R::Bound<'js>, Error>
-    where
-        A: ToGuestArgsBound<'js>,
-        R: FromGuestBound,
-    {
-        R::from_guest_bound(&self.scope, self.call_value(args.into_bound_args(&self.scope)?)?)
-    }
-
     /// Converts the function into an owned handle.
     pub fn into_owned(self) -> Result<Function, Error> {
         Ok(Function::new(
@@ -131,12 +132,21 @@ impl<'js> BoundFunction<'js> {
                 .clone(),
         ))
     }
+}
 
-    fn call_value(&self, args: JsArgs<'js>) -> Result<JsValue<'js>, Error> {
-        self.value
-            .call_arg::<JsValue>(args)
-            .catch(self.scope.ctx())
-            .map_err(Into::into)
+impl<'js> BoundHandle<'js> for BoundFunction<'js> {
+    fn js_object(&self) -> &JsObject<'js> {
+        &self.value
+    }
+
+    fn js_scope(&self) -> &Scope<'js> {
+        &self.scope
+    }
+}
+
+impl<'js> BoundCallable<'js> for BoundFunction<'js> {
+    fn js_function(&self) -> &JsFunction<'js> {
+        &self.value
     }
 }
 
@@ -151,7 +161,17 @@ mod tests {
     use super::Function;
     use crate::{
         errors::Error,
-        handle::{Class, Instance, Object, Promise},
+        handle::{
+            BoundCallableProtocol,
+            BoundConstructorProtocol,
+            BoundObjectProtocol,
+            CallableProtocol,
+            Class,
+            Instance,
+            Object,
+            ObjectProtocol,
+            Promise,
+        },
         runtime::{Runtime, Scope},
     };
 

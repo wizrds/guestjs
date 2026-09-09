@@ -1,14 +1,13 @@
 use std::{marker::PhantomData, rc::Rc};
 
 use rquickjs::{
-    CatchResultExt, Constructor as JsConstructor, Persistent, Value as JsValue,
-    function::Args as JsArgs,
+    CatchResultExt, Constructor as JsConstructor, Object as JsObject, Persistent, Value as JsValue,
 };
 
 use crate::{
     errors::Error,
-    handle::Instance,
-    marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestArgs, ToGuestArgsBound, ToGuestBound},
+    handle::{BoundConstructor, BoundHandle, Instance, OwnedConstructor, OwnedHandle},
+    marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
     runtime::{GuestContext, Scope},
 };
 
@@ -45,33 +44,33 @@ impl<R> Class<R> {
     pub fn into_result<O>(self) -> Class<O> {
         Class::new(self.value, self.context)
     }
+}
 
-    pub async fn construct_as<A, O>(&self, args: A) -> Result<O::Owned, Error>
-    where
-        A: ToGuestArgs,
-        O: FromGuest,
-    {
-        Scope::with(&self.context, async move |scope| {
-            O::from_guest(
-                &scope,
-                self.bind(&scope)?
-                    .construct_value(args.into_args(&scope)?)?,
-            )
-        })
-        .await
+impl<R> OwnedHandle for Class<R> {
+    fn guest_context(&self) -> &Rc<GuestContext> {
+        &self.context
+    }
+
+    fn bind_object<'js>(&self, scope: &Scope<'js>) -> Result<JsObject<'js>, Error> {
+        Ok(self
+            .value
+            .clone()
+            .restore(scope.ctx())
+            .catch(scope.ctx())?
+            .into_inner()
+            .into_inner())
     }
 }
 
-impl<R> Class<R>
-where
-    R: FromGuest,
-{
-    /// Constructs a guest instance.
-    pub async fn construct<A>(&self, args: A) -> Result<R::Owned, Error>
-    where
-        A: ToGuestArgs,
-    {
-        self.construct_as::<A, R>(args).await
+impl<R> OwnedConstructor for Class<R> {
+    type Result = R;
+
+    fn bind_constructor<'js>(&self, scope: &Scope<'js>) -> Result<JsConstructor<'js>, Error> {
+        self.value
+            .clone()
+            .restore(scope.ctx())
+            .catch(scope.ctx())
+            .map_err(Into::into)
     }
 }
 
@@ -147,31 +146,12 @@ impl<'js, R> BoundClass<'js, R> {
         Self { value, scope, _result: PhantomData }
     }
 
-    pub(crate) fn constructor(&self) -> &JsConstructor<'js> {
-        &self.value
-    }
-
-    fn construct_value(&self, args: JsArgs<'js>) -> Result<JsValue<'js>, Error> {
-        self.value
-            .construct_args(args)
-            .catch(self.scope.ctx())
-            .map_err(Into::into)
-    }
-
     pub fn with_result<O>(&self) -> BoundClass<'js, O> {
         BoundClass::new(self.value.clone(), self.scope.clone())
     }
 
     pub fn into_result<O>(self) -> BoundClass<'js, O> {
         BoundClass::new(self.value, self.scope)
-    }
-
-    pub fn construct_as<A, O>(&self, args: A) -> Result<O::Bound<'js>, Error>
-    where
-        A: ToGuestArgsBound<'js>,
-        O: FromGuestBound,
-    {
-        O::from_guest_bound(&self.scope, self.construct_value(args.into_bound_args(&self.scope)?)?)
     }
 
     /// Converts the class into an owned handle.
@@ -186,16 +166,21 @@ impl<'js, R> BoundClass<'js, R> {
     }
 }
 
-impl<'js, R> BoundClass<'js, R>
-where
-    R: FromGuestBound,
-{
-    /// Constructs a guest instance.
-    pub fn construct<A>(&self, args: A) -> Result<R::Bound<'js>, Error>
-    where
-        A: ToGuestArgsBound<'js>,
-    {
-        self.construct_as::<A, R>(args)
+impl<'js, R> BoundHandle<'js> for BoundClass<'js, R> {
+    fn js_object(&self) -> &JsObject<'js> {
+        &self.value
+    }
+
+    fn js_scope(&self) -> &Scope<'js> {
+        &self.scope
+    }
+}
+
+impl<'js, R> BoundConstructor<'js> for BoundClass<'js, R> {
+    type Result = R;
+
+    fn js_constructor(&self) -> &JsConstructor<'js> {
+        &self.value
     }
 }
 
@@ -207,7 +192,16 @@ impl<'js, R> ToGuestBound<'js> for BoundClass<'js, R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{handle::Object, runtime::Runtime};
+    use crate::{
+        handle::{
+            BoundConstructorProtocol,
+            BoundObjectProtocol,
+            ConstructorProtocol,
+            Object,
+            ObjectProtocol,
+        },
+        runtime::Runtime,
+    };
 
     const CLASS_SOURCE: &str = r#"
         export class Counter {
@@ -244,7 +238,7 @@ mod tests {
                 .construct((1,))
                 .await
                 .unwrap()
-                .call::<_, i32>("increment", ())
+                .call_method::<_, i32>("increment", ())
                 .await
                 .unwrap(),
             2,
@@ -262,7 +256,7 @@ mod tests {
                 .construct((9,))
                 .await
                 .unwrap()
-                .call::<_, i32>("increment", ())
+                .call_method::<_, i32>("increment", ())
                 .await
                 .unwrap(),
             10,

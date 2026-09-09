@@ -78,7 +78,7 @@
 //! valid inside a scope, so byte reads and writes live on the bound forms alone. The owned handles
 //! carry their guest context and expose the remaining surface, such as
 //! [`TypedArray::len`](crate::handle::TypedArray::len) and
-//! [`Array::get`](crate::handle::Array::get), by entering that context for each call.
+//! [`Array::at`](crate::handle::Array::at), by entering that context for each call.
 //!
 //! # Execution control
 //!
@@ -355,7 +355,7 @@
 //!         .await?
 //!         .construct((1,))
 //!         .await?
-//!         .call::<_, i32>("increment", ())
+//!         .call_method::<_, i32>("increment", ())
 //!         .await?,
 //!     2,
 //! );
@@ -823,7 +823,19 @@ mod tests {
 
     use crate::{
         errors::Error,
-        handle::{BoundFunction, Class, Function, Object, Promise},
+        handle::{
+            BoundCallableProtocol,
+            BoundConstructorProtocol,
+            BoundFunction,
+            BoundObjectProtocol,
+            CallableProtocol,
+            Class,
+            ConstructorProtocol,
+            Function,
+            Object,
+            ObjectProtocol,
+            Promise,
+        },
         host::{Exports, Namespace},
         marshal::{FromGuestBound, Nullish},
         runtime::{Runtime, Scope},
@@ -1597,7 +1609,7 @@ export async function exercise() {
                 .construct((1,))
                 .await
                 .unwrap()
-                .call::<_, i32>("increment", ())
+                .call_method::<_, i32>("increment", ())
                 .await
                 .unwrap(),
             2,
@@ -1653,7 +1665,7 @@ export async function exercise() {
                     module
                         .counter()?
                         .construct((1,))?
-                        .call::<_, i32>("increment", ())?,
+                        .call_method::<_, i32>("increment", ())?,
                     2,
                 );
                 assert_eq!(

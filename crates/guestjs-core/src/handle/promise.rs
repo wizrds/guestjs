@@ -164,7 +164,18 @@ impl<'js, T> ToGuestBound<'js> for BoundPromise<'js, T> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        handle::{Class, Function, Object, Promise},
+        handle::{
+            BoundCallableProtocol,
+            BoundConstructorProtocol,
+            BoundObjectProtocol,
+            CallableProtocol,
+            Class,
+            ConstructorProtocol,
+            Function,
+            Object,
+            ObjectProtocol,
+            Promise,
+        },
         marshal::Nullish,
         runtime::Runtime,
     };

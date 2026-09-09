@@ -31,7 +31,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        handle::{Promise, Value},
+        handle::{CallableProtocol, Promise, Value},
         host::{Deferred, Exports, HostModule},
         runtime::Runtime,
     };

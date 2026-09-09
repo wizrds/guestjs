@@ -1028,7 +1028,7 @@ mod bytes_marshal {
 mod bytes_tests {
     use bytes::Bytes;
 
-    use crate::runtime::Runtime;
+    use crate::{handle::CallableProtocol, runtime::Runtime};
 
     #[tokio::test]
     async fn bytes_round_trip_through_uint8array() {
@@ -1078,7 +1078,7 @@ mod tests {
 
     use crate::{
         errors::Error,
-        handle::{Class, Function, Instance, Object, Promise},
+        handle::{CallableProtocol, Class, Function, Instance, Object, Promise},
         host::{
             args::Args,
             class::{ClassSpec, HostClass},

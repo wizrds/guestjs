@@ -584,7 +584,7 @@ let counter = module
 
 counter.borrow_with_mut(|counter| counter.n = 40).await?;
 
-assert_eq!(counter.call::<_, i32>("add", (2,)).await?, 42);
+assert_eq!(counter.call_method::<_, i32>("add", (2,)).await?, 42);
 ```
 
 Because the handle stays attached to the guest object, a mutation made from Rust is visible to

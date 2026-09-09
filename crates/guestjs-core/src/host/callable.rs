@@ -121,7 +121,7 @@ impl<'js> ToGuestBound<'js> for HostFn {
 mod tests {
     use crate::{
         errors::Error,
-        handle::Function,
+        handle::{BoundCallableProtocol, CallableProtocol, Function},
         host::{Exports, HostModule},
         runtime::Runtime,
     };

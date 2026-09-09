@@ -2192,7 +2192,7 @@ mod tests {
                 nullish: Nullish<i32>,
                 #[guestjs(borrow)] other: &Point,
                 #[guestjs(borrow_mut)] target: &mut Point,
-                #[guestjs(as = Function)] callback: BoundFunction<'_>,
+                #[guestjs(as = "Function")] callback: BoundFunction<'_>,
                 #[guestjs(detached)] detached: Point,
                 #[guestjs(detached)] detached_many: Vec<Point>,
                 #[guestjs(detached)] detached_optional: Option<Point>,

@@ -13,7 +13,7 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use guestjs_core::{
     errors::Error,
-    handle::{BoundInstance, Instance, Promise},
+    handle::{BoundInstance, BoundObjectProtocol, Instance, ObjectProtocol, Promise},
     marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
     runtime::Scope,
 };
@@ -228,7 +228,7 @@ where
         Ok(Reader {
             reader: self
                 .object
-                .call::<_, Instance>("getReader", ())
+                .call_method::<_, Instance>("getReader", ())
                 .await?,
             pending: None,
             _chunk: PhantomData,
@@ -250,7 +250,7 @@ where
     /// Cancels the readable stream.
     pub async fn cancel(&self) -> Result<(), Error> {
         self.object
-            .call::<_, Promise<()>>("cancel", ())
+            .call_method::<_, Promise<()>>("cancel", ())
             .await?
             .await
     }
@@ -264,14 +264,14 @@ where
         O: 'static,
     {
         self.object
-            .call::<_, ReadableStream<O>>("pipeThrough", (transform,))
+            .call_method::<_, ReadableStream<O>>("pipeThrough", (transform,))
             .await
     }
 
     /// Pipes the readable stream into a writable stream.
     pub async fn pipe_to(&self, destination: &WritableStream<T>) -> Result<(), Error> {
         self.object
-            .call::<_, Promise<()>>("pipeTo", (destination,))
+            .call_method::<_, Promise<()>>("pipeTo", (destination,))
             .await?
             .await
     }
@@ -280,7 +280,7 @@ where
     pub async fn tee(&self) -> Result<(ReadableStream<T>, ReadableStream<T>), Error> {
         let mut branches = self
             .object
-            .call::<_, Vec<ReadableStream<T>>>("tee", ())
+            .call_method::<_, Vec<ReadableStream<T>>>("tee", ())
             .await?;
 
         if branches.len() != 2 {
@@ -343,7 +343,7 @@ where
         Ok(BoundReader {
             reader: self
                 .object
-                .call::<_, Instance>("getReader", ())?,
+                .call_method::<_, Instance>("getReader", ())?,
             _chunk: PhantomData,
         })
     }
@@ -363,7 +363,7 @@ where
     /// Cancels the readable stream.
     pub async fn cancel(&self) -> Result<(), Error> {
         self.object
-            .call::<_, Promise<()>>("cancel", ())?
+            .call_method::<_, Promise<()>>("cancel", ())?
             .await
     }
 
@@ -401,7 +401,7 @@ where
     /// Reads the next chunk.
     pub async fn read(&self) -> Result<Option<T::Owned>, Error> {
         self.reader
-            .call::<_, Promise<ReadOutcome<T>>>("read", ())
+            .call_method::<_, Promise<ReadOutcome<T>>>("read", ())
             .await?
             .await
     }
@@ -409,7 +409,7 @@ where
     /// Releases the reader lock.
     pub async fn release(&self) -> Result<(), Error> {
         self.reader
-            .call::<_, ()>("releaseLock", ())
+            .call_method::<_, ()>("releaseLock", ())
             .await
     }
 }
@@ -429,7 +429,7 @@ where
 
             self.pending = Some(Box::pin(async move {
                 reader
-                    .call::<_, Promise<ReadOutcome<T>>>("read", ())
+                    .call_method::<_, Promise<ReadOutcome<T>>>("read", ())
                     .await?
                     .await
             }));
@@ -475,14 +475,14 @@ where
     /// Reads the next chunk.
     pub async fn read(&self) -> Result<Option<T::Bound<'js>>, Error> {
         self.reader
-            .call::<_, Promise<ReadOutcome<T>>>("read", ())?
+            .call_method::<_, Promise<ReadOutcome<T>>>("read", ())?
             .await
     }
 
     /// Releases the reader lock.
     pub fn release(&self) -> Result<(), Error> {
         self.reader
-            .call::<_, ()>("releaseLock", ())
+            .call_method::<_, ()>("releaseLock", ())
     }
 }
 
@@ -500,7 +500,7 @@ mod tests {
     use futures::{Stream, TryStreamExt, future::try_join, stream};
     use guestjs_core::{
         errors::Error,
-        handle::Promise,
+        handle::{CallableProtocol, Promise},
         host::{Exports, HostModule},
         runtime::Runtime,
     };
