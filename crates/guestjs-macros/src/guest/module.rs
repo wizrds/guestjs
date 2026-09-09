@@ -226,9 +226,9 @@ mod tests {
         )));
         assert!(output.contains("pub async fn answer"));
         assert!(output.contains("pub fn answer"));
-        assert!(output.contains(concat!(
+        assert!(output.contains(
             "crate :: handle :: ObjectProtocol :: get :: < i32 > (& self . module , \"answer\")",
-        )));
+        ));
         assert!(output.contains(concat!(
             "crate :: handle :: BoundObjectProtocol :: get :: < crate :: handle :: Object > ",
             "(& self . module , \"settings\")",
@@ -241,9 +241,9 @@ mod tests {
             "crate :: handle :: BoundObjectProtocol :: get :: < crate :: handle :: Function > ",
             "(& self . module , \"operation\")",
         )));
-        assert!(output.contains(concat!(
+        assert!(output.contains(
             "crate :: handle :: ObjectProtocol :: get :: < crate :: handle :: Promise",
-        )));
+        ));
         assert!(output.contains("(& self . module , \"pending\")"));
         assert!(
             output.contains(
