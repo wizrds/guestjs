@@ -224,6 +224,25 @@
 //!
 //! # Running guest code
 //!
+//! Property access, method invocation, and construction come from traits rather than from each
+//! handle separately. [`ObjectProtocol`](crate::handle::ObjectProtocol) and
+//! [`BoundObjectProtocol`](crate::handle::BoundObjectProtocol) give `get`, `set`, `has`,
+//! `delete`, `keys`, `prototype`, `call_method`, and `is_instance_of` to every object-like
+//! handle. [`CallableProtocol`](crate::handle::CallableProtocol) and
+//! [`BoundCallableProtocol`](crate::handle::BoundCallableProtocol) add `call` to
+//! [`Function`](crate::handle::Function) and [`Instance<T>`](crate::handle::Instance).
+//! [`ConstructorProtocol`](crate::handle::ConstructorProtocol) and
+//! [`BoundConstructorProtocol`](crate::handle::BoundConstructorProtocol) add `construct` and
+//! `construct_as` to [`Class<R>`](crate::handle::Class).
+//!
+//! [`Class<R>`](crate::handle::Class) is not callable. Calling a class without `new` is an
+//! unconditional `TypeError` in the guest, so the class handle carries the constructor protocol
+//! alone and the mistake is a compile error in the host.
+//!
+//! The traits are re-exported from [`prelude`](crate::prelude), so `use guestjs::prelude::*;`
+//! brings them into scope. A handle type imported on its own does not carry these methods; the
+//! trait must be in scope as well.
+//!
 //! Owned operations are useful when values must be retained independently. A
 //! [`Promise<T>`](crate::handle::Promise) requires a JavaScript promise.
 //! [`Awaitable<T>`](crate::handle::Awaitable) accepts either a direct `T` or a promise resolving to
