@@ -6,7 +6,15 @@ use rquickjs::{
 
 use crate::{
     errors::Error,
-    handle::{BoundConstructor, BoundHandle, Instance, OwnedConstructor, OwnedHandle},
+    handle::{
+        BoundConstructor,
+        BoundHandle,
+        BoundObjectProtocol,
+        Instance,
+        Object,
+        OwnedConstructor,
+        OwnedHandle,
+    },
     marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
     runtime::{GuestContext, Scope},
 };
@@ -43,6 +51,15 @@ impl<R> Class<R> {
 
     pub fn into_result<O>(self) -> Class<O> {
         Class::new(self.value, self.context)
+    }
+
+    /// Reports whether the class is a strict subclass of another class.
+    pub async fn is_subclass_of<O>(&self, class: &Class<O>) -> Result<bool, Error> {
+        Scope::with(&self.context, async move |scope| {
+            self.bind(&scope)?
+                .is_subclass_of(&class.bind(&scope)?)
+        })
+        .await
     }
 }
 
@@ -164,6 +181,13 @@ impl<'js, R> BoundClass<'js, R> {
                 .clone(),
         ))
     }
+
+    /// Reports whether the class is a strict subclass of another class.
+    pub fn is_subclass_of<O>(&self, class: &BoundClass<'js, O>) -> Result<bool, Error> {
+        Ok(self
+            .get::<Object>("prototype")?
+            .is_instance_of(class))
+    }
 }
 
 impl<'js, R> BoundHandle<'js> for BoundClass<'js, R> {
@@ -213,6 +237,22 @@ mod tests {
                 return ++this.value;
             }
         }
+    "#;
+
+    const HIERARCHY_SOURCE: &str = r#"
+        export class Shape {
+            static kind = "shape";
+
+            static describe() {
+                return this.kind;
+            }
+        }
+
+        export class Circle extends Shape {
+            static kind = "circle";
+        }
+
+        export class Unrelated {}
     "#;
 
     #[tokio::test]
@@ -352,5 +392,103 @@ mod tests {
                 .unwrap(),
             8,
         );
+    }
+
+    #[tokio::test]
+    async fn class_reads_static_members() {
+        let guest = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+        let module = guest
+            .guest_module("hierarchy.js", HIERARCHY_SOURCE)
+            .await
+            .unwrap();
+        let circle = module
+            .class("Circle")
+            .await
+            .unwrap();
+
+        assert_eq!(circle.get::<String>("kind").await.unwrap(), "circle");
+        assert!(circle.has("describe").await.unwrap());
+        assert_eq!(
+            circle
+                .call_method::<_, String>("describe", ())
+                .await
+                .unwrap(),
+            "circle",
+        );
+        assert!(
+            circle
+                .keys()
+                .await
+                .unwrap()
+                .contains(&String::from("kind"))
+        );
+
+        guest
+            .scope(async move |scope| {
+                let circle = module
+                    .bind(&scope)?
+                    .class("Circle")?;
+
+                assert_eq!(circle.get::<String>("kind")?, "circle");
+                assert_eq!(circle.call_method::<_, String>("describe", ())?, "circle");
+
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn class_reports_strict_subclasses() {
+        let guest = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+        let module = guest
+            .guest_module("hierarchy.js", HIERARCHY_SOURCE)
+            .await
+            .unwrap();
+        let shape = module.class("Shape").await.unwrap();
+        let circle = module.class("Circle").await.unwrap();
+        let unrelated = module
+            .class("Unrelated")
+            .await
+            .unwrap();
+
+        assert!(circle.is_subclass_of(&shape).await.unwrap());
+        assert!(!shape.is_subclass_of(&circle).await.unwrap());
+        assert!(!shape.is_subclass_of(&shape).await.unwrap());
+        assert!(!unrelated.is_subclass_of(&shape).await.unwrap());
+
+        guest
+            .scope(async move |scope| {
+                let module = module.bind(&scope)?;
+
+                assert!(
+                    module
+                        .class("Circle")?
+                        .is_subclass_of(&module.class("Shape")?)?
+                );
+                assert!(
+                    !module
+                        .class("Shape")?
+                        .is_subclass_of(&module.class("Circle")?)?
+                );
+
+                Ok(())
+            })
+            .await
+            .unwrap();
     }
 }

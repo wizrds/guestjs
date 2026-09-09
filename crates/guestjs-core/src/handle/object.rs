@@ -160,6 +160,17 @@ mod tests {
         }
     "#;
 
+    const PROTOCOL_SOURCE: &str = r#"
+        export const point = {
+            x: 3,
+            y: 4,
+
+            sum() {
+                return this.x + this.y;
+            },
+        };
+    "#;
+
     #[tokio::test]
     async fn bound_object_composes_with_function_handles() {
         let guest = Runtime::builder()
@@ -217,5 +228,34 @@ mod tests {
                 .unwrap(),
             15,
         );
+    }
+
+    #[tokio::test]
+    async fn object_protocol_covers_the_property_surface() {
+        let guest = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+        let point = guest
+            .guest_module("protocol.js", PROTOCOL_SOURCE)
+            .await
+            .unwrap()
+            .object("point")
+            .await
+            .unwrap();
+
+        assert_eq!(point.call_method::<_, i32>("sum", ()).await.unwrap(), 7);
+        assert!(point.has("x").await.unwrap());
+        assert!(!point.has("z").await.unwrap());
+        assert_eq!(point.keys().await.unwrap(), ["x", "y", "sum"]);
+
+        point.delete("y").await.unwrap();
+
+        assert!(!point.has("y").await.unwrap());
+        assert!(point.prototype().await.unwrap().is_some());
     }
 }

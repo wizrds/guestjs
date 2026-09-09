@@ -828,6 +828,7 @@ mod tests {
             ArrayBuffer,
             CallableProtocol,
             Float64Array,
+            ObjectProtocol,
             Promise,
             Uint8Array,
             Value,
@@ -1325,7 +1326,7 @@ mod tests {
                 .call::<_, String>(())
                 .await
                 .unwrap()
-                .contains("expected")
+            .contains("expected")
         );
     }
 
@@ -1359,6 +1360,31 @@ mod tests {
                 .unwrap(),
             "1,2,3,4;true",
         );
+    }
+
+    #[tokio::test]
+    async fn array_exposes_both_element_and_property_access() {
+        let array = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap()
+            .guest_module("array.js", "export const values = [10, 20, 30];")
+            .await
+            .unwrap()
+            .get::<Array>("values")
+            .await
+            .unwrap();
+
+        assert_eq!(array.at::<i32>(1).await.unwrap(), 20);
+        assert_eq!(array.get::<usize>("length").await.unwrap(), 3);
+
+        array.set_at(1, 99).await.unwrap();
+
+        assert_eq!(array.at::<i32>(1).await.unwrap(), 99);
     }
 }
 

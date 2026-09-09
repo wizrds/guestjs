@@ -659,7 +659,36 @@ mod tests {
                 .unwrap()
                 .into_typed::<Tally>()
                 .await
-                .is_err(),
+            .is_err(),
+        );
+    }
+
+    #[tokio::test]
+    async fn owned_instance_reports_its_class() {
+        let module = Runtime::builder()
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap()
+            .guest_module(
+                "identity.js",
+                "export class Counter { constructor(start) { this.n = start; } }\n\
+                 export class Other {}",
+            )
+            .await
+            .unwrap();
+        let counter = module.class("Counter").await.unwrap();
+        let instance = counter.construct((1,)).await.unwrap();
+
+        assert!(instance.is_instance_of(&counter).await.unwrap());
+        assert!(
+            !instance
+                .is_instance_of(&module.class("Other").await.unwrap())
+                .await
+                .unwrap()
         );
     }
 }
