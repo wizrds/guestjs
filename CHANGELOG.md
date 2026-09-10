@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.5.1](https://github.com/wizrds/guestjs/compare/0.5.0..0.5.1) - 2026-09-10
+
+### Bug Fixes
+
+- Support referencing realized classes in host scope - ([3493bc7](https://github.com/wizrds/guestjs/commit/3493bc7878c9369a6b88287e85f085e9fd2814ae)) - Timothy Pogue
+---
 ## [0.5.0](https://github.com/wizrds/guestjs/compare/0.4.0..0.5.0) - 2026-09-09
 
 ### Features
