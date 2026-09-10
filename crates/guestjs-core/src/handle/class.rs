@@ -10,8 +10,9 @@ use crate::{
         BoundConstructor, BoundHandle, BoundObjectProtocol, Instance, Object, OwnedConstructor,
         OwnedHandle,
     },
+    host::class::{HostClass, HostInstance},
     marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
-    runtime::{GuestContext, Scope},
+    runtime::{Guest, GuestContext, Scope},
 };
 
 /// An owned guest class.
@@ -55,6 +56,18 @@ impl<R> Class<R> {
                 .is_subclass_of(&class.bind(&scope)?)
         })
         .await
+    }
+}
+
+impl Class<Instance> {
+    /// Returns this guest's class for a [`HostClass`](crate::host::class::HostClass).
+    pub async fn of<C>(guest: &Guest) -> Result<Class<Instance<C>>, Error>
+    where
+        C: HostClass,
+    {
+        guest
+            .scope(async move |scope| BoundClass::of::<C>(&scope)?.into_owned())
+            .await
     }
 }
 
@@ -185,6 +198,19 @@ impl<'js, R> BoundClass<'js, R> {
     }
 }
 
+impl<'js> BoundClass<'js, Instance> {
+    /// Returns this guest's class for a [`HostClass`](crate::host::class::HostClass).
+    pub fn of<C>(scope: &Scope<'js>) -> Result<BoundClass<'js, Instance<C>>, Error>
+    where
+        C: HostClass,
+    {
+        Ok(BoundClass::new(
+            HostInstance::<C>::constructor(scope)?,
+            scope.clone(),
+        ))
+    }
+}
+
 impl<'js, R> BoundHandle<'js> for BoundClass<'js, R> {
     fn js_object(&self) -> &JsObject<'js> {
         &self.value
@@ -211,12 +237,19 @@ impl<'js, R> ToGuestBound<'js> for BoundClass<'js, R> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::{
+        errors::Error,
         handle::{
-            BoundConstructorProtocol, BoundObjectProtocol, ConstructorProtocol, Object,
-            ObjectProtocol,
+            BoundConstructor, BoundConstructorProtocol, BoundObjectProtocol, ConstructorProtocol,
+            Object, ObjectProtocol,
         },
-        runtime::Runtime,
+        host::{
+            args::Args,
+            class::{ClassSpec, HostClass},
+            module::{Exports, HostModule},
+        },
+        runtime::{Runtime, Scope},
     };
 
     const CLASS_SOURCE: &str = r#"
@@ -246,6 +279,34 @@ mod tests {
 
         export class Unrelated {}
     "#;
+
+    struct Base {
+        value: i32,
+    }
+
+    impl HostClass for Base {
+        const NAME: &'static str = "Base";
+
+        fn construct<'js>(scope: &Scope<'js>, args: Args<'js>) -> Result<Self, Error> {
+            Ok(Self { value: args.get::<i32>(scope, 0)? })
+        }
+
+        fn build(spec: &mut ClassSpec<Self>) {
+            spec.method("value", |base, _scope, _args| Ok(base.value));
+        }
+    }
+
+    struct Shapes;
+
+    impl HostModule for Shapes {
+        fn name(&self) -> &str {
+            "@host/shapes"
+        }
+
+        fn build(&self, exports: &mut Exports) {
+            exports.class::<Base>();
+        }
+    }
 
     #[tokio::test]
     async fn promoted_class_constructs_owned_instances() {
@@ -500,5 +561,121 @@ mod tests {
             })
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn class_of_returns_the_exported_host_class() {
+        let guest = Runtime::builder()
+            .bind(Shapes)
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        guest
+            .scope(async move |scope| {
+                assert_eq!(
+                    BoundClass::of::<Base>(&scope)?
+                        .js_constructor()
+                        .as_value(),
+                    scope
+                        .host_module("@host/shapes")?
+                        .class("Base")?
+                        .js_constructor()
+                        .as_value(),
+                );
+
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn class_of_constructs_typed_instances() {
+        assert_eq!(
+            Class::of::<Base>(
+                &Runtime::builder()
+                    .bind(Shapes)
+                    .build()
+                    .await
+                    .unwrap()
+                    .guest()
+                    .build()
+                    .await
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .construct((7,))
+            .await
+            .unwrap()
+            .borrow_with(|base| base.value)
+            .await
+            .unwrap(),
+            7,
+        );
+    }
+
+    #[tokio::test]
+    async fn class_of_works_without_registration() {
+        assert_eq!(
+            Class::of::<Base>(
+                &Runtime::builder()
+                    .build()
+                    .await
+                    .unwrap()
+                    .guest()
+                    .build()
+                    .await
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .construct((3,))
+            .await
+            .unwrap()
+            .borrow_with(|base| base.value)
+            .await
+            .unwrap(),
+            3,
+        );
+    }
+
+    #[tokio::test]
+    async fn class_of_is_isolated_between_guests() {
+        let runtime = Runtime::builder()
+            .build()
+            .await
+            .unwrap();
+        let first = runtime
+            .guest()
+            .build()
+            .await
+            .unwrap();
+        let second = runtime
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        Class::of::<Base>(&first)
+            .await
+            .unwrap()
+            .set("marker", 1_i32)
+            .await
+            .unwrap();
+
+        assert!(
+            !Class::of::<Base>(&second)
+                .await
+                .unwrap()
+                .has("marker")
+                .await
+                .unwrap(),
+        );
     }
 }

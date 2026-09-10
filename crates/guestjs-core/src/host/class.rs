@@ -1,4 +1,5 @@
 use std::{
+    any::TypeId,
     future::Future,
     ops::{Deref, DerefMut},
     pin::Pin,
@@ -6,7 +7,8 @@ use std::{
 
 use rquickjs::{
     Array, Atom, CatchResultExt, Class, Constructor, Ctx, Exception, FromJs,
-    Function as JsFunction, JsLifetime, Object as JsObject, Symbol, Value as JsValue,
+    Function as JsFunction, JsLifetime, Object as JsObject, Persistent, Symbol,
+    Value as JsValue,
     class::{JsClass, OwnedBorrow, OwnedBorrowMut, Trace, Tracer, Writable},
     function::{Async, Rest, This},
     object::Accessor,
@@ -17,6 +19,7 @@ use crate::{
     handle::{BoundInstance, Instance},
     host::{args::Args, namespace::Namespace},
     marshal::{FromGuest, FromGuestBound, FromGuestMut, FromGuestRef, ToGuest, ToGuestBound},
+    registry::RegistryHandle,
     runtime::Scope,
 };
 
@@ -494,13 +497,7 @@ impl<'js, C: HostClass> JsClass<'js> for HostInstance<C> {
 }
 
 impl<C: HostClass> HostInstance<C> {
-    pub(crate) fn into_guest<'js>(scope: &Scope<'js>, value: C) -> Result<JsValue<'js>, Error> {
-        Ok(Class::instance(scope.ctx().clone(), HostInstance(value))
-            .catch(scope.ctx())?
-            .into_value())
-    }
-
-    pub(crate) fn export<'js>(scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+    fn realise<'js>(scope: &Scope<'js>) -> Result<Constructor<'js>, Error> {
         let constructor = Class::<HostInstance<C>>::create_constructor(scope.ctx())
             .catch(scope.ctx())?
             .ok_or_else(|| Error::unexpected("host class has no constructor"))?;
@@ -513,7 +510,43 @@ impl<C: HostClass> HostInstance<C> {
             .statics
             .apply(scope, &constructor)?;
 
-        Ok(constructor.into_value())
+        Ok(constructor)
+    }
+
+    pub(crate) fn into_guest<'js>(scope: &Scope<'js>, value: C) -> Result<JsValue<'js>, Error> {
+        Ok(Class::instance(scope.ctx().clone(), HostInstance(value))
+            .catch(scope.ctx())?
+            .into_value())
+    }
+
+    /// Returns this guest's class object, realising it on first use.
+    pub(crate) fn constructor<'js>(scope: &Scope<'js>) -> Result<Constructor<'js>, Error> {
+        let registry = scope
+            .ctx()
+            .userdata::<RegistryHandle>()
+            .ok_or_else(|| Error::unexpected("module registry is not installed"))?
+            .registry();
+
+        if let Some(constructor) = registry.realised_class(scope.ctx(), TypeId::of::<C>()) {
+            return constructor
+                .restore(scope.ctx())
+                .catch(scope.ctx())
+                .map_err(Into::into);
+        }
+
+        let constructor = Self::realise(scope)?;
+
+        registry.set_realised_class(
+            scope.ctx(),
+            TypeId::of::<C>(),
+            Persistent::save(scope.ctx(), constructor.clone()),
+        );
+
+        Ok(constructor)
+    }
+
+    pub(crate) fn export<'js>(scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
+        Ok(Self::constructor(scope)?.into_value())
     }
 }
 
@@ -617,8 +650,8 @@ mod tests {
     use crate::{
         errors::Error,
         handle::{
-            BoundCallableProtocol, CallableProtocol, ConstructorProtocol, Module, ObjectProtocol,
-            Promise,
+            BoundCallableProtocol, BoundConstructor, BoundObjectProtocol, CallableProtocol,
+            ConstructorProtocol, Module, ObjectProtocol, Promise,
         },
         host::{
             args::Args,
@@ -1204,6 +1237,89 @@ mod tests {
                 .await
                 .unwrap(),
             42
+        );
+    }
+
+    #[tokio::test]
+    async fn host_class_export_is_cached() {
+        let guest = Runtime::builder()
+            .bind(MathHost)
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        guest
+            .scope(async move |scope| {
+                assert_eq!(
+                    scope
+                        .host_module("@host/math")?
+                        .class("Vector2")?
+                        .js_constructor()
+                        .as_value(),
+                    scope
+                        .host_module("@host/math")?
+                        .class("Vector2")?
+                        .js_constructor()
+                        .as_value(),
+                );
+
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn host_class_statics_survive_repeated_export() {
+        let guest = Runtime::builder()
+            .bind(MathHost)
+            .build()
+            .await
+            .unwrap()
+            .guest()
+            .build()
+            .await
+            .unwrap();
+
+        guest
+            .scope(async move |scope| {
+                scope
+                    .host_module("@host/math")?
+                    .class("Vector2")?;
+
+                assert_eq!(
+                    scope
+                        .host_module("@host/math")?
+                        .class("Vector2")?
+                        .get::<i32>("DIMENSIONS")?,
+                    2,
+                );
+
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn host_instance_constructor_matches_export() {
+        assert!(
+            MathHost::module(
+                r#"
+import { Vector2 } from "@host/math";
+export function run() { return new Vector2(3, 4).constructor === Vector2; }"#,
+            )
+            .await
+            .function("run")
+            .await
+            .unwrap()
+            .call::<_, bool>(())
+            .await
+            .unwrap(),
         );
     }
 }

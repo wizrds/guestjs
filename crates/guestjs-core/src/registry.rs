@@ -1,4 +1,5 @@
 use std::{
+    any::TypeId,
     cell::RefCell,
     collections::{HashMap, HashSet, hash_map::Entry},
     rc::Rc,
@@ -6,7 +7,8 @@ use std::{
 };
 
 use rquickjs::{
-    Ctx, Error as JsError, JsLifetime, Module as JsModule, Result as JsResult,
+    Constructor as JsConstructor, Ctx, Error as JsError, JsLifetime, Module as JsModule,
+    Persistent, Result as JsResult,
     loader::{ImportAttributes, Loader, Resolver},
 };
 
@@ -108,6 +110,7 @@ struct GuestRegistry {
     specifiers: HashMap<String, String>,
     modules: HashMap<String, ModuleRegistration>,
     staged: HashMap<String, Namespace>,
+    classes: HashMap<TypeId, Persistent<JsConstructor<'static>>>,
 }
 
 impl GuestRegistry {
@@ -208,6 +211,7 @@ impl GuestRegistry {
                     .collect(),
                 modules,
                 staged: HashMap::new(),
+                classes: HashMap::new(),
             },
             initializers,
         )
@@ -250,6 +254,18 @@ impl GuestRegistry {
 
     fn take_staged(&mut self, route: &str) -> Option<Namespace> {
         self.staged.remove(route)
+    }
+
+    fn realised_class(&self, class: TypeId) -> Option<Persistent<JsConstructor<'static>>> {
+        self.classes.get(&class).cloned()
+    }
+
+    fn set_realised_class(
+        &mut self,
+        class: TypeId,
+        constructor: Persistent<JsConstructor<'static>>,
+    ) {
+        self.classes.insert(class, constructor);
     }
 }
 
@@ -321,6 +337,26 @@ impl RegistryState {
     fn take_staged(&mut self, context: ContextKey, route: &str) -> Option<Namespace> {
         self.guest_mut(context)?
             .take_staged(route)
+    }
+
+    fn realised_class(
+        &self,
+        context: ContextKey,
+        class: TypeId,
+    ) -> Option<Persistent<JsConstructor<'static>>> {
+        self.guest(context)?
+            .realised_class(class)
+    }
+
+    fn set_realised_class(
+        &mut self,
+        context: ContextKey,
+        class: TypeId,
+        constructor: Persistent<JsConstructor<'static>>,
+    ) {
+        if let Some(registry) = self.guest_mut(context) {
+            registry.set_realised_class(class, constructor);
+        }
     }
 
     fn unregister(&mut self, guest: GuestId) {
@@ -398,6 +434,27 @@ impl ModuleRegistry {
         self.state
             .borrow_mut()
             .take_staged(ContextKey::new(ctx), route)
+    }
+
+    pub(crate) fn realised_class(
+        &self,
+        ctx: &Ctx<'_>,
+        class: TypeId,
+    ) -> Option<Persistent<JsConstructor<'static>>> {
+        self.state
+            .borrow()
+            .realised_class(ContextKey::new(ctx), class)
+    }
+
+    pub(crate) fn set_realised_class(
+        &self,
+        ctx: &Ctx<'_>,
+        class: TypeId,
+        constructor: Persistent<JsConstructor<'static>>,
+    ) {
+        self.state
+            .borrow_mut()
+            .set_realised_class(ContextKey::new(ctx), class, constructor);
     }
 
     pub(crate) fn unregister_guest(&self, guest: GuestId) {

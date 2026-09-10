@@ -475,6 +475,21 @@
 //! defaults to the Rust type name and can be overridden with `name`. A host class does not need to
 //! implement [`Clone`](std::clone::Clone).
 //!
+//! [`Class::of`](crate::handle::Class::of) returns this guest's class object for a host class
+//! given only the Rust type, and [`BoundClass::of`](crate::handle::BoundClass::of) does the same
+//! inside a live scope. This is the host-class counterpart to looking a guest class up by name
+//! with [`class_as`](crate::handle::Module::class_as), and it needs no module import:
+//!
+//! ```rust,ignore
+//! let point = Class::of::<Point>(&guest)
+//!     .await?
+//!     .construct((3.0, 4.0))
+//!     .await?;
+//! ```
+//!
+//! The returned handle is a `Class<Instance<Point>>`, so the constructed instance borrows back
+//! to the Rust value, and it is the same class object a host module exports.
+//!
 //! Ordinary parameters use their [`FromGuestBound`](crate::marshal::FromGuestBound) descriptor.
 //! [`Option<T>`](std::option::Option) treats an omitted, undefined, or null argument as `None`,
 //! while [`Nullish<T>`](crate::marshal::Nullish) preserves undefined and null. Parameter helpers

@@ -772,6 +772,39 @@ class method is not supported because its future retains the class borrow. `asyn
 uses a synchronous Rust method that copies or clones the required state before returning an owned
 `'static` future.
 
+### Getting a class handle from the host type
+
+A handle to a host class comes straight from the Rust type. There is no import, and no need to
+know which module exported it:
+
+```rust
+let point = Class::of::<Point>(&guest).await?;
+let length = point
+    .construct((3.0, 4.0))
+    .await?
+    .borrow_with(|point| point.length_of())
+    .await?;
+```
+
+The result is a `Class<Instance<Point>>`, so instances it constructs carry the host type and
+borrow back to the Rust value without a retype. Inside a live scope the same handle is available
+synchronously:
+
+```rust
+guest
+    .scope(async move |scope| {
+        let point = BoundClass::of::<Point>(&scope)?.construct((3.0, 4.0))?;
+
+        println!("{}", point.borrow()?.x);
+
+        Ok(())
+    })
+    .await?;
+```
+
+The class object returned is the same object a host module exports, so identity comparisons in
+guest code hold. It works even for a host class that no module exports.
+
 ## Host modules
 
 `#[guestjs::host_module]` generates a `HostModule` from an inherent implementation. A host module
