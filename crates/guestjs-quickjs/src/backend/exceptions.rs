@@ -1,0 +1,120 @@
+use guestjs_core::{
+    backend::{
+        exceptions::BackendExceptions,
+        Tok,
+        Val,
+    },
+    errors::{
+        Error,
+        GuestErrorKind,
+    },
+};
+use rquickjs::Object;
+
+use crate::{
+    backend::QuickJs,
+    error::{
+        Capture,
+        Create,
+        Thrown,
+    },
+};
+
+impl BackendExceptions for QuickJs {
+    fn throw<'js>(token: Tok<'js, Self>, value: Val<'js, Self>) -> Error {
+        Thrown(value).into_error(token)
+    }
+
+    fn error<'js>(
+        token: Tok<'js, Self>,
+        kind: GuestErrorKind,
+        message: &str,
+    ) -> Result<Val<'js, Self>, Error> {
+        kind
+            .create(token, message)
+            .map(Object::into_value)
+            .capture(token)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use guestjs_core::{
+        backend::{
+            exceptions::BackendExceptions,
+            values::BackendValues,
+            Backend,
+        },
+        errors::{
+            Error,
+            GuestErrorKind,
+        },
+    };
+    use rquickjs::Value;
+
+    use crate::{
+        backend::QuickJs,
+        engine::Config,
+    };
+
+    #[test]
+    fn error_uses_intrinsic_constructors() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let intrinsic = token
+                .ctx()
+                .eval::<Value, _>(
+                    r#"
+                    const intrinsic = TypeError;
+                    globalThis.TypeError = function () {};
+                    intrinsic
+                    "#,
+                )
+                .unwrap();
+            let message = format!("{}\0end", "a".repeat(300));
+            let error = QuickJs::error(token, GuestErrorKind::TypeError, &message).unwrap();
+
+            assert!(QuickJs::instance_of(token, &error, &intrinsic).unwrap());
+            assert_eq!(
+                QuickJs::as_string(
+                    token,
+                    &QuickJs::get(
+                        token,
+                        &error,
+                        &QuickJs::string(token, "message").unwrap(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+                message,
+            );
+        });
+    }
+
+    #[test]
+    fn throw_captures_without_raising() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let error = QuickJs::error(token, GuestErrorKind::RangeError, "out").unwrap();
+
+            let Error::Guest(exception) = QuickJs::throw(token, error.clone()) else {
+                panic!("expected a guest exception");
+            };
+
+            assert_eq!(exception.name(), "RangeError");
+            assert!(exception.matches("RangeError"));
+            assert!(!token
+                .ctx()
+                .has_exception());
+            assert!(QuickJs::same(
+                token,
+                &QuickJs::attach(token, exception.value().unwrap()).unwrap(),
+                &error,
+            ));
+        });
+    }
+}

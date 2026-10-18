@@ -11,9 +11,9 @@ readme.workspace = true
 proc-macro = true
 
 [dependencies]
-syn = { version = "2", features = ["full", "extra-traits"] }
+syn = { version = "3", features = ["full", "extra-traits"] }
 quote = "1"
 proc-macro2 = "1"
-proc-macro-crate = { workspace = true }
-darling = "0.23"
+proc-macro-crate = { version = "3.5" }
+darling = "0.24"
 heck = "0.5"

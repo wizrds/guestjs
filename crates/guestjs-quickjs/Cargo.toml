@@ -1,0 +1,25 @@
+[package]
+name = "guestjs-quickjs"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[dependencies]
+guestjs-core = { path = "../guestjs-core", version = "0.5.1", default-features = false }
+
+futures = { workspace = true }
+
+thiserror = { workspace = true }
+
+rquickjs = { version = "0.14.0", features = ["full-async"] }
+rquickjs-serde = { version = "0.8" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[features]
+default = []
+
