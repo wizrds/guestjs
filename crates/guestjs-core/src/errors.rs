@@ -1,12 +1,4 @@
-use std::{
-    any::Any,
-    fmt::{
-        self,
-        Debug,
-        Display,
-        Formatter,
-    },
-};
+use std::any::Any;
 
 /// The error type returned by all guestjs operations.
 #[derive(Debug, thiserror::Error)]
@@ -308,11 +300,11 @@ impl GuestException {
     }
 }
 
-impl Display for GuestException {
+impl std::fmt::Display for GuestException {
     fn fmt(
         &self,
-        formatter: &mut Formatter<'_>,
-    ) -> fmt::Result {
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         match (self.name.is_empty(), self.message.is_empty()) {
             (_, true) => write!(formatter, "{}", self.name),
             (true, false) => write!(formatter, "{}", self.message),
@@ -321,11 +313,11 @@ impl Display for GuestException {
     }
 }
 
-impl Debug for GuestException {
+impl std::fmt::Debug for GuestException {
     fn fmt(
         &self,
-        formatter: &mut Formatter<'_>,
-    ) -> fmt::Result {
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         formatter
             .debug_struct("GuestException")
             .field("name", &self.name)
@@ -345,11 +337,11 @@ pub enum BorrowKind {
     Exclusive,
 }
 
-impl Display for BorrowKind {
+impl std::fmt::Display for BorrowKind {
     fn fmt(
         &self,
-        formatter: &mut Formatter<'_>,
-    ) -> fmt::Result {
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         formatter.write_str(match self {
             BorrowKind::Shared => "shared",
             BorrowKind::Exclusive => "exclusive",

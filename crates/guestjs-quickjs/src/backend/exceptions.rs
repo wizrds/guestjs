@@ -16,6 +16,7 @@ use crate::{
     error::{
         Capture,
         Create,
+        Raise,
         Thrown,
     },
 };
@@ -23,6 +24,15 @@ use crate::{
 impl BackendExceptions for QuickJs {
     fn throw<'js>(token: Tok<'js, Self>, value: Val<'js, Self>) -> Error {
         Thrown(value).into_error(token)
+    }
+
+    fn exception<'js>(
+        token: Tok<'js, Self>,
+        error: Error,
+    ) -> Result<Val<'js, Self>, Error> {
+        error
+            .exception(token)
+            .capture(token)
     }
 
     fn error<'js>(
@@ -56,6 +66,35 @@ mod tests {
         backend::QuickJs,
         engine::Config,
     };
+
+    #[test]
+    fn exception_returns_the_value_a_guest_catches() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let thrown = QuickJs::error(token, GuestErrorKind::RangeError, "out").unwrap();
+
+            assert!(QuickJs::same(
+                token,
+                &QuickJs::exception(token, QuickJs::throw(token, thrown.clone())).unwrap(),
+                &thrown,
+            ));
+            assert_eq!(
+                QuickJs::as_string(
+                    token,
+                    &QuickJs::get(
+                        token,
+                        &QuickJs::exception(token, Error::conversion("i64", "string")).unwrap(),
+                        &QuickJs::string(token, "name").unwrap(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+                "TypeError",
+            );
+        });
+    }
 
     #[test]
     fn error_uses_intrinsic_constructors() {

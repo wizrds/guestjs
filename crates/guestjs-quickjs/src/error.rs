@@ -227,17 +227,19 @@ impl Create for GuestErrorKind {
 }
 
 pub trait Raise {
+    fn exception<'js>(self, token: Token<'js>) -> rquickjs::Result<Value<'js>>;
+
     fn raise(self, token: Token<'_>) -> rquickjs::Error;
 }
 
 impl Raise for Error {
-    fn raise(self, token: Token<'_>) -> rquickjs::Error {
+    fn exception<'js>(self, token: Token<'js>) -> rquickjs::Result<Value<'js>> {
         match self {
             Error::Guest(exception) => match exception
                 .value::<Owned>()
                 .map(|owned| owned.restore(token))
             {
-                Some(Ok(value)) => token.ctx().throw(value),
+                Some(Ok(value)) => Ok(value),
                 _ => GuestErrorKind::Error
                     .create(token, exception.message())
                     .and_then(|error| {
@@ -257,9 +259,8 @@ impl Raise for Error {
                             )?;
                         }
 
-                        Ok(token.ctx().throw(error.into_value()))
-                    })
-                    .unwrap_or_else(|error| error),
+                        Ok(error.into_value())
+                    }),
             },
             error => error
                 .guest_kind()
@@ -269,10 +270,15 @@ impl Raise for Error {
                         unsafe { qjs::JS_SetUncatchableError(token.pointer().as_ptr(), object.as_raw()) };
                     }
 
-                    token.ctx().throw(object.into_value())
-                })
-                .unwrap_or_else(|error| error),
+                    object.into_value()
+                }),
         }
+    }
+
+    fn raise(self, token: Token<'_>) -> rquickjs::Error {
+        self.exception(token)
+            .map(|value| token.ctx().throw(value))
+            .unwrap_or_else(|error| error)
     }
 }
 
