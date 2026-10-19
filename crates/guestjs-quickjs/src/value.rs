@@ -2,6 +2,7 @@ use std::ptr::NonNull;
 
 use guestjs_core::errors::Error;
 use rquickjs::{
+    AsyncRuntime,
     Persistent,
     Value,
     qjs::JSContext,
@@ -16,6 +17,7 @@ use crate::{
 pub struct Owned {
     value: Persistent<Value<'static>>,
     context: NonNull<JSContext>,
+    _runtime: AsyncRuntime,
 }
 
 impl Owned {
@@ -26,6 +28,7 @@ impl Owned {
         Self {
             value: Persistent::save(&token.ctx(), value),
             context: token.pointer(),
+            _runtime: token.runtime(),
         }
     }
 

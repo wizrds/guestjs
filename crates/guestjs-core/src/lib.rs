@@ -16,3 +16,22 @@ pub mod imports;
 pub mod marshal;
 pub mod policy;
 pub mod runtime;
+
+#[cfg(feature = "embedded")]
+pub mod embed {
+    pub use include_dir::{
+        Dir,
+        DirEntry,
+        File,
+    };
+
+    pub mod __include_dir {
+        pub use include_dir::{
+            Dir,
+            DirEntry,
+            File,
+        };
+    }
+
+    pub use include_dir::include_dir as __include_dir_macro;
+}

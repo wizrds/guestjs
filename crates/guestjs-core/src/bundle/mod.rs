@@ -6,10 +6,7 @@ use std::{
         BTreeMap,
         BTreeSet,
     },
-    fs,
-    io,
     num::NonZeroU64,
-    path::Path,
     sync::{
         atomic::{
             AtomicU64,
@@ -17,6 +14,18 @@ use std::{
         },
         Arc,
     },
+};
+
+#[cfg(feature = "tokio")]
+use std::path::Path;
+
+#[cfg(feature = "tokio")]
+use tokio::fs;
+
+#[cfg(feature = "embedded")]
+use crate::embed::{
+    Dir,
+    DirEntry,
 };
 
 use crate::{
@@ -162,12 +171,21 @@ impl Bundle {
             .build()
     }
 
-    pub fn from_dir<P>(directory: P) -> Result<Self, Error>
+    #[cfg(feature = "tokio")]
+    pub async fn from_dir<P>(directory: P) -> Result<Self, Error>
     where
         P: AsRef<Path>,
     {
         Self::builder()
             .directory(directory)
+            .await
+            .build()
+    }
+
+    #[cfg(feature = "embedded")]
+    pub fn from_embedded(directory: &Dir<'_>) -> Result<Self, Error> {
+        Self::builder()
+            .embedded(directory)
             .build()
     }
 
@@ -226,19 +244,24 @@ impl BundleBuilder {
         }
     }
 
-    fn unreadable(
-        path: &Path,
-        error: io::Error,
-    ) -> Error {
-        Error::bundle(format!("{}: {error}", path.display()))
-    }
-
     fn attempt<F>(mut self, operation: F) -> Self
     where
         F: FnOnce(&mut Self) -> Result<(), Error>,
     {
         if self.error.is_none() {
             self.error = operation(&mut self).err();
+        }
+
+        self
+    }
+
+    #[cfg(feature = "tokio")]
+    async fn attempt_async<F>(mut self, operation: F) -> Self
+    where
+        F: AsyncFnOnce(&mut Self) -> Result<(), Error>,
+    {
+        if self.error.is_none() {
+            self.error = operation(&mut self).await.err();
         }
 
         self
@@ -314,47 +337,94 @@ impl BundleBuilder {
         }
     }
 
-    fn insert_directory(
+    #[cfg(feature = "tokio")]
+    async fn insert_directory(
         &mut self,
         root: &Path,
         directory: &Path,
     ) -> Result<(), Error> {
-        fs::read_dir(directory)
-            .map_err(|error| Self::unreadable(directory, error))?
-            .try_for_each(|entry| {
-                let path = entry
-                    .map_err(|error| Self::unreadable(directory, error))?
-                    .path();
+        let mut directories = vec![directory.to_owned()];
 
-                match path.is_dir() {
-                    true => self.insert_directory(root, &path),
-                    false => self.insert_file(
-                        BundlePath::new(
-                            &path
-                                .strip_prefix(root)
-                                .ok()
-                                .and_then(|relative| {
-                                    relative
-                                        .components()
-                                        .map(|component| {
-                                            component.as_os_str().to_str()
-                                        })
-                                        .collect::<Option<Vec<_>>>()
-                                })
-                                .ok_or_else(|| {
-                                    Error::bundle(format!(
-                                        "{} is not a UTF-8 path under {}",
-                                        path.display(),
-                                        root.display(),
-                                    ))
-                                })?
-                                .join("/"),
-                        )?,
-                        &fs::read(&path)
-                            .map_err(|error| Self::unreadable(&path, error))?,
-                    ),
+        while let Some(directory) = directories.pop() {
+            let mut entries = fs::read_dir(&directory)
+                .await
+                .map_err(|error| {
+                    Error::bundle(format!("{}: {error}", directory.display()))
+                })?;
+
+            while let Some(entry) = entries
+                .next_entry()
+                .await
+                .map_err(|error| {
+                    Error::bundle(format!("{}: {error}", directory.display()))
+                })?
+            {
+                let path = entry.path();
+
+                if fs::metadata(&path)
+                    .await
+                    .map_err(|error| {
+                        Error::bundle(format!("{}: {error}", path.display()))
+                    })?
+                    .is_dir()
+                {
+                    directories.push(path);
+
+                    continue;
                 }
-            })
+
+                self.insert_file(
+                    BundlePath::new(
+                        &path
+                            .strip_prefix(root)
+                            .ok()
+                            .and_then(|relative| {
+                                relative
+                                    .components()
+                                    .map(|component| {
+                                        component.as_os_str().to_str()
+                                    })
+                                    .collect::<Option<Vec<_>>>()
+                            })
+                            .ok_or_else(|| {
+                                Error::bundle(format!(
+                                    "{} is not a UTF-8 path under {}",
+                                    path.display(),
+                                    root.display(),
+                                ))
+                            })?
+                            .join("/"),
+                    )?,
+                    &fs::read(&path)
+                        .await
+                        .map_err(|error| {
+                            Error::bundle(format!("{}: {error}", path.display()))
+                        })?,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "embedded")]
+    fn insert_embedded(&mut self, directory: &Dir<'_>) -> Result<(), Error> {
+        directory.entries().iter().try_for_each(|entry| {
+            match entry {
+                DirEntry::Dir(directory) => self.insert_embedded(directory),
+                DirEntry::File(file) => self.insert_file(
+                    BundlePath::new(
+                        file.path().to_str().ok_or_else(|| {
+                            Error::bundle(format!(
+                                "{} is not a UTF-8 embedded path",
+                                file.path().display(),
+                            ))
+                        })?,
+                    )?,
+                    file.contents(),
+                ),
+            }
+        })
     }
 
     pub fn module<P, S>(self, path: P, source: S) -> Self
@@ -396,13 +466,22 @@ impl BundleBuilder {
         })
     }
 
-    pub fn directory<P>(self, directory: P) -> Self
+    #[cfg(feature = "tokio")]
+    pub async fn directory<P>(self, directory: P) -> Self
     where
         P: AsRef<Path>,
     {
-        self.attempt(|builder| {
-            builder.insert_directory(directory.as_ref(), directory.as_ref())
+        self.attempt_async(async |builder| {
+            builder
+                .insert_directory(directory.as_ref(), directory.as_ref())
+                .await
         })
+        .await
+    }
+
+    #[cfg(feature = "embedded")]
+    pub fn embedded(self, directory: &Dir<'_>) -> Self {
+        self.attempt(|builder| builder.insert_embedded(directory))
     }
 
     pub fn build(self) -> Result<Bundle, Error> {
@@ -424,6 +503,19 @@ impl Default for BundleBuilder {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(any(feature = "tokio", feature = "embedded"))]
+    use crate::bundle::BundleBuilder;
+
+    #[cfg(feature = "embedded")]
+    use crate::embed::{
+        Dir,
+        DirEntry,
+        File,
+    };
+
+    #[cfg(feature = "tokio")]
+    use crate::errors::Error;
+
     use crate::bundle::{
         Bundle,
         BundlePath,
@@ -556,5 +648,97 @@ mod tests {
 
         assert_eq!(cloned.module("main"), Some("export {}"));
         assert_eq!(cloned.data("table.json"), Some("{}".as_bytes()));
+    }
+
+    #[cfg(feature = "tokio")]
+    #[test]
+    fn directory_apis_produce_futures_without_performing_io() {
+        fn bundle<F: Future<Output = Result<Bundle, Error>>>(_: F) {}
+        fn builder<F: Future<Output = BundleBuilder>>(_: F) {}
+
+        bundle(Bundle::from_dir("not-read-by-this-test"));
+        builder(Bundle::builder().directory("not-read-by-this-test"));
+    }
+
+    #[cfg(feature = "embedded")]
+    #[test]
+    fn embedded_files_use_existing_module_and_data_rules() {
+        const DIRECTORY: Dir<'static> = Dir::new("guest", &[
+            DirEntry::Dir(Dir::new("app", &[
+                DirEntry::File(File::new(
+                    "app/index.ts",
+                    b"export const value: number = 1;",
+                )),
+                DirEntry::File(File::new("app/util.js", b"export {};")),
+            ])),
+            DirEntry::File(File::new("schema.json", b"{}")),
+        ]);
+
+        let bundle = Bundle::from_embedded(&DIRECTORY).unwrap();
+
+        assert_eq!(bundle.names().collect::<Vec<_>>(), ["app/index", "app/util"]);
+        assert!(!bundle.module("app/index").unwrap().contains(": number"));
+        assert_eq!(bundle.data("schema.json"), Some(b"{}".as_slice()));
+        assert!(!bundle.contains("guest/app/index"));
+        assert_eq!(bundle.clone().id(), bundle.id());
+        assert_ne!(Bundle::from_embedded(&DIRECTORY).unwrap().id(), bundle.id());
+    }
+
+    #[cfg(feature = "embedded")]
+    #[test]
+    fn embedded_builder_input_composes_without_replacing_entries() {
+        const DIRECTORY: Dir<'static> = Dir::new("", &[
+            DirEntry::File(File::new("app.js", b"export {};")),
+        ]);
+
+        let bundle = BundleBuilder::new()
+            .embedded(&DIRECTORY)
+            .module("bootstrap.js", "export {};")
+            .build()
+            .unwrap();
+
+        assert!(bundle.contains("app"));
+        assert!(bundle.contains("bootstrap"));
+        assert!(BundleBuilder::new()
+            .embedded(&DIRECTORY)
+            .module("app.ts", "export {};")
+            .build()
+            .is_err_and(|error| error.is_bundle()));
+    }
+
+    #[cfg(feature = "embedded")]
+    #[test]
+    fn embedded_paths_and_module_bytes_are_validated() {
+        assert!(Bundle::from_embedded(&Dir::new("", &[
+            DirEntry::File(File::new("../app.js", b"")),
+        ]))
+        .is_err_and(|error| error.is_bundle()));
+
+        assert!(Bundle::from_embedded(&Dir::new("", &[
+            DirEntry::File(File::new("app.js", &[0xff])),
+        ]))
+        .is_err_and(|error| {
+            error.is_bundle() && error.to_string().contains("app.js")
+        }));
+
+        assert!(Bundle::from_embedded(&Dir::new("", &[
+            DirEntry::File(File::new("schema.json", b"{}")),
+        ]))
+        .is_err_and(|error| error.is_bundle()));
+    }
+
+    #[cfg(feature = "embedded")]
+    #[test]
+    fn embedded_input_preserves_an_existing_builder_error() {
+        assert!(BundleBuilder::new()
+            .module("invalid//app.js", "")
+            .embedded(&Dir::new("", &[
+                DirEntry::File(File::new("app.ts", b"export const = ;")),
+            ]))
+            .build()
+            .is_err_and(|error| {
+                error.is_bundle()
+                    && error.to_string().contains("invalid//app.js")
+            }));
     }
 }
