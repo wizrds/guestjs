@@ -21,6 +21,7 @@ use crate::{
     errors::Error,
     handle::{
         base::Handle,
+        object::Object,
         protocol::{
             ConstructorProtocol,
             ObjectProtocol,
@@ -118,17 +119,7 @@ impl<B: BackendClasses, C: Payload> FromGuest<B> for C {
         enter: &Enter<'js, B>,
         value: Val<'js, B>,
     ) -> Result<Self::Owned, Error> {
-        match B::payload_type(enter.token(), &value)
-            == Some(TypeId::of::<C>())
-        {
-            true => Ok(Instance {
-                handle: Handle::from_value(enter, value),
-                payload: PhantomData,
-            }),
-            false => Err(
-                Expected::of::<C>().mismatch(B::kind(enter.token(), &value)),
-            ),
-        }
+        Instance::<B, C>::from_guest(enter, value)
     }
 }
 
@@ -186,84 +177,201 @@ impl<B: BackendClasses, C: Payload> FromGuestMut<B> for C {
     }
 }
 
-pub struct Instance<B: Backend, C: Payload> {
-    handle: Handle<B>,
-    payload: PhantomData<fn() -> C>,
+pub struct Instance<B: Backend, T = Object<B>> {
+    object: Object<B>,
+    marker: PhantomData<fn() -> T>,
 }
 
-impl<B: BackendClasses, C: Payload> Instance<B, C> {
-    pub fn with_payload<F, R>(&self, f: F) -> Result<R, Error>
+impl<B: Backend, T> Instance<B, T> {
+    fn from_object(object: Object<B>) -> Self {
+        Self {
+            object,
+            marker: PhantomData,
+        }
+    }
+
+    pub fn as_untyped(&self) -> Instance<B> {
+        Instance::from_object(self.object.clone())
+    }
+
+    pub fn into_untyped(self) -> Instance<B> {
+        Instance::from_object(self.object)
+    }
+}
+
+impl<B: BackendClasses, T> Instance<B, T> {
+    pub fn as_typed<C>(&self) -> Result<Instance<B, C>, Error>
     where
+        C: Payload,
+    {
+        self.object.cast::<Instance<B, C>>()
+    }
+
+    pub fn into_typed<C>(self) -> Result<Instance<B, C>, Error>
+    where
+        C: Payload,
+    {
+        self.handle().with_enter(|enter, value| {
+            Instance::<B, C>::check_payload(enter, value)
+        })?;
+
+        Ok(Instance::from_object(self.object))
+    }
+
+    pub fn borrow_as_with<C, F, R>(&self, f: F) -> Result<R, Error>
+    where
+        C: 'static,
         F: FnOnce(&C) -> R,
     {
-        self.handle.with_enter(|enter, value| {
+        self.handle().with_enter(|enter, value| {
             Ok(f(&*B::borrow::<C>(enter.token(), value)?))
         })
     }
 
-    pub fn with_payload_mut<F, R>(&self, f: F) -> Result<R, Error>
+    pub fn borrow_as_with_mut<C, F, R>(&self, f: F) -> Result<R, Error>
     where
+        C: 'static,
         F: FnOnce(&mut C) -> R,
     {
-        self.handle.with_enter(|enter, value| {
+        self.handle().with_enter(|enter, value| {
             Ok(f(&mut *B::borrow_mut::<C>(enter.token(), value)?))
         })
     }
 }
 
-impl<B: Backend, C: Payload> Clone for Instance<B, C> {
-    fn clone(&self) -> Self {
-        Self {
-            handle: self.handle.clone(),
-            payload: PhantomData,
+impl<B: BackendClasses, C: Payload> Instance<B, C> {
+    fn check_payload<'js>(
+        enter: &Enter<'js, B>,
+        value: &Val<'js, B>,
+    ) -> Result<(), Error> {
+        match B::payload_type(enter.token(), value)
+            == Some(TypeId::of::<C>())
+        {
+            true => Ok(()),
+            false => Err(
+                Expected::of::<C>().mismatch(B::kind(enter.token(), value)),
+            ),
         }
     }
+
+    pub fn borrow_with<F, R>(&self, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&C) -> R,
+    {
+        self.borrow_as_with::<C, F, R>(f)
+    }
+
+    pub fn borrow_with_mut<F, R>(&self, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&mut C) -> R,
+    {
+        self.borrow_as_with_mut::<C, F, R>(f)
+    }
 }
 
-impl<B: Backend, C: Payload> HasHandle<B> for Instance<B, C> {
+impl<B: Backend, T> Clone for Instance<B, T> {
+    fn clone(&self) -> Self {
+        Self::from_object(self.object.clone())
+    }
+}
+
+impl<B: Backend, T> HasHandle<B> for Instance<B, T> {
     fn handle(&self) -> &Handle<B> {
-        &self.handle
+        self.object.handle()
     }
 }
 
-impl<B: BackendValues, C: Payload> ObjectProtocol<B> for Instance<B, C> {}
+impl<B: Backend, T> Deref for Instance<B, T> {
+    type Target = Object<B>;
 
-impl<B: Backend, C: Payload> ToGuest<B> for Instance<B, C> {
+    fn deref(&self) -> &Self::Target {
+        &self.object
+    }
+}
+
+impl<B: BackendValues, T> ObjectProtocol<B> for Instance<B, T> {}
+
+impl<B: Backend> Describe for Instance<B> {
+    fn describe(expected: &mut Expected) {
+        Object::<B>::describe(expected);
+    }
+}
+
+impl<B: Backend, C: Payload> Describe for Instance<B, C> {
+    fn describe(expected: &mut Expected) {
+        C::describe(expected);
+    }
+}
+
+impl<B: BackendValues> FromGuest<B> for Instance<B> {
+    type Owned = Self;
+
+    fn from_guest<'js>(
+        enter: &Enter<'js, B>,
+        value: Val<'js, B>,
+    ) -> Result<Self::Owned, Error> {
+        Object::from_guest(enter, value).map(Self::from_object)
+    }
+}
+
+impl<B: BackendClasses, C: Payload> FromGuest<B> for Instance<B, C> {
+    type Owned = Self;
+
+    fn from_guest<'js>(
+        enter: &Enter<'js, B>,
+        value: Val<'js, B>,
+    ) -> Result<Self::Owned, Error> {
+        Self::check_payload(enter, &value)?;
+
+        Object::from_guest(enter, value).map(Self::from_object)
+    }
+}
+
+impl<B: Backend, T> ToGuest<B> for Instance<B, T> {
     fn to_guest<'js>(
         self,
         enter: &Enter<'js, B>,
     ) -> Result<Val<'js, B>, Error> {
-        self.handle.attach(enter)
+        self.object.to_guest(enter)
     }
 }
 
-impl<B: Backend, C: Payload> ToGuest<B> for &Instance<B, C> {
+impl<B: Backend, T> ToGuest<B> for &Instance<B, T> {
     fn to_guest<'js>(
         self,
         enter: &Enter<'js, B>,
     ) -> Result<Val<'js, B>, Error> {
-        self.handle.attach(enter)
+        (&self.object).to_guest(enter)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        any::TypeId,
+        ops::Deref,
+    };
+
     use crate::{
         backend::{
             classes::BackendClasses,
             tests::Stub,
             values::BackendValues,
+            Backend,
         },
+        errors::Error,
         handle::{
             class::{
                 Class,
                 Instance,
                 Payload,
             },
+            object::Object,
             protocol::{
                 ConstructorProtocol,
                 ObjectProtocol,
             },
+            HasHandle,
         },
         marshal::{
             describe::Expected,
@@ -310,10 +418,57 @@ mod tests {
 
         object::<B, Instance<B, Counter>>();
         from::<B, Counter>();
+        from::<B, Instance<B, Counter>>();
         from_ref::<B, Counter>();
         from_mut::<B, Counter>();
         to::<B, Instance<B, Counter>>();
         to::<B, &Instance<B, Counter>>();
+    }
+
+    #[allow(dead_code)]
+    fn instance_capabilities<B: Backend, T>() {
+        fn handle<B: Backend, T: HasHandle<B> + Clone>() {}
+        fn to<B: Backend, T: ToGuest<B>>() {}
+        fn object<B: Backend, T: Deref<Target = Object<B>>>() {}
+
+        handle::<B, Instance<B, T>>();
+        to::<B, Instance<B, T>>();
+        to::<B, &Instance<B, T>>();
+        object::<B, Instance<B, T>>();
+    }
+
+    #[allow(dead_code)]
+    fn untyped_instance_capabilities<B: BackendValues>() {
+        fn object<B: BackendValues, T: ObjectProtocol<B>>() {}
+        fn from<B, T>()
+        where
+            B: BackendValues,
+            T: FromGuest<B, Owned = Instance<B>>,
+        {
+        }
+
+        object::<B, Instance<B>>();
+        from::<B, Instance<B>>();
+    }
+
+    #[allow(dead_code)]
+    fn instance_methods<B: BackendClasses>(
+        instance: &Instance<B>,
+        typed: &Instance<B, Counter>,
+    ) -> Result<(), Error> {
+        instance.as_untyped();
+        instance.clone().into_untyped();
+        instance.as_typed::<Counter>()?;
+        instance.clone().into_typed::<Counter>()?;
+        instance.borrow_as_with::<Counter, _, _>(|_| ())?;
+        instance.borrow_as_with_mut::<Counter, _, _>(|_| ())?;
+        typed.borrow_with(|_| ())?;
+        typed.borrow_with_mut(|_| ())?;
+        instance.cast::<Instance<B>>()?;
+        instance.cast::<Instance<B, Counter>>()?;
+        instance.cast::<Counter>()?;
+
+        Ok(())
     }
 
     #[test]
@@ -324,5 +479,29 @@ mod tests {
     #[test]
     fn payload_description_names_the_payload() {
         assert_eq!(Expected::of::<Counter>().to_string(), "Counter");
+    }
+
+    #[test]
+    fn untyped_instance_defaults_to_the_object_marker() {
+        assert_eq!(
+            TypeId::of::<Instance<Stub>>(),
+            TypeId::of::<Instance<Stub, Object<Stub>>>(),
+        );
+    }
+
+    #[test]
+    fn untyped_instance_description_names_an_object() {
+        assert_eq!(
+            Expected::of::<Instance<Stub>>().to_string(),
+            "object",
+        );
+    }
+
+    #[test]
+    fn typed_instance_description_names_the_payload() {
+        assert_eq!(
+            Expected::of::<Instance<Stub, Counter>>().to_string(),
+            "Counter",
+        );
     }
 }

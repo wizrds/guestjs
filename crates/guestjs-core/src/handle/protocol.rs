@@ -10,6 +10,15 @@ use crate::{
 };
 
 pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
+    fn cast<T>(&self) -> Result<T::Owned, Error>
+    where
+        T: FromGuest<B>,
+    {
+        self.handle().with_enter(|enter, object| {
+            T::from_guest(enter, object.clone())
+        })
+    }
+
     fn get<T, K>(&self, key: K) -> Result<T::Owned, Error>
     where
         T: FromGuest<B>,
@@ -65,6 +74,33 @@ pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
                 .into_iter()
                 .map(|key| K::from_guest(enter, key))
                 .collect()
+        })
+    }
+
+    fn call_method<R, K, A>(
+        &self,
+        key: K,
+        args: A,
+    ) -> Result<R::Owned, Error>
+    where
+        R: FromGuest<B>,
+        K: ToGuest<B>,
+        A: ToGuestArgs<B>,
+    {
+        self.handle().with_enter(|enter, object| {
+            R::from_guest(
+                enter,
+                B::call(
+                    enter.token(),
+                    &B::get(
+                        enter.token(),
+                        object,
+                        &key.to_guest(enter)?,
+                    )?,
+                    object,
+                    &args.to_guest_args(enter)?,
+                )?,
+            )
         })
     }
 }
