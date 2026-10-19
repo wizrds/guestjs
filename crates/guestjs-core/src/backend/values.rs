@@ -25,6 +25,21 @@ pub enum Kind {
     Object,
 }
 
+impl Kind {
+    pub fn is_object(self) -> bool {
+        !matches!(
+            self,
+            Kind::Undefined
+                | Kind::Null
+                | Kind::Boolean
+                | Kind::Number
+                | Kind::BigInt
+                | Kind::String
+                | Kind::Symbol
+        )
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum WellKnown {
     Iterator,
@@ -139,6 +154,15 @@ pub trait BackendValues: Backend {
         value: &Val<'js, Self>,
         constructor: &Val<'js, Self>,
     ) -> Result<bool, Error>;
+    fn prototype_of<'js>(
+        token: Tok<'js, Self>,
+        object: &Val<'js, Self>,
+    ) -> Result<Val<'js, Self>, Error>;
+    fn set_prototype<'js>(
+        token: Tok<'js, Self>,
+        object: &Val<'js, Self>,
+        prototype: &Val<'js, Self>,
+    ) -> Result<(), Error>;
 
     fn call<'js>(
         token: Tok<'js, Self>,

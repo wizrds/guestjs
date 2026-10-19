@@ -168,6 +168,12 @@ where
     }
 }
 
+impl<B: Backend> Default for PendingHostFutures<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;

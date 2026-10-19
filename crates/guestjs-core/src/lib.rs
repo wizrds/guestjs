@@ -7,6 +7,8 @@ pub mod enter;
 pub mod errors;
 pub mod extensions;
 pub mod guest;
+pub mod handle;
+pub mod host;
 pub mod marshal;
 pub mod policy;
 pub mod runtime;

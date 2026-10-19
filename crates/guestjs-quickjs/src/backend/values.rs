@@ -370,6 +370,32 @@ impl BackendValues for QuickJs {
         }
     }
 
+    fn prototype_of<'js>(
+        token: Tok<'js, Self>,
+        object: &Val<'js, Self>,
+    ) -> Result<Val<'js, Self>, Error> {
+        Object::from_value(object.clone())
+            .map(|object| {
+                object
+                    .get_prototype()
+                    .map_or_else(
+                        || Self::null(token),
+                        Object::into_value,
+                    )
+            })
+            .capture(token)
+    }
+
+    fn set_prototype<'js>(
+        token: Tok<'js, Self>,
+        object: &Val<'js, Self>,
+        prototype: &Val<'js, Self>,
+    ) -> Result<(), Error> {
+        Object::from_value(object.clone())
+            .and_then(|object| object.set_prototype(prototype.as_object()))
+            .capture(token)
+    }
+
     fn call<'js>(
         token: Tok<'js, Self>,
         function: &Val<'js, Self>,
