@@ -50,6 +50,11 @@ pub trait BackendModules: BackendValues {
         module: Self::Module<'js>,
     ) -> Result<(Val<'js, Self>, Val<'js, Self>), Error>;
 
+    fn import<'js>(
+        token: Tok<'js, Self>,
+        name: &str,
+    ) -> Result<(Val<'js, Self>, Val<'js, Self>), Error>;
+
     fn install(
         engine: &Self::Engine,
         dispatcher: Rc<dyn ModuleDispatcher<Self>>,

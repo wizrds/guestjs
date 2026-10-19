@@ -61,6 +61,17 @@ pub enum Error {
         message: String,
     },
 
+    #[error("cannot import {name}: {message}")]
+    Import {
+        name: String,
+        message: String,
+    },
+
+    #[error("invalid bundle: {message}")]
+    Bundle {
+        message: String,
+    },
+
     /// An error returned by host code.
     #[error(transparent)]
     Host(Box<dyn std::error::Error>),
@@ -149,6 +160,24 @@ impl Error {
         }
     }
 
+    /// Creates an [`Error::Import`](crate::errors::Error::Import) with the given name and message.
+    pub fn import(
+        name: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::Import {
+            name: name.into(),
+            message: message.into(),
+        }
+    }
+
+    /// Creates an [`Error::Bundle`](crate::errors::Error::Bundle) with the given message.
+    pub fn bundle(message: impl Into<String>) -> Self {
+        Self::Bundle {
+            message: message.into(),
+        }
+    }
+
     /// Creates an [`Error::Host`](crate::errors::Error::Host) wrapping the given error.
     pub fn host(error: impl Into<Box<dyn std::error::Error>>) -> Self {
         Self::Host(error.into())
@@ -209,6 +238,16 @@ impl Error {
         matches!(self, Self::Engine { .. })
     }
 
+    /// Returns true if the error is an [`Error::Import`](crate::errors::Error::Import).
+    pub fn is_import(&self) -> bool {
+        matches!(self, Self::Import { .. })
+    }
+
+    /// Returns true if the error is an [`Error::Bundle`](crate::errors::Error::Bundle).
+    pub fn is_bundle(&self) -> bool {
+        matches!(self, Self::Bundle { .. })
+    }
+
     /// Returns true if the error is an [`Error::Host`](crate::errors::Error::Host).
     pub fn is_host(&self) -> bool {
         matches!(self, Self::Host(_))
@@ -221,6 +260,7 @@ impl Error {
             | Error::ForeignContext
             | Error::Borrow { .. }
             | Error::Unsupported { .. } => GuestErrorKind::TypeError,
+            Error::Import { .. } => GuestErrorKind::ReferenceError,
             Error::Unexpected { .. }
             | Error::Guest(_)
             | Error::Interrupted
@@ -228,6 +268,7 @@ impl Error {
             | Error::Cancelled
             | Error::Closed
             | Error::Engine { .. }
+            | Error::Bundle { .. }
             | Error::Host(_) => GuestErrorKind::Error,
         }
     }

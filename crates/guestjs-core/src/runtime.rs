@@ -40,6 +40,10 @@ impl<B: Backend> RuntimeState<B> {
         &self.engine
     }
 
+    pub fn registry(&self) -> &Rc<GuestRegistry<B>> {
+        &self.registry
+    }
+
     pub fn extensions(&self) -> &Extensions {
         &self.extensions
     }
@@ -118,6 +122,10 @@ impl<B: Backend> Runtime<B> {
 
     pub fn engine(&self) -> &B::Engine {
         self.state.engine()
+    }
+
+    pub fn registry(&self) -> &Rc<GuestRegistry<B>> {
+        self.state.registry()
     }
 
     pub fn extensions(&self) -> &Extensions {

@@ -106,7 +106,7 @@ impl BackendValues for QuickJs {
     }
 
     fn number<'js>(token: Tok<'js, Self>, value: f64) -> Val<'js, Self> {
-        Value::new_number(token.ctx(), value)
+        Value::new_float(token.ctx(), value)
     }
 
     fn bigint<'js>(

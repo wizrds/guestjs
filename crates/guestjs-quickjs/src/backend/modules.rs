@@ -2,6 +2,10 @@ use std::{
     collections::HashSet,
     ffi::CString,
     rc::Rc,
+    sync::atomic::{
+        AtomicU64,
+        Ordering,
+    },
 };
 
 use futures::FutureExt;
@@ -225,6 +229,45 @@ impl BackendModules for QuickJs {
                     .map(|namespace| (namespace.into_value(), promise.into_value()))
             })
             .capture(token)
+    }
+
+    fn import<'js>(
+        token: Tok<'js, Self>,
+        name: &str,
+    ) -> Result<(Val<'js, Self>, Val<'js, Self>), Error> {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+
+        Self::evaluate(
+            token,
+            Self::declare(
+                token,
+                &format!("/import/{}", NEXT.fetch_add(1, Ordering::Relaxed)),
+                &format!(
+                    r#"
+import * as namespace from {};
+
+export {{ namespace }};
+"#,
+                    token
+                        .ctx()
+                        .json_stringify(name)
+                        .capture(token)?
+                        .ok_or_else(|| Error::engine("a module name has no JSON form"))?
+                        .to_string()
+                        .capture(token)?,
+                ),
+            )?,
+        )
+        .and_then(|(entry, evaluation)| {
+            Ok((
+                entry
+                    .as_object()
+                    .ok_or_else(|| Error::engine("a module namespace is not an object"))?
+                    .get::<_, Value>("namespace")
+                    .capture(token)?,
+                evaluation,
+            ))
+        })
     }
 
     fn install(

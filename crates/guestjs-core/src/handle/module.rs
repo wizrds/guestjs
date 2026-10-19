@@ -1,5 +1,15 @@
+use std::{
+    future::{
+        Future,
+        IntoFuture,
+    },
+    pin::Pin,
+};
+
 use crate::{
     backend::{
+        exceptions::BackendExceptions,
+        promises::BackendPromises,
         values::{
             BackendValues,
             Kind,
@@ -8,6 +18,7 @@ use crate::{
         Backend,
         Val,
     },
+    driver::promise::PromiseFuture,
     enter::Enter,
     errors::Error,
     handle::{
@@ -27,12 +38,27 @@ use crate::{
 
 pub struct Module<B: Backend> {
     handle: Handle<B>,
+    evaluation: Option<Handle<B>>,
+}
+
+impl<B: BackendValues> Module<B> {
+    pub fn evaluating<'js>(
+        enter: &Enter<'js, B>,
+        namespace: Val<'js, B>,
+        evaluation: Val<'js, B>,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            evaluation: Some(Handle::from_value(enter, evaluation)),
+            ..Self::from_guest(enter, namespace)?
+        })
+    }
 }
 
 impl<B: Backend> Clone for Module<B> {
     fn clone(&self) -> Self {
         Self {
             handle: self.handle.clone(),
+            evaluation: self.evaluation.clone(),
         }
     }
 }
@@ -44,6 +70,31 @@ impl<B: Backend> HasHandle<B> for Module<B> {
 }
 
 impl<B: BackendValues> ObjectProtocol<B> for Module<B> {}
+
+impl<B> IntoFuture for Module<B>
+where
+    B: BackendPromises + BackendExceptions,
+{
+    type Output = Result<Self, Error>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output>>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            if let Some(evaluation) = self.evaluation {
+                evaluation
+                    .with_enter(|enter, promise| {
+                        PromiseFuture::new(enter, promise.clone())
+                    })?
+                    .await?;
+            }
+
+            Ok(Self {
+                handle: self.handle,
+                evaluation: None,
+            })
+        })
+    }
+}
 
 impl<B: Backend> Describe for Module<B> {
     fn describe(expected: &mut Expected) {
@@ -71,6 +122,7 @@ impl<B: BackendValues> FromGuest<B> for Module<B> {
             {
                 Some("Module") => Ok(Self {
                     handle: Handle::from_value(enter, value),
+                    evaluation: None,
                 }),
                 _ => Err(Expected::of::<Self>().mismatch(Kind::Object)),
             },
@@ -99,10 +151,13 @@ impl<B: Backend> ToGuest<B> for &Module<B> {
 
 #[cfg(test)]
 mod tests {
+    use std::future::IntoFuture;
+
     use crate::{
         backend::{
+            exceptions::BackendExceptions,
+            promises::BackendPromises,
             tests::Stub,
-            values::BackendValues,
         },
         handle::{
             module::Module,
@@ -116,15 +171,17 @@ mod tests {
     };
 
     #[allow(dead_code)]
-    fn capabilities<B: BackendValues>() {
-        fn object<B: BackendValues, T: ObjectProtocol<B>>() {}
-        fn from<B: BackendValues, T: FromGuest<B>>() {}
-        fn to<B: BackendValues, T: ToGuest<B>>() {}
+    fn capabilities<B: BackendPromises + BackendExceptions>() {
+        fn object<B: BackendPromises, T: ObjectProtocol<B>>() {}
+        fn from<B: BackendPromises, T: FromGuest<B>>() {}
+        fn to<B: BackendPromises, T: ToGuest<B>>() {}
+        fn awaitable<T: IntoFuture>() {}
 
         object::<B, Module<B>>();
         from::<B, Module<B>>();
         to::<B, Module<B>>();
         to::<B, &Module<B>>();
+        awaitable::<Module<B>>();
     }
 
     #[test]
