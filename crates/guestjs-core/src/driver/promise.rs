@@ -83,12 +83,11 @@ where
         if let Some(error) = this
             .armed
             .get_or_insert_with(|| {
-                ArmedPolicy::new(
-                    this.event_loop
-                        .guest()
-                        .activity()
-                        .policy(),
-                )
+                this.event_loop
+                    .guest()
+                    .activity()
+                    .policy()
+                    .arm()
             })
             .due_error()
         {

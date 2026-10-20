@@ -44,7 +44,7 @@ impl GuestActivity {
 
     pub fn begin(&self) -> Result<Activation<'_>, Error> {
         if !self.is_active() {
-            let armed = ArmedPolicy::new(&self.policy);
+            let armed = self.policy.arm();
 
             if let Some(error) = armed.due_error() {
                 return Err(error);
@@ -105,10 +105,9 @@ mod tests {
 
     #[test]
     fn due_policy_refuses_the_outermost_activation() {
-        let activity = GuestActivity::new(ExecutionPolicy {
-            timeout: Some(Duration::ZERO),
-            cancellation: None,
-        });
+        let activity = GuestActivity::new(
+            ExecutionPolicy::new().timeout(Duration::ZERO),
+        );
 
         assert!(activity.begin().is_err_and(|error| error.is_timeout()));
         assert!(!activity.is_active());
@@ -118,10 +117,9 @@ mod tests {
     #[test]
     fn outermost_activation_owns_the_armed_policy() {
         let cancellation = Cancellation::default();
-        let activity = GuestActivity::new(ExecutionPolicy {
-            timeout: None,
-            cancellation: Some(cancellation.clone()),
-        });
+        let activity = GuestActivity::new(
+            ExecutionPolicy::new().cancellation(cancellation.clone()),
+        );
         let outer = activity.begin().unwrap();
 
         drop(activity.begin().unwrap());

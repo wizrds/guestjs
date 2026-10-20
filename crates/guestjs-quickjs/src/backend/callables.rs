@@ -96,17 +96,17 @@ mod tests {
             QuickJs::set(
                 token,
                 &QuickJs::globals(token),
-                &QuickJs::string(token, "describe").unwrap(),
+                &QuickJs::new_string(token, "describe").unwrap(),
                 QuickJs::function(
                     token,
                     "describe",
                     2,
                     Rc::new(|call: RawCall<'_, QuickJs>| {
-                        QuickJs::array(
+                        QuickJs::new_array(
                             call.token,
                             vec![
                                 call.this,
-                                QuickJs::number(call.token, call.args.len() as f64),
+                                QuickJs::new_number(call.token, call.args.len() as f64),
                             ],
                         )
                     }),
@@ -155,7 +155,7 @@ mod tests {
             QuickJs::set(
                 token,
                 &QuickJs::globals(token),
-                &QuickJs::string(token, "fail").unwrap(),
+                &QuickJs::new_string(token, "fail").unwrap(),
                 QuickJs::function(
                     token,
                     "fail",
@@ -170,7 +170,7 @@ mod tests {
             QuickJs::set(
                 token,
                 &QuickJs::globals(token),
-                &QuickJs::string(token, "rethrow").unwrap(),
+                &QuickJs::new_string(token, "rethrow").unwrap(),
                 QuickJs::function(
                     token,
                     "rethrow",

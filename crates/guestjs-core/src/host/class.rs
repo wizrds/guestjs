@@ -431,7 +431,7 @@ where
         self.requirements.check(state)?;
 
         RealisedClasses::of(enter.guest()).get_or_realise::<C, _>(|| {
-            let prototype = B::object(enter.token())?;
+            let prototype = B::new_object(enter.token())?;
 
             self.prototype.install(enter, state, &prototype)?;
 

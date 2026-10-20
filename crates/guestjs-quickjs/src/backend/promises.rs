@@ -122,7 +122,7 @@ mod tests {
         QuickJs::enter(&engine, &context, |token| {
             let (fulfilled, resolve, _) = QuickJs::promise(token).unwrap();
             let (rejected, _, reject) = QuickJs::promise(token).unwrap();
-            let reason = QuickJs::object(token).unwrap();
+            let reason = QuickJs::new_object(token).unwrap();
 
             assert!(matches!(
                 QuickJs::state(token, &fulfilled),
@@ -132,14 +132,14 @@ mod tests {
             QuickJs::call(
                 token,
                 &resolve,
-                &QuickJs::undefined(token),
-                &[QuickJs::number(token, 42.0)],
+                &QuickJs::new_undefined(token),
+                &[QuickJs::new_number(token, 42.0)],
             )
             .unwrap();
             QuickJs::call(
                 token,
                 &reject,
-                &QuickJs::undefined(token),
+                &QuickJs::new_undefined(token),
                 &[reason.clone()],
             )
             .unwrap();
@@ -172,7 +172,7 @@ mod tests {
             assert!(matches!(
                 QuickJs::state(
                     token,
-                    &QuickJs::resolve(token, QuickJs::number(token, 2.0)).unwrap(),
+                    &QuickJs::resolve(token, QuickJs::new_number(token, 2.0)).unwrap(),
                 ),
                 Ok(PromiseState::Fulfilled(value)) if value.as_number() == Some(2.0),
             ));
@@ -204,7 +204,7 @@ mod tests {
                 Ok(PromiseState::Fulfilled(value)) if value.as_number() == Some(3.0),
             ));
             assert!(
-                QuickJs::state(token, &QuickJs::number(token, 1.0))
+                QuickJs::state(token, &QuickJs::new_number(token, 1.0))
                     .is_err_and(|error| error.is_conversion()),
             );
         });
@@ -220,7 +220,7 @@ mod tests {
             QuickJs::call(
                 token,
                 &QuickJs::eval(token, "queueMicrotask", "queue.js").unwrap(),
-                &QuickJs::undefined(token),
+                &QuickJs::new_undefined(token),
                 &[QuickJs::function(
                     token,
                     "probe",
@@ -234,7 +234,7 @@ mod tests {
                                 QuickJs::eval(token, "globalThis.ran = true;", "probe.js").map(|_| ())
                             })?;
 
-                            Ok(QuickJs::undefined(call.token))
+                            Ok(QuickJs::new_undefined(call.token))
                         }
                     }),
                 )

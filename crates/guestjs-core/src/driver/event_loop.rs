@@ -60,4 +60,27 @@ where
             std::task::Poll::Ready(false) | std::task::Poll::Pending => Progress::Waiting,
         })
     }
+
+    pub async fn run_until_idle(&self) -> Result<(), Error> {
+        let armed = self
+            .guest
+            .activity()
+            .policy()
+            .arm();
+
+        std::future::poll_fn(|context| match armed.due_error() {
+            Some(error) => std::task::Poll::Ready(Err(error)),
+            None => match self.step(context) {
+                Ok(Progress::Idle) => std::task::Poll::Ready(Ok(())),
+                Ok(Progress::Ready) => {
+                    context.waker().wake_by_ref();
+
+                    std::task::Poll::Pending
+                },
+                Ok(Progress::Waiting) => std::task::Poll::Pending,
+                Err(error) => std::task::Poll::Ready(Err(error)),
+            },
+        })
+        .await
+    }
 }

@@ -1,4 +1,5 @@
 use std::{
+    rc::Rc,
     sync::{
         atomic::{
             AtomicBool,
@@ -14,6 +15,10 @@ use std::{
 
 use crate::errors::Error;
 
+pub trait CancelSignal: 'static {
+    fn is_cancelled(&self) -> bool;
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct Cancellation {
     cancelled: Arc<AtomicBool>,
@@ -23,31 +28,72 @@ impl Cancellation {
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
     }
+}
 
-    pub fn is_cancelled(&self) -> bool {
+impl CancelSignal for Cancellation {
+    fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
     }
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone)]
 pub struct ExecutionPolicy {
-    pub timeout: Option<Duration>,
-    pub cancellation: Option<Cancellation>,
+    timeout: Option<Duration>,
+    cancellation: Option<Rc<dyn CancelSignal>>,
 }
 
-#[derive(Debug)]
+impl ExecutionPolicy {
+    pub fn new() -> Self {
+        Self {
+            timeout: None,
+            cancellation: None,
+        }
+    }
+
+    pub fn timeout<T>(mut self, timeout: T) -> Self
+    where
+        T: Into<Duration>,
+    {
+        self.timeout = Some(timeout.into());
+
+        self
+    }
+
+    pub fn cancellation<S>(mut self, signal: S) -> Self
+    where
+        S: CancelSignal,
+    {
+        self.cancellation = Some(Rc::new(signal));
+
+        self
+    }
+
+    pub fn arm(&self) -> ArmedPolicy {
+        ArmedPolicy::new(self.timeout, self.cancellation.clone())
+    }
+}
+
+impl Default for ExecutionPolicy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct ArmedPolicy {
     deadline: Option<Instant>,
-    cancellation: Option<Cancellation>,
+    cancellation: Option<Rc<dyn CancelSignal>>,
 }
 
 impl ArmedPolicy {
-    pub fn new(policy: &ExecutionPolicy) -> Self {
+    pub fn new(
+        timeout: Option<Duration>,
+        cancellation: Option<Rc<dyn CancelSignal>>,
+    ) -> Self {
         Self {
-            deadline: policy.timeout.and_then(|timeout| {
+            deadline: timeout.and_then(|timeout| {
                 Instant::now().checked_add(timeout)
             }),
-            cancellation: policy.cancellation.clone(),
+            cancellation,
         }
     }
 
@@ -59,7 +105,7 @@ impl ArmedPolicy {
     pub fn is_cancelled(&self) -> bool {
         self.cancellation
             .as_ref()
-            .is_some_and(Cancellation::is_cancelled)
+            .is_some_and(|signal| signal.is_cancelled())
     }
 
     pub fn due_error(&self) -> Option<Error> {
@@ -83,22 +129,21 @@ mod tests {
     };
 
     use crate::policy::{
-        ArmedPolicy,
+        CancelSignal,
         Cancellation,
         ExecutionPolicy,
     };
 
     #[test]
     fn default_policy_is_never_due() {
-        assert!(!ArmedPolicy::new(&ExecutionPolicy::default()).is_due());
+        assert!(!ExecutionPolicy::default().arm().is_due());
     }
 
     #[test]
     fn zero_timeout_is_due_with_timeout() {
-        let armed = ArmedPolicy::new(&ExecutionPolicy {
-            timeout: Some(Duration::ZERO),
-            cancellation: None,
-        });
+        let armed = ExecutionPolicy::new()
+            .timeout(Duration::ZERO)
+            .arm();
 
         assert!(armed.is_due());
         assert!(armed.due_error().is_some_and(|error| error.is_timeout()));
@@ -106,20 +151,18 @@ mod tests {
 
     #[test]
     fn unrepresentable_deadline_never_expires() {
-        assert!(!ArmedPolicy::new(&ExecutionPolicy {
-            timeout: Some(Duration::MAX),
-            cancellation: None,
-        })
-        .is_expired());
+        assert!(!ExecutionPolicy::new()
+            .timeout(Duration::MAX)
+            .arm()
+            .is_expired());
     }
 
     #[test]
     fn cancellation_crosses_threads() {
         let cancellation = Cancellation::default();
-        let armed = ArmedPolicy::new(&ExecutionPolicy {
-            timeout: None,
-            cancellation: Some(cancellation.clone()),
-        });
+        let armed = ExecutionPolicy::new()
+            .cancellation(cancellation.clone())
+            .arm();
 
         assert!(!armed.is_due());
 
@@ -137,12 +180,29 @@ mod tests {
         cancellation.cancel();
 
         assert!(
-            ArmedPolicy::new(&ExecutionPolicy {
-                timeout: Some(Duration::ZERO),
-                cancellation: Some(cancellation),
-            })
-            .due_error()
-            .is_some_and(|error| error.is_timeout()),
+            ExecutionPolicy::new()
+                .timeout(Duration::ZERO)
+                .cancellation(cancellation)
+                .arm()
+                .due_error()
+                .is_some_and(|error| error.is_timeout()),
         );
+    }
+
+    #[test]
+    fn custom_signals_cancel() {
+        struct Cancelled;
+
+        impl CancelSignal for Cancelled {
+            fn is_cancelled(&self) -> bool {
+                true
+            }
+        }
+
+        assert!(ExecutionPolicy::new()
+            .cancellation(Cancelled)
+            .arm()
+            .due_error()
+            .is_some_and(|error| error.is_cancelled()));
     }
 }

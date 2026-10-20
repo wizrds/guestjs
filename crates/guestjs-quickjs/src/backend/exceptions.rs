@@ -86,7 +86,7 @@ mod tests {
                     &QuickJs::get(
                         token,
                         &QuickJs::exception(token, Error::conversion("i64", "string")).unwrap(),
-                        &QuickJs::string(token, "name").unwrap(),
+                        &QuickJs::new_string(token, "name").unwrap(),
                     )
                     .unwrap(),
                 )
@@ -122,7 +122,7 @@ mod tests {
                     &QuickJs::get(
                         token,
                         &error,
-                        &QuickJs::string(token, "message").unwrap(),
+                        &QuickJs::new_string(token, "message").unwrap(),
                     )
                     .unwrap(),
                 )

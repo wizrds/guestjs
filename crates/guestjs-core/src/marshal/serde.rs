@@ -66,7 +66,7 @@ impl<'a, 'js, B: BackendValues> Serializer<'a, 'js, B> {
         variant: &str,
         value: Val<'js, B>,
     ) -> Result<Val<'js, B>, Error> {
-        let object = B::object(self.enter.token())?;
+        let object = B::new_object(self.enter.token())?;
 
         B::set(
             self.enter.token(),
@@ -302,7 +302,7 @@ impl<'a, 'js, B: BackendValues> SerializeSeq for ArraySerializer<'a, 'js, B> {
     }
 
     fn end(self) -> Result<Val<'js, B>, Error> {
-        B::array(self.enter.token(), self.items)
+        B::new_array(self.enter.token(), self.items)
     }
 }
 
@@ -352,7 +352,7 @@ impl<'a, 'js, B: BackendValues> ObjectSerializer<'a, 'js, B> {
     pub fn new(enter: &'a Enter<'js, B>) -> Result<Self, Error> {
         Ok(Self {
             enter,
-            object: B::object(enter.token())?,
+            object: B::new_object(enter.token())?,
             key: None,
         })
     }

@@ -2,6 +2,7 @@ use guestjs_core::{
     backend::{
         values::{
             BackendValues,
+            IteratorKind,
             Kind,
             Property,
             WellKnown,
@@ -13,14 +14,16 @@ use guestjs_core::{
 };
 use rquickjs::{
     atom::PredefinedAtom,
-    function::Args,
+    function::{
+        Args,
+        This,
+    },
     object::{
         AsProperty,
         PropertyFlags,
     },
     qjs,
     Array,
-    Atom,
     BigInt,
     Coerced,
     Constructor,
@@ -93,23 +96,23 @@ impl<'js> AsProperty<'js, ()> for Descriptor<'js> {
 }
 
 impl BackendValues for QuickJs {
-    fn undefined<'js>(token: Tok<'js, Self>) -> Val<'js, Self> {
+    fn new_undefined<'js>(token: Tok<'js, Self>) -> Val<'js, Self> {
         Value::new_undefined(token.ctx())
     }
 
-    fn null<'js>(token: Tok<'js, Self>) -> Val<'js, Self> {
+    fn new_null<'js>(token: Tok<'js, Self>) -> Val<'js, Self> {
         Value::new_null(token.ctx())
     }
 
-    fn boolean<'js>(token: Tok<'js, Self>, value: bool) -> Val<'js, Self> {
+    fn new_boolean<'js>(token: Tok<'js, Self>, value: bool) -> Val<'js, Self> {
         Value::new_bool(token.ctx(), value)
     }
 
-    fn number<'js>(token: Tok<'js, Self>, value: f64) -> Val<'js, Self> {
+    fn new_number<'js>(token: Tok<'js, Self>, value: f64) -> Val<'js, Self> {
         Value::new_float(token.ctx(), value)
     }
 
-    fn bigint<'js>(
+    fn new_bigint<'js>(
         token: Tok<'js, Self>,
         value: i64,
     ) -> Result<Val<'js, Self>, Error> {
@@ -118,7 +121,7 @@ impl BackendValues for QuickJs {
             .capture(token)
     }
 
-    fn string<'js>(
+    fn new_string<'js>(
         token: Tok<'js, Self>,
         value: &str,
     ) -> Result<Val<'js, Self>, Error> {
@@ -127,7 +130,7 @@ impl BackendValues for QuickJs {
             .capture(token)
     }
 
-    fn symbol<'js>(
+    fn new_symbol<'js>(
         token: Tok<'js, Self>,
         description: &str,
     ) -> Result<Val<'js, Self>, Error> {
@@ -140,21 +143,30 @@ impl BackendValues for QuickJs {
         token: Tok<'js, Self>,
         symbol: WellKnown,
     ) -> Val<'js, Self> {
-        Atom::from_predefined(
-            token.ctx(),
-            match symbol {
-                WellKnown::Iterator => PredefinedAtom::SymbolIterator,
-                WellKnown::AsyncIterator => PredefinedAtom::SymbolAsyncIterator,
-                WellKnown::ToPrimitive => PredefinedAtom::SymbolToPrimitive,
-                WellKnown::ToStringTag => PredefinedAtom::SymbolToStringTag,
-                WellKnown::HasInstance => PredefinedAtom::SymbolHasInstance,
+        match symbol {
+            WellKnown::Iterator => Symbol::iterator(token.ctx()).into_value(),
+            WellKnown::AsyncIterator => {
+                Symbol::async_iterator(token.ctx()).into_value()
             },
-        )
-        .to_value()
-        .expect("well-known symbols are predefined")
+            WellKnown::ToPrimitive => {
+                Symbol::to_primitive(token.ctx()).into_value()
+            },
+            WellKnown::HasInstance => {
+                Symbol::has_instance(token.ctx()).into_value()
+            },
+            WellKnown::ToStringTag => unsafe {
+                Value::from_raw(
+                    token.ctx(),
+                    qjs::JS_AtomToValue(
+                        token.ctx().as_raw().as_ptr(),
+                        PredefinedAtom::SymbolToStringTag as qjs::JSAtom,
+                    ),
+                )
+            },
+        }
     }
 
-    fn array<'js>(
+    fn new_array<'js>(
         token: Tok<'js, Self>,
         items: Vec<Val<'js, Self>>,
     ) -> Result<Val<'js, Self>, Error> {
@@ -165,9 +177,25 @@ impl BackendValues for QuickJs {
             .capture(token)
     }
 
-    fn object<'js>(token: Tok<'js, Self>) -> Result<Val<'js, Self>, Error> {
+    fn new_object<'js>(token: Tok<'js, Self>) -> Result<Val<'js, Self>, Error> {
         Object::new(token.ctx())
             .map(Object::into_value)
+            .capture(token)
+    }
+
+    fn new_set<'js>(
+        token: Tok<'js, Self>,
+        items: Vec<Val<'js, Self>>,
+    ) -> Result<Val<'js, Self>, Error> {
+        token
+            .ctx()
+            .globals()
+            .get::<_, Constructor>(PredefinedAtom::Set)
+            .and_then(|set| {
+                set.construct::<_, Value>((items
+                    .into_iter()
+                    .collect_js::<Array>(&token.ctx())?,))
+            })
             .capture(token)
     }
 
@@ -190,8 +218,19 @@ impl BackendValues for QuickJs {
                 Kind::TypedArray
             }
             _ if unsafe { qjs::JS_IsDataView(value.as_raw()) } => Kind::DataView,
+            _ if unsafe { qjs::JS_IsSet(value.as_raw()) } => Kind::Set,
             _ => Kind::Object,
         }
+    }
+
+    fn truthy<'js>(
+        token: Tok<'js, Self>,
+        value: &Val<'js, Self>,
+    ) -> Result<bool, Error> {
+        value
+            .get::<Coerced<bool>>()
+            .map(|truthy| truthy.0)
+            .capture(token)
     }
 
     fn as_bool<'js>(
@@ -221,7 +260,7 @@ impl BackendValues for QuickJs {
                 .and_then(BigInt::to_i64)
                 .capture(token)
                 .and_then(|integer| {
-                    match Self::same(token, value, &Self::bigint(token, integer)?) {
+                    match Self::same(token, value, &Self::new_bigint(token, integer)?) {
                         true => Ok(integer),
                         false => Err(Error::conversion(
                             "i64",
@@ -379,7 +418,7 @@ impl BackendValues for QuickJs {
                 object
                     .get_prototype()
                     .map_or_else(
-                        || Self::null(token),
+                        || Self::new_null(token),
                         Object::into_value,
                     )
             })
@@ -429,13 +468,82 @@ impl BackendValues for QuickJs {
             })
             .capture(token)
     }
+
+    fn iter<'js>(
+        token: Tok<'js, Self>,
+        iterable: &Val<'js, Self>,
+        kind: IteratorKind,
+    ) -> Result<Option<Val<'js, Self>>, Error> {
+        iterable
+            .as_object()
+            .map(|object| {
+                object
+                    .get::<_, Option<Function>>(Self::well_known(
+                        token,
+                        kind.symbol(),
+                    ))?
+                    .map(|method| {
+                        method.call::<_, Value>((This(object.clone()),))
+                    })
+                    .transpose()
+            })
+            .transpose()
+            .map(Option::flatten)
+            .capture(token)
+    }
+
+    fn next<'js>(
+        token: Tok<'js, Self>,
+        iterator: &Val<'js, Self>,
+    ) -> Result<Val<'js, Self>, Error> {
+        Object::from_value(iterator.clone())
+            .and_then(|iterator| {
+                iterator
+                    .get::<_, Function>(PredefinedAtom::Next)?
+                    .call::<_, Value>((This(iterator),))
+            })
+            .capture(token)
+    }
+
+    fn step<'js>(
+        token: Tok<'js, Self>,
+        result: &Val<'js, Self>,
+    ) -> Result<Option<Val<'js, Self>>, Error> {
+        Object::from_value(result.clone())
+            .and_then(|result| {
+                match result.get::<_, Coerced<bool>>(PredefinedAtom::Done)?.0 {
+                    true => Ok(None),
+                    false => result.get(PredefinedAtom::Value).map(Some),
+                }
+            })
+            .capture(token)
+    }
+
+    fn close<'js>(
+        token: Tok<'js, Self>,
+        iterator: &Val<'js, Self>,
+    ) -> Result<Val<'js, Self>, Error> {
+        Object::from_value(iterator.clone())
+            .and_then(|iterator| {
+                match iterator
+                    .get::<_, Option<Function>>(PredefinedAtom::Return)?
+                {
+                    Some(method) => method.call::<_, Value>((This(iterator),)),
+                    None => Ok(Value::new_undefined(token.ctx())),
+                }
+            })
+            .capture(token)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::iter::from_fn;
+
     use guestjs_core::backend::{
         values::{
             BackendValues,
+            IteratorKind,
             Kind,
             Property,
         },
@@ -475,6 +583,7 @@ mod tests {
             assert_eq!(kind("new SharedArrayBuffer(1)"), Kind::Object);
             assert_eq!(kind("new Float16Array(1)"), Kind::TypedArray);
             assert_eq!(kind("new DataView(new ArrayBuffer(1))"), Kind::DataView);
+            assert_eq!(kind("new Set()"), Kind::Set);
             assert_eq!(kind("new Proxy(new ArrayBuffer(1), {})"), Kind::Object);
             assert_eq!(kind("new Error()"), Kind::Object);
             assert!(!token
@@ -516,15 +625,15 @@ mod tests {
         let context = QuickJs::new_context(&engine).unwrap();
 
         QuickJs::enter(&engine, &context, |token| {
-            let object = QuickJs::object(token).unwrap();
-            let key = QuickJs::string(token, "fixed").unwrap();
+            let object = QuickJs::new_object(token).unwrap();
+            let key = QuickJs::new_string(token, "fixed").unwrap();
 
             QuickJs::define(
                 token,
                 &object,
                 &key,
                 Property::Value {
-                    value: QuickJs::number(token, 1.0),
+                    value: QuickJs::new_number(token, 1.0),
                     writable: false,
                     enumerable: true,
                     configurable: false,
@@ -534,6 +643,171 @@ mod tests {
 
             assert!(QuickJs::delete(token, &object, &key).is_err());
             assert!(QuickJs::has(token, &object, &key).unwrap());
+        });
+    }
+
+    #[test]
+    fn truthy_follows_to_boolean() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let truthy = |source: &str| {
+                QuickJs::truthy(
+                    token,
+                    &token
+                        .ctx()
+                        .eval::<Value, _>(source)
+                        .unwrap(),
+                )
+                .unwrap()
+            };
+
+            assert!(!truthy("0"));
+            assert!(!truthy("''"));
+            assert!(!truthy("null"));
+            assert!(truthy("'0'"));
+            assert!(truthy("({})"));
+            assert!(truthy("[]"));
+        });
+    }
+
+    #[test]
+    fn iter_opens_only_values_with_the_protocol_method() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let opens = |source: &str, kind: IteratorKind| {
+                QuickJs::iter(
+                    token,
+                    &token
+                        .ctx()
+                        .eval::<Value, _>(source)
+                        .unwrap(),
+                    kind,
+                )
+                .unwrap()
+                .is_some()
+            };
+
+            assert!(opens("[1]", IteratorKind::Sync));
+            assert!(opens("new Set([1])", IteratorKind::Sync));
+            assert!(opens("(async function* () {})()", IteratorKind::Async));
+            assert!(!opens("[1]", IteratorKind::Async));
+            assert!(!opens("({})", IteratorKind::Sync));
+            assert!(!opens("1", IteratorKind::Sync));
+        });
+    }
+
+    #[test]
+    fn next_and_step_walk_a_set_in_insertion_order() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let iterator = QuickJs::iter(
+                token,
+                &QuickJs::new_set(
+                    token,
+                    vec![
+                        QuickJs::new_number(token, 2.0),
+                        QuickJs::new_number(token, 1.0),
+                        QuickJs::new_number(token, 2.0),
+                    ],
+                )
+                .unwrap(),
+                IteratorKind::Sync,
+            )
+            .unwrap()
+            .unwrap();
+
+            assert_eq!(
+                from_fn(|| {
+                    QuickJs::step(
+                        token,
+                        &QuickJs::next(token, &iterator).unwrap(),
+                    )
+                    .unwrap()
+                })
+                .map(|value| QuickJs::as_f64(token, &value).unwrap())
+                .collect::<Vec<_>>(),
+                vec![2.0, 1.0],
+            );
+        });
+    }
+
+    #[test]
+    fn step_reads_done_with_to_boolean() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let yields = |source: &str| {
+                QuickJs::step(
+                    token,
+                    &token
+                        .ctx()
+                        .eval::<Value, _>(source)
+                        .unwrap(),
+                )
+                .unwrap()
+                .is_some()
+            };
+
+            assert!(!yields("({ done: true, value: 5 })"));
+            assert!(!yields("({ done: 1, value: 5 })"));
+            assert!(yields("({ done: false, value: 5 })"));
+            assert!(yields("({ done: 0, value: 5 })"));
+            assert!(yields("({ value: 5 })"));
+        });
+    }
+
+    #[test]
+    fn close_runs_return_when_the_iterator_has_one() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let generator = token
+                .ctx()
+                .eval::<Value, _>(
+                    r#"
+                    globalThis.closed = false;
+                    (function* () {
+                        try {
+                            yield 1;
+                        } finally {
+                            globalThis.closed = true;
+                        }
+                    })()
+                    "#,
+                )
+                .unwrap();
+
+            QuickJs::next(token, &generator).unwrap();
+            QuickJs::close(token, &generator).unwrap();
+
+            assert!(
+                token
+                    .ctx()
+                    .eval::<bool, _>("globalThis.closed")
+                    .unwrap(),
+            );
+            assert_eq!(
+                QuickJs::kind(
+                    token,
+                    &QuickJs::close(
+                        token,
+                        &token
+                            .ctx()
+                            .eval::<Value, _>("[][Symbol.iterator]()")
+                            .unwrap(),
+                    )
+                    .unwrap(),
+                ),
+                Kind::Undefined,
+            );
         });
     }
 
@@ -566,13 +840,13 @@ mod tests {
         QuickJs::enter(&engine, &context, |token| {
             assert!(QuickJs::same(
                 token,
-                &QuickJs::number(token, f64::NAN),
-                &QuickJs::number(token, f64::NAN),
+                &QuickJs::new_number(token, f64::NAN),
+                &QuickJs::new_number(token, f64::NAN),
             ));
             assert!(!QuickJs::same(
                 token,
-                &QuickJs::number(token, 0.0),
-                &QuickJs::number(token, -0.0),
+                &QuickJs::new_number(token, 0.0),
+                &QuickJs::new_number(token, -0.0),
             ));
         });
     }
@@ -592,13 +866,13 @@ mod tests {
 
             assert!(QuickJs::instance_of(
                 token,
-                &QuickJs::number(token, 2.0),
+                &QuickJs::new_number(token, 2.0),
                 &even,
             )
             .unwrap());
             assert!(!QuickJs::instance_of(
                 token,
-                &QuickJs::number(token, 3.0),
+                &QuickJs::new_number(token, 3.0),
                 &even,
             )
             .unwrap());

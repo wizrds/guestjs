@@ -79,6 +79,12 @@ impl BundleState {
             .get(path)
             .map(AsRef::as_ref)
     }
+
+    pub fn files(&self) -> impl Iterator<Item = (&str, &[u8])> {
+        self.data
+            .iter()
+            .map(|(path, contents)| (path.as_str(), contents.as_ref()))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -226,6 +232,10 @@ impl Bundle {
 
     pub fn data(&self, path: &str) -> Option<&[u8]> {
         self.state.data(path)
+    }
+
+    pub fn files(&self) -> impl Iterator<Item = (&str, &[u8])> {
+        self.state.files()
     }
 }
 
@@ -503,9 +513,6 @@ impl Default for BundleBuilder {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(any(feature = "tokio", feature = "embedded"))]
-    use crate::bundle::BundleBuilder;
-
     #[cfg(feature = "embedded")]
     use crate::embed::{
         Dir,
@@ -518,8 +525,27 @@ mod tests {
 
     use crate::bundle::{
         Bundle,
+        BundleBuilder,
         BundlePath,
     };
+
+    #[test]
+    fn files_enumerate_the_data_in_path_order() {
+        assert_eq!(
+            BundleBuilder::new()
+                .module("main.js", "export {};")
+                .data("b.txt", "second")
+                .data("a.txt", "first")
+                .build()
+                .unwrap()
+                .files()
+                .collect::<Vec<_>>(),
+            [
+                ("a.txt", b"first".as_slice()),
+                ("b.txt", b"second".as_slice()),
+            ],
+        );
+    }
 
     #[test]
     fn paths_of_named_segments_are_accepted() {

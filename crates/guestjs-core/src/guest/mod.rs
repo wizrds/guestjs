@@ -428,10 +428,7 @@ mod tests {
         let cancellation = Cancellation::default();
         let outer = Guest::with_policy(
             &runtime,
-            ExecutionPolicy {
-                timeout: None,
-                cancellation: Some(cancellation.clone()),
-            },
+            ExecutionPolicy::new().cancellation(cancellation.clone()),
         )
         .unwrap();
 
@@ -458,10 +455,7 @@ mod tests {
         let cancellation = Cancellation::default();
         let guest = Guest::with_policy(
             &runtime,
-            ExecutionPolicy {
-                timeout: None,
-                cancellation: Some(cancellation.clone()),
-            },
+            ExecutionPolicy::new().cancellation(cancellation.clone()),
         )
         .unwrap();
 

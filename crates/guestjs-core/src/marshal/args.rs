@@ -33,8 +33,8 @@ impl<'js, B: BackendValues> Args<'js, B> {
             values: call.args,
             new_target: call
                 .new_target
-                .unwrap_or_else(|| B::undefined(call.token)),
-            undefined: B::undefined(call.token),
+                .unwrap_or_else(|| B::new_undefined(call.token)),
+            undefined: B::new_undefined(call.token),
             next: Cell::new(0),
         }
     }

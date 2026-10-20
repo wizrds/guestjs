@@ -55,6 +55,7 @@ impl Expected {
                 Kind::ArrayBuffer => "ArrayBuffer",
                 Kind::TypedArray => "typed array",
                 Kind::DataView => "DataView",
+                Kind::Set => "Set",
                 Kind::Object => "object",
             },
         )

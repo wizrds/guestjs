@@ -84,6 +84,25 @@ impl<B: BackendValues, R> Class<B, R> {
     }
 }
 
+impl<B: BackendClasses, C: Payload> Class<B, Instance<B, C>> {
+    pub fn instantiate(&self, payload: C) -> Result<Instance<B, C>, Error> {
+        self.handle.with_enter(|enter, class| {
+            Instance::<B, C>::from_guest(
+                enter,
+                B::instantiate(
+                    enter.token(),
+                    &B::get(
+                        enter.token(),
+                        class,
+                        &"prototype".to_guest(enter)?,
+                    )?,
+                    payload,
+                )?,
+            )
+        })
+    }
+}
+
 impl<B: Backend, R> Clone for Class<B, R> {
     fn clone(&self) -> Self {
         Self::from_handle(self.handle.clone())
@@ -161,57 +180,51 @@ impl<B: BackendClasses, C: Payload> FromGuest<B> for C {
     }
 }
 
-pub struct PayloadRef<'a, B: BackendClasses, C: Payload> {
-    borrow: B::Ref<'a, C>,
-}
+pub struct Ref<'a, B: BackendClasses, C: Payload>(B::Ref<'a, C>);
 
-impl<B: BackendClasses, C: Payload> Deref for PayloadRef<'_, B, C> {
+impl<B: BackendClasses, C: Payload> Deref for Ref<'_, B, C> {
     type Target = C;
 
     fn deref(&self) -> &C {
-        &self.borrow
+        &self.0
     }
 }
 
 impl<B: BackendClasses, C: Payload> FromGuestRef<B> for C {
-    type Ref<'a> = PayloadRef<'a, B, C>;
+    type Ref<'a> = Ref<'a, B, C>;
 
     fn from_guest_ref<'js, 'a>(
         enter: &Enter<'js, B>,
         value: &'a Val<'js, B>,
     ) -> Result<Self::Ref<'a>, Error> {
-        B::borrow::<C>(enter.token(), value)
-            .map(|borrow| PayloadRef { borrow })
+        B::borrow::<C>(enter.token(), value).map(Ref)
     }
 }
 
-pub struct PayloadMut<'a, B: BackendClasses, C: Payload> {
-    borrow: B::RefMut<'a, C>,
-}
+pub struct RefMut<'a, B: BackendClasses, C: Payload>(B::RefMut<'a, C>);
 
-impl<B: BackendClasses, C: Payload> Deref for PayloadMut<'_, B, C> {
+impl<B: BackendClasses, C: Payload> Deref for RefMut<'_, B, C> {
     type Target = C;
 
     fn deref(&self) -> &C {
-        &self.borrow
+        &self.0
     }
 }
 
-impl<B: BackendClasses, C: Payload> DerefMut for PayloadMut<'_, B, C> {
+impl<B: BackendClasses, C: Payload> DerefMut for RefMut<'_, B, C> {
     fn deref_mut(&mut self) -> &mut C {
-        &mut self.borrow
+        &mut self.0
     }
 }
 
 impl<B: BackendClasses, C: Payload> FromGuestMut<B> for C {
-    type Mut<'a> = PayloadMut<'a, B, C>;
+    type Mut<'a> = RefMut<'a, B, C>;
 
     fn from_guest_mut<'js, 'a>(
         enter: &Enter<'js, B>,
         value: &'a Val<'js, B>,
     ) -> Result<Self::Mut<'a>, Error> {
-        B::borrow_mut::<C>(enter.token(), value)
-            .map(|borrow| PayloadMut { borrow })
+        B::borrow_mut::<C>(enter.token(), value).map(RefMut)
     }
 }
 
@@ -470,6 +483,21 @@ mod tests {
         class.construct_as::<_, Object<B>>(())?;
 
         class.construct(())
+    }
+
+    #[allow(dead_code)]
+    fn typed_class_methods<B: BackendClasses>(
+        class: &Class<B, Instance<B, Counter>>,
+    ) -> Result<Instance<B, Counter>, Error> {
+        class.instantiate(Counter)
+    }
+
+    #[allow(dead_code)]
+    fn class_checks<B: BackendValues>(
+        class: &Class<B>,
+        instance: &Instance<B>,
+    ) -> Result<bool, Error> {
+        Ok(instance.is_instance_of(class)? && class.is_subclass_of(class)?)
     }
 
     #[allow(dead_code)]

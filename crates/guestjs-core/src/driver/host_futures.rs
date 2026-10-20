@@ -89,7 +89,7 @@ where
         B::call(
             token,
             &B::attach(token, resolver)?,
-            &B::undefined(token),
+            &B::new_undefined(token),
             &[argument],
         )
         .map(|_| ())

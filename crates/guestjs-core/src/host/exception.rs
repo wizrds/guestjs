@@ -67,7 +67,7 @@ impl<E: HostException> ExceptionDeclaration<E> {
         B: BackendClasses + BackendExceptions,
     {
         RealisedClasses::of(enter.guest()).get_or_realise::<E, _>(|| {
-            let prototype = B::object(enter.token())?;
+            let prototype = B::new_object(enter.token())?;
 
             B::set_prototype(
                 enter.token(),

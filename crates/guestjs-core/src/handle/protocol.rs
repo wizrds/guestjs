@@ -1,7 +1,13 @@
 use crate::{
-    backend::values::BackendValues,
+    backend::values::{
+        BackendValues,
+        Kind,
+    },
     errors::Error,
-    handle::HasHandle,
+    handle::{
+        class::Class,
+        HasHandle,
+    },
     marshal::{
         FromGuest,
         ToGuest,
@@ -62,6 +68,12 @@ pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
     {
         self.handle().with_enter(|enter, object| {
             B::has(enter.token(), object, &key.to_guest(enter)?)
+        })
+    }
+
+    fn is_instance_of<R>(&self, class: &Class<B, R>) -> Result<bool, Error> {
+        self.handle().with_enter(|enter, object| {
+            B::instance_of(enter.token(), object, &class.to_guest(enter)?)
         })
     }
 
@@ -143,4 +155,40 @@ pub trait ConstructorProtocol<B: BackendValues>: HasHandle<B> {
             )
         })
     }
+
+    fn is_subclass_of<R>(&self, class: &Class<B, R>) -> Result<bool, Error> {
+        self.handle().with_enter(|enter, constructor| {
+            let base = class.to_guest(enter)?;
+
+            Ok(B::same(enter.token(), constructor, &base)
+                || B::instance_of(
+                    enter.token(),
+                    &B::get(
+                        enter.token(),
+                        constructor,
+                        &"prototype".to_guest(enter)?,
+                    )?,
+                    &base,
+                )?)
+        })
+    }
 }
+
+pub trait ValueProtocol<B: BackendValues>: HasHandle<B> {
+    fn kind(&self) -> Result<Kind, Error> {
+        self.handle()
+            .with_enter(|enter, value| Ok(B::kind(enter.token(), value)))
+    }
+
+    fn truthy(&self) -> Result<bool, Error> {
+        self.handle()
+            .with_enter(|enter, value| B::truthy(enter.token(), value))
+    }
+
+    fn display(&self) -> Result<String, Error> {
+        self.handle()
+            .with_enter(|enter, value| B::display(enter.token(), value))
+    }
+}
+
+impl<B: BackendValues, T: HasHandle<B>> ValueProtocol<B> for T {}

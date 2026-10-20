@@ -78,10 +78,11 @@
 //!         Config::default()
 //!             .memory_limit(32 * 1024 * 1024),
 //!     )
-//!     .policy(ExecutionPolicy {
-//!         timeout: Some(Duration::from_millis(50)),
-//!         cancellation: Some(cancellation.clone()),
-//!     })
+//!     .policy(
+//!         ExecutionPolicy::new()
+//!             .timeout(Duration::from_millis(50))
+//!             .cancellation(cancellation.clone()),
+//!     )
 //!     .build()?;
 //!
 //! let guest = runtime

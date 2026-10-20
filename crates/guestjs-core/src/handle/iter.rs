@@ -6,8 +6,7 @@ use crate::{
         promises::BackendPromises,
         values::{
             BackendValues,
-            Kind,
-            WellKnown,
+            IteratorKind,
         },
         Backend,
         Val,
@@ -20,6 +19,7 @@ use crate::{
         HasHandle,
     },
     marshal::{
+        collections::IterItem,
         describe::{
             Describe,
             Expected,
@@ -29,47 +29,8 @@ use crate::{
     },
 };
 
-pub struct IterItem<T> {
-    target: PhantomData<fn() -> T>,
-}
-
-impl<T> Describe for IterItem<T> {
-    fn describe(expected: &mut Expected) {
-        expected.push("iter item");
-    }
-}
-
-impl<B, T> FromGuest<B> for IterItem<T>
-where
-    B: BackendValues,
-    T: FromGuest<B>,
-{
-    type Owned = Option<T::Owned>;
-
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
-        match B::kind(enter.token(), &value) {
-            kind if kind.is_object() => match Option::<bool>::from_guest(
-                enter,
-                B::get(enter.token(), &value, &"done".to_guest(enter)?)?,
-            )? {
-                Some(true) => Ok(None),
-                _ => T::from_guest(
-                    enter,
-                    B::get(enter.token(), &value, &"value".to_guest(enter)?)?,
-                )
-                .map(Some),
-            },
-            kind => Err(Expected::of::<Self>().mismatch(kind)),
-        }
-    }
-}
-
 pub struct Iter<B: Backend, T> {
     iterator: Handle<B>,
-    next: Handle<B>,
     done: bool,
     target: PhantomData<fn() -> T>,
 }
@@ -79,19 +40,7 @@ impl<B: BackendValues, T> Iter<B, T> {
         match self.done {
             true => Ok(()),
             false => self.iterator.with_enter(|enter, iterator| {
-                let method = B::get(
-                    enter.token(),
-                    iterator,
-                    &"return".to_guest(enter)?,
-                )?;
-
-                match B::kind(enter.token(), &method) {
-                    Kind::Function => {
-                        B::call(enter.token(), &method, iterator, &[])
-                            .map(|_| ())
-                    }
-                    _ => Ok(()),
-                }
+                B::close(enter.token(), iterator).map(|_| ())
             }),
         }
     }
@@ -111,12 +60,7 @@ where
                 let step = self.iterator.with_enter(|enter, iterator| {
                     IterItem::<T>::from_guest(
                         enter,
-                        B::call(
-                            enter.token(),
-                            &self.next.attach(enter)?,
-                            iterator,
-                            &[],
-                        )?,
+                        B::next(enter.token(), iterator)?,
                     )
                 });
 
@@ -151,38 +95,14 @@ where
         enter: &Enter<'js, B>,
         value: Val<'js, B>,
     ) -> Result<Self::Owned, Error> {
-        let token = enter.token();
-
-        match B::kind(token, &value) {
-            kind if kind.is_object() => {
-                let method = B::get(
-                    token,
-                    &value,
-                    &B::well_known(token, WellKnown::Iterator),
-                )?;
-
-                match B::kind(token, &method) {
-                    Kind::Function => {
-                        let iterator = B::call(token, &method, &value, &[])?;
-
-                        Ok(Self {
-                            next: Handle::from_value(
-                                enter,
-                                B::get(
-                                    token,
-                                    &iterator,
-                                    &"next".to_guest(enter)?,
-                                )?,
-                            ),
-                            iterator: Handle::from_value(enter, iterator),
-                            done: false,
-                            target: PhantomData,
-                        })
-                    }
-                    _ => Err(Expected::of::<Self>().mismatch(kind)),
-                }
-            }
-            kind => Err(Expected::of::<Self>().mismatch(kind)),
+        match B::iter(enter.token(), &value, IteratorKind::Sync)? {
+            Some(iterator) => Ok(Self {
+                iterator: Handle::from_value(enter, iterator),
+                done: false,
+                target: PhantomData,
+            }),
+            None => Err(Expected::of::<Self>()
+                .mismatch(B::kind(enter.token(), &value))),
         }
     }
 }
@@ -207,7 +127,6 @@ impl<B: Backend, T> ToGuest<B> for &Iter<B, T> {
 
 pub struct AsyncIter<B: Backend, T> {
     iterator: Handle<B>,
-    next: Handle<B>,
     done: bool,
     target: PhantomData<fn() -> T>,
 }
@@ -224,12 +143,7 @@ where
                 let step = match self.iterator.with_enter(|enter, iterator| {
                     PromiseFuture::new(
                         enter,
-                        B::call(
-                            enter.token(),
-                            &self.next.attach(enter)?,
-                            iterator,
-                            &[],
-                        )?,
+                        B::next(enter.token(), iterator)?,
                     )
                 }) {
                     Ok(future) => future.await.and_then(|owned| {
@@ -253,25 +167,13 @@ where
     pub async fn close(self) -> Result<(), Error> {
         match self.done {
             true => Ok(()),
-            false => match self.iterator.with_enter(|enter, iterator| {
-                let method = B::get(
-                    enter.token(),
-                    iterator,
-                    &"return".to_guest(enter)?,
-                )?;
-
-                match B::kind(enter.token(), &method) {
-                    Kind::Function => PromiseFuture::new(
-                        enter,
-                        B::call(enter.token(), &method, iterator, &[])?,
-                    )
-                    .map(Some),
-                    _ => Ok(None),
-                }
-            })? {
-                Some(future) => future.await.map(|_| ()),
-                None => Ok(()),
-            },
+            false => self
+                .iterator
+                .with_enter(|enter, iterator| {
+                    PromiseFuture::new(enter, B::close(enter.token(), iterator)?)
+                })?
+                .await
+                .map(|_| ()),
         }
     }
 }
@@ -299,38 +201,14 @@ where
         enter: &Enter<'js, B>,
         value: Val<'js, B>,
     ) -> Result<Self::Owned, Error> {
-        let token = enter.token();
-
-        match B::kind(token, &value) {
-            kind if kind.is_object() => {
-                let method = B::get(
-                    token,
-                    &value,
-                    &B::well_known(token, WellKnown::AsyncIterator),
-                )?;
-
-                match B::kind(token, &method) {
-                    Kind::Function => {
-                        let iterator = B::call(token, &method, &value, &[])?;
-
-                        Ok(Self {
-                            next: Handle::from_value(
-                                enter,
-                                B::get(
-                                    token,
-                                    &iterator,
-                                    &"next".to_guest(enter)?,
-                                )?,
-                            ),
-                            iterator: Handle::from_value(enter, iterator),
-                            done: false,
-                            target: PhantomData,
-                        })
-                    }
-                    _ => Err(Expected::of::<Self>().mismatch(kind)),
-                }
-            }
-            kind => Err(Expected::of::<Self>().mismatch(kind)),
+        match B::iter(enter.token(), &value, IteratorKind::Async)? {
+            Some(iterator) => Ok(Self {
+                iterator: Handle::from_value(enter, iterator),
+                done: false,
+                target: PhantomData,
+            }),
+            None => Err(Expected::of::<Self>()
+                .mismatch(B::kind(enter.token(), &value))),
         }
     }
 }
@@ -363,7 +241,6 @@ mod tests {
         handle::iter::{
             AsyncIter,
             Iter,
-            IterItem,
         },
         marshal::{
             describe::Expected,
@@ -392,14 +269,6 @@ mod tests {
         from::<B, AsyncIter<B, String>>();
         to::<B, AsyncIter<B, String>>();
         to::<B, &AsyncIter<B, String>>();
-    }
-
-    #[test]
-    fn item_description_names_an_iter_item() {
-        assert_eq!(
-            Expected::of::<IterItem<String>>().to_string(),
-            "iter item",
-        );
     }
 
     #[test]

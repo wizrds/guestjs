@@ -103,7 +103,7 @@ impl<B: BackendValues> ToGuest<B> for () {
         self,
         enter: &Enter<'js, B>,
     ) -> Result<Val<'js, B>, Error> {
-        Ok(B::undefined(enter.token()))
+        Ok(B::new_undefined(enter.token()))
     }
 }
 
@@ -132,7 +132,7 @@ impl<B: BackendValues> ToGuest<B> for bool {
         self,
         enter: &Enter<'js, B>,
     ) -> Result<Val<'js, B>, Error> {
-        Ok(B::boolean(enter.token(), self))
+        Ok(B::new_boolean(enter.token(), self))
     }
 }
 
@@ -182,7 +182,7 @@ impl<B: BackendValues> ToGuest<B> for f64 {
         self,
         enter: &Enter<'js, B>,
     ) -> Result<Val<'js, B>, Error> {
-        Ok(B::number(enter.token(), self))
+        Ok(B::new_number(enter.token(), self))
     }
 }
 
@@ -228,7 +228,7 @@ impl<B: BackendValues> ToGuest<B> for &str {
         self,
         enter: &Enter<'js, B>,
     ) -> Result<Val<'js, B>, Error> {
-        B::string(enter.token(), self)
+        B::new_string(enter.token(), self)
     }
 }
 

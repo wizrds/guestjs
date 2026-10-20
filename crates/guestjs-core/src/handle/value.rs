@@ -87,9 +87,16 @@ impl<B: Backend> ToGuest<B> for &Value<B> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::tests::Stub,
+        backend::{
+            tests::Stub,
+            values::BackendValues,
+        },
         guest::Guest,
         handle::{
+            class::Class,
+            iter::Iter,
+            object::Object,
+            protocol::ValueProtocol,
             value::Value,
             HasHandle,
         },
@@ -100,6 +107,16 @@ mod tests {
         },
         runtime::Runtime,
     };
+
+    #[allow(dead_code)]
+    fn value_capabilities<B: BackendValues>() {
+        fn value<B: BackendValues, T: ValueProtocol<B>>() {}
+
+        value::<B, Value<B>>();
+        value::<B, Object<B>>();
+        value::<B, Class<B>>();
+        value::<B, Iter<B, Value<B>>>();
+    }
 
     #[test]
     fn conversion_retains_the_guest() {

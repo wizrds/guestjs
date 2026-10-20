@@ -226,7 +226,7 @@ mod tests {
             QuickJs::set(
                 token,
                 &QuickJs::globals(token),
-                &QuickJs::string(token, "Host").unwrap(),
+                &QuickJs::new_string(token, "Host").unwrap(),
                 QuickJs::constructor(
                     token,
                     "Host",
@@ -239,7 +239,7 @@ mod tests {
                                 call.new_target
                                     .as_ref()
                                     .unwrap(),
-                                &QuickJs::string(call.token, "prototype")?,
+                                &QuickJs::new_string(call.token, "prototype")?,
                             )?,
                             Counter(QuickJs::as_f64(call.token, &call.args[0])?),
                         )
@@ -290,11 +290,11 @@ mod tests {
         QuickJs::enter(&engine, &context, |token| {
             let instance = QuickJs::instantiate(
                 token,
-                &QuickJs::object(token).unwrap(),
+                &QuickJs::new_object(token).unwrap(),
                 Counter(0.0),
             )
             .unwrap();
-            let plain = QuickJs::object(token).unwrap();
+            let plain = QuickJs::new_object(token).unwrap();
 
             {
                 let _shared = QuickJs::borrow::<Counter>(token, &instance).unwrap();
@@ -334,7 +334,7 @@ mod tests {
                     .is_err_and(|error| error.is_conversion()),
             );
             assert!(
-                QuickJs::instantiate(token, &QuickJs::number(token, 1.0), Counter(0.0))
+                QuickJs::instantiate(token, &QuickJs::new_number(token, 1.0), Counter(0.0))
                     .is_err_and(|error| error.is_conversion()),
             );
         });

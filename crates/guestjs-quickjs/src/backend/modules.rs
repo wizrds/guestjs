@@ -342,7 +342,7 @@ mod tests {
                 "numbers" => QuickJs::synthetic(
                     token,
                     name,
-                    vec![("one".to_string(), QuickJs::number(token, 1.0))],
+                    vec![("one".to_string(), QuickJs::new_number(token, 1.0))],
                 ),
                 "double" => QuickJs::declare(
                     token,
@@ -511,8 +511,8 @@ mod tests {
                     token,
                     "twice",
                     vec![
-                        ("a".to_string(), QuickJs::number(token, 1.0)),
-                        ("a".to_string(), QuickJs::number(token, 2.0)),
+                        ("a".to_string(), QuickJs::new_number(token, 1.0)),
+                        ("a".to_string(), QuickJs::new_number(token, 2.0)),
                     ],
                 ),
                 Err(Error::Guest(exception)) if exception.name() == "SyntaxError",
@@ -521,7 +521,7 @@ mod tests {
                 QuickJs::synthetic(
                     token,
                     "nul",
-                    vec![("a\0b".to_string(), QuickJs::number(token, 1.0))],
+                    vec![("a\0b".to_string(), QuickJs::new_number(token, 1.0))],
                 )
                 .is_err_and(|error| error.is_engine()),
             );
@@ -529,7 +529,7 @@ mod tests {
             QuickJs::synthetic(
                 token,
                 "twice",
-                vec![("a".to_string(), QuickJs::number(token, 3.0))],
+                vec![("a".to_string(), QuickJs::new_number(token, 3.0))],
             )
             .unwrap();
 

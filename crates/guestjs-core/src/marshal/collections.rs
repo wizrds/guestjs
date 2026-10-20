@@ -1,9 +1,13 @@
 use std::{
     collections::{
         BTreeMap,
+        BTreeSet,
         HashMap,
+        HashSet,
     },
     hash::Hash,
+    iter::from_fn,
+    marker::PhantomData,
     vec::IntoIter,
 };
 
@@ -11,6 +15,7 @@ use crate::{
     backend::{
         values::{
             BackendValues,
+            IteratorKind,
             Kind,
         },
         Backend,
@@ -133,6 +138,78 @@ impl<'js, B: Backend> IntoIterator for Entries<'js, B> {
         self.entries.into_iter()
     }
 }
+
+pub struct Members<'js, B: Backend> {
+    values: Vec<Val<'js, B>>,
+}
+
+impl<'js, B: BackendValues> Members<'js, B> {
+    pub fn read(
+        enter: &Enter<'js, B>,
+        set: &Val<'js, B>,
+    ) -> Result<Self, Error> {
+        match B::kind(enter.token(), set) {
+            Kind::Set => match B::iter(enter.token(), set, IteratorKind::Sync)? {
+                Some(iterator) => Ok(Self {
+                    values: from_fn(|| {
+                        B::next(enter.token(), &iterator)
+                            .and_then(|result| B::step(enter.token(), &result))
+                            .transpose()
+                    })
+                    .collect::<Result<_, _>>()?,
+                }),
+                None => Err(Expected::of::<Self>().mismatch(Kind::Set)),
+            },
+            kind => Err(Expected::of::<Self>().mismatch(kind)),
+        }
+    }
+}
+
+impl<B: Backend> Describe for Members<'_, B> {
+    fn describe(expected: &mut Expected) {
+        expected.push("set");
+    }
+}
+
+impl<'js, B: Backend> IntoIterator for Members<'js, B> {
+    type Item = Val<'js, B>;
+    type IntoIter = IntoIter<Val<'js, B>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.values.into_iter()
+    }
+}
+
+pub struct IterItem<T> {
+    target: PhantomData<fn() -> T>,
+}
+
+impl<T> Describe for IterItem<T> {
+    fn describe(expected: &mut Expected) {
+        expected.push("iter item");
+    }
+}
+
+impl<B, T> FromGuest<B> for IterItem<T>
+where
+    B: BackendValues,
+    T: FromGuest<B>,
+{
+    type Owned = Option<T::Owned>;
+
+    fn from_guest<'js>(
+        enter: &Enter<'js, B>,
+        value: Val<'js, B>,
+    ) -> Result<Self::Owned, Error> {
+        match B::kind(enter.token(), &value) {
+            kind if kind.is_object() => B::step(enter.token(), &value)?
+                .map(|item| T::from_guest(enter, item))
+                .transpose(),
+            kind => Err(Expected::of::<Self>().mismatch(kind)),
+        }
+    }
+}
+
 macro_rules! tuple {
     ($count:literal; $($name:ident $value:ident),+) => {
         impl<$($name),+> Describe for ($($name,)+) {
@@ -150,7 +227,7 @@ macro_rules! tuple {
                 self,
                 enter: &Enter<'js, B>,
             ) -> Result<Val<'js, B>, Error> {
-                B::array(enter.token(), self.to_guest_args(enter)?)
+                B::new_array(enter.token(), self.to_guest_args(enter)?)
             }
         }
 
@@ -193,7 +270,7 @@ macro_rules! map {
                 enter: &Enter<'js, B>,
             ) -> Result<Val<'js, B>, Error> {
                 self.into_iter().try_fold(
-                    B::object(enter.token())?,
+                    B::new_object(enter.token())?,
                     |object, (key, value)| {
                         B::set(
                             enter.token(),
@@ -233,6 +310,53 @@ macro_rules! map {
     };
 }
 
+macro_rules! set {
+    ($set:ident, $($item_bound:tt)+) => {
+        impl<T> Describe for $set<T> {
+            fn describe(expected: &mut Expected) {
+                expected.push("set");
+            }
+        }
+
+        impl<B, T> ToGuest<B> for $set<T>
+        where
+            B: BackendValues,
+            T: ToGuest<B>,
+        {
+            fn to_guest<'js>(
+                self,
+                enter: &Enter<'js, B>,
+            ) -> Result<Val<'js, B>, Error> {
+                B::new_set(
+                    enter.token(),
+                    self.into_iter()
+                        .collect::<Vec<_>>()
+                        .to_guest_args(enter)?,
+                )
+            }
+        }
+
+        impl<B, T> FromGuest<B> for $set<T>
+        where
+            B: BackendValues,
+            T: FromGuest<B>,
+            T::Owned: $($item_bound)+,
+        {
+            type Owned = $set<T::Owned>;
+
+            fn from_guest<'js>(
+                enter: &Enter<'js, B>,
+                value: Val<'js, B>,
+            ) -> Result<Self::Owned, Error> {
+                Members::read(enter, &value)?
+                    .into_iter()
+                    .map(|item| T::from_guest(enter, item))
+                    .collect()
+            }
+        }
+    };
+}
+
 tuple!(1; A a);
 tuple!(2; A a, B2 b);
 tuple!(3; A a, B2 b, C c);
@@ -247,6 +371,8 @@ tuple!(11; A a, B2 b, C c, D d, E e, F f, G g, H h, I i, J j, K k);
 tuple!(12; A a, B2 b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l);
 map!(HashMap, Eq + Hash);
 map!(BTreeMap, Ord);
+set!(HashSet, Eq + Hash);
+set!(BTreeSet, Ord);
 
 impl<T: Describe> Describe for Option<T> {
     fn describe(expected: &mut Expected) {
@@ -267,7 +393,7 @@ where
     ) -> Result<Val<'js, B>, Error> {
         match self {
             Some(value) => value.to_guest(enter),
-            None => Ok(B::null(enter.token())),
+            None => Ok(B::new_null(enter.token())),
         }
     }
 }
@@ -305,7 +431,7 @@ where
         self,
         enter: &Enter<'js, B>,
     ) -> Result<Val<'js, B>, Error> {
-        B::array(enter.token(), self.to_guest_args(enter)?)
+        B::new_array(enter.token(), self.to_guest_args(enter)?)
     }
 }
 
@@ -327,11 +453,59 @@ where
     }
 }
 
+impl<T, const N: usize> Describe for [T; N] {
+    fn describe(expected: &mut Expected) {
+        expected.push("array");
+    }
+}
+
+impl<B, T, const N: usize> ToGuest<B> for [T; N]
+where
+    B: BackendValues,
+    T: ToGuest<B>,
+{
+    fn to_guest<'js>(
+        self,
+        enter: &Enter<'js, B>,
+    ) -> Result<Val<'js, B>, Error> {
+        Vec::from(self).to_guest(enter)
+    }
+}
+
+impl<B, T, const N: usize> FromGuest<B> for [T; N]
+where
+    B: BackendValues,
+    T: FromGuest<B>,
+{
+    type Owned = [T::Owned; N];
+
+    fn from_guest<'js>(
+        enter: &Enter<'js, B>,
+        value: Val<'js, B>,
+    ) -> Result<Self::Owned, Error> {
+        Vec::<T>::from_guest(enter, value)?
+            .try_into()
+            .map_err(|values: Vec<_>| {
+                Error::conversion(
+                    format!("array of length {N}"),
+                    format!("array of length {}", values.len()),
+                )
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{
+        BTreeSet,
+        HashMap,
+        HashSet,
+    };
 
-    use crate::marshal::describe::Expected;
+    use crate::marshal::{
+        collections::IterItem,
+        describe::Expected,
+    };
 
     #[test]
     fn option_adds_the_nullish_values() {
@@ -349,6 +523,26 @@ mod tests {
     fn sequences_accept_arrays() {
         assert_eq!(Expected::of::<Vec<i64>>().to_string(), "array");
         assert_eq!(Expected::of::<(i64, String)>().to_string(), "array");
+    }
+
+    #[test]
+    fn fixed_arrays_accept_arrays() {
+        assert_eq!(Expected::of::<[i64; 3]>().to_string(), "array");
+    }
+
+    #[test]
+    fn sets_accept_sets() {
+        assert_eq!(Expected::of::<HashSet<i64>>().to_string(), "set");
+        assert_eq!(Expected::of::<BTreeSet<i64>>().to_string(), "set");
+    }
+
+
+    #[test]
+    fn item_description_names_an_iter_item() {
+        assert_eq!(
+            Expected::of::<IterItem<String>>().to_string(),
+            "iter item",
+        );
     }
 
     #[test]

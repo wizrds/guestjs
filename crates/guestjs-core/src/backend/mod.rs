@@ -93,6 +93,7 @@ pub mod tests {
             },
             values::{
                 BackendValues,
+                IteratorKind,
                 Kind,
                 Property,
                 WellKnown,
@@ -174,37 +175,43 @@ pub mod tests {
     }
 
     impl BackendValues for Stub {
-        fn undefined<'js>(_token: Tok<'js, Self>) -> Val<'js, Self> {
+        fn new_undefined<'js>(_token: Tok<'js, Self>) -> Val<'js, Self> {
             unimplemented!()
         }
 
-        fn null<'js>(_token: Tok<'js, Self>) -> Val<'js, Self> {
+        fn new_null<'js>(_token: Tok<'js, Self>) -> Val<'js, Self> {
             unimplemented!()
         }
 
-        fn boolean<'js>(_token: Tok<'js, Self>, _value: bool) -> Val<'js, Self> {
+        fn new_boolean<'js>(
+            _token: Tok<'js, Self>,
+            _value: bool,
+        ) -> Val<'js, Self> {
             unimplemented!()
         }
 
-        fn number<'js>(_token: Tok<'js, Self>, _value: f64) -> Val<'js, Self> {
+        fn new_number<'js>(
+            _token: Tok<'js, Self>,
+            _value: f64,
+        ) -> Val<'js, Self> {
             unimplemented!()
         }
 
-        fn bigint<'js>(
+        fn new_bigint<'js>(
             _token: Tok<'js, Self>,
             _value: i64,
         ) -> Result<Val<'js, Self>, Error> {
             unimplemented!()
         }
 
-        fn string<'js>(
+        fn new_string<'js>(
             _token: Tok<'js, Self>,
             _value: &str,
         ) -> Result<Val<'js, Self>, Error> {
             unimplemented!()
         }
 
-        fn symbol<'js>(
+        fn new_symbol<'js>(
             _token: Tok<'js, Self>,
             _description: &str,
         ) -> Result<Val<'js, Self>, Error> {
@@ -218,14 +225,23 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn array<'js>(
+        fn new_array<'js>(
             _token: Tok<'js, Self>,
             _items: Vec<Val<'js, Self>>,
         ) -> Result<Val<'js, Self>, Error> {
             unimplemented!()
         }
 
-        fn object<'js>(_token: Tok<'js, Self>) -> Result<Val<'js, Self>, Error> {
+        fn new_object<'js>(
+            _token: Tok<'js, Self>,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn new_set<'js>(
+            _token: Tok<'js, Self>,
+            _items: Vec<Val<'js, Self>>,
+        ) -> Result<Val<'js, Self>, Error> {
             unimplemented!()
         }
 
@@ -234,6 +250,13 @@ pub mod tests {
         }
 
         fn as_bool<'js>(
+            _token: Tok<'js, Self>,
+            _value: &Val<'js, Self>,
+        ) -> Result<bool, Error> {
+            unimplemented!()
+        }
+
+        fn truthy<'js>(
             _token: Tok<'js, Self>,
             _value: &Val<'js, Self>,
         ) -> Result<bool, Error> {
@@ -361,6 +384,35 @@ pub mod tests {
             _token: Tok<'js, Self>,
             _constructor: &Val<'js, Self>,
             _args: &[Val<'js, Self>],
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn iter<'js>(
+            _token: Tok<'js, Self>,
+            _iterable: &Val<'js, Self>,
+            _kind: IteratorKind,
+        ) -> Result<Option<Val<'js, Self>>, Error> {
+            unimplemented!()
+        }
+
+        fn next<'js>(
+            _token: Tok<'js, Self>,
+            _iterator: &Val<'js, Self>,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn step<'js>(
+            _token: Tok<'js, Self>,
+            _result: &Val<'js, Self>,
+        ) -> Result<Option<Val<'js, Self>>, Error> {
+            unimplemented!()
+        }
+
+        fn close<'js>(
+            _token: Tok<'js, Self>,
+            _iterator: &Val<'js, Self>,
         ) -> Result<Val<'js, Self>, Error> {
             unimplemented!()
         }

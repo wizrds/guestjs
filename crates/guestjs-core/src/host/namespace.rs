@@ -231,7 +231,7 @@ impl<B: BackendCallables> Declaration<B> for NamespaceDeclaration<B> {
         state: &HostState,
         name: &str,
     ) -> Result<Val<'js, B>, Error> {
-        let object = B::object(enter.token())?;
+        let object = B::new_object(enter.token())?;
 
         B::define(
             enter.token(),
