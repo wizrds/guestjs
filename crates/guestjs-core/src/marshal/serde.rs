@@ -26,16 +26,15 @@ use serde::{
 
 use crate::{
     backend::{
-        values::{
-            BackendValues,
-            Kind,
-        },
+        buffers::BackendBuffers,
+        values::Kind,
         Backend,
         Val,
     },
     enter::Enter,
     errors::Error,
     marshal::{
+        buffers::BufferSource,
         collections::{
             Elements,
             Entries,
@@ -54,7 +53,7 @@ pub struct Serializer<'a, 'js, B: Backend> {
     enter: &'a Enter<'js, B>,
 }
 
-impl<'a, 'js, B: BackendValues> Serializer<'a, 'js, B> {
+impl<'a, 'js, B: BackendBuffers> Serializer<'a, 'js, B> {
     pub fn new(enter: &'a Enter<'js, B>) -> Self {
         Self {
             enter,
@@ -79,7 +78,7 @@ impl<'a, 'js, B: BackendValues> Serializer<'a, 'js, B> {
     }
 }
 
-impl<'a, 'js, B: BackendValues> ser::Serializer for Serializer<'a, 'js, B> {
+impl<'a, 'js, B: BackendBuffers> ser::Serializer for Serializer<'a, 'js, B> {
     type Ok = Val<'js, B>;
     type Error = Error;
     type SerializeSeq = ArraySerializer<'a, 'js, B>;
@@ -144,10 +143,8 @@ impl<'a, 'js, B: BackendValues> ser::Serializer for Serializer<'a, 'js, B> {
         value.to_guest(self.enter)
     }
 
-    fn serialize_bytes(self, _value: &[u8]) -> Result<Val<'js, B>, Error> {
-        Err(Error::unsupported(
-            "bytes cannot be converted to a guest value",
-        ))
+    fn serialize_bytes(self, value: &[u8]) -> Result<Val<'js, B>, Error> {
+        value.to_guest(self.enter)
     }
 
     fn serialize_none(self) -> Result<Val<'js, B>, Error> {
@@ -279,7 +276,7 @@ pub struct ArraySerializer<'a, 'js, B: Backend> {
     items: Vec<Val<'js, B>>,
 }
 
-impl<'a, 'js, B: BackendValues> ArraySerializer<'a, 'js, B> {
+impl<'a, 'js, B: BackendBuffers> ArraySerializer<'a, 'js, B> {
     pub fn new(enter: &'a Enter<'js, B>) -> Self {
         Self {
             enter,
@@ -288,7 +285,7 @@ impl<'a, 'js, B: BackendValues> ArraySerializer<'a, 'js, B> {
     }
 }
 
-impl<'a, 'js, B: BackendValues> SerializeSeq for ArraySerializer<'a, 'js, B> {
+impl<'a, 'js, B: BackendBuffers> SerializeSeq for ArraySerializer<'a, 'js, B> {
     type Ok = Val<'js, B>;
     type Error = Error;
 
@@ -306,7 +303,7 @@ impl<'a, 'js, B: BackendValues> SerializeSeq for ArraySerializer<'a, 'js, B> {
     }
 }
 
-impl<'a, 'js, B: BackendValues> SerializeTuple
+impl<'a, 'js, B: BackendBuffers> SerializeTuple
     for ArraySerializer<'a, 'js, B>
 {
     type Ok = Val<'js, B>;
@@ -324,7 +321,7 @@ impl<'a, 'js, B: BackendValues> SerializeTuple
     }
 }
 
-impl<'a, 'js, B: BackendValues> SerializeTupleStruct
+impl<'a, 'js, B: BackendBuffers> SerializeTupleStruct
     for ArraySerializer<'a, 'js, B>
 {
     type Ok = Val<'js, B>;
@@ -348,7 +345,7 @@ pub struct ObjectSerializer<'a, 'js, B: Backend> {
     key: Option<Val<'js, B>>,
 }
 
-impl<'a, 'js, B: BackendValues> ObjectSerializer<'a, 'js, B> {
+impl<'a, 'js, B: BackendBuffers> ObjectSerializer<'a, 'js, B> {
     pub fn new(enter: &'a Enter<'js, B>) -> Result<Self, Error> {
         Ok(Self {
             enter,
@@ -358,7 +355,7 @@ impl<'a, 'js, B: BackendValues> ObjectSerializer<'a, 'js, B> {
     }
 }
 
-impl<'a, 'js, B: BackendValues> SerializeMap for ObjectSerializer<'a, 'js, B> {
+impl<'a, 'js, B: BackendBuffers> SerializeMap for ObjectSerializer<'a, 'js, B> {
     type Ok = Val<'js, B>;
     type Error = Error;
 
@@ -389,7 +386,7 @@ impl<'a, 'js, B: BackendValues> SerializeMap for ObjectSerializer<'a, 'js, B> {
     }
 }
 
-impl<'a, 'js, B: BackendValues> SerializeStruct
+impl<'a, 'js, B: BackendBuffers> SerializeStruct
     for ObjectSerializer<'a, 'js, B>
 {
     type Ok = Val<'js, B>;
@@ -417,7 +414,7 @@ pub struct VariantSerializer<'a, 'js, B: Backend, S> {
     inner: S,
 }
 
-impl<'a, 'js, B: BackendValues, S> VariantSerializer<'a, 'js, B, S> {
+impl<'a, 'js, B: BackendBuffers, S> VariantSerializer<'a, 'js, B, S> {
     pub fn new(
         enter: &'a Enter<'js, B>,
         variant: &'static str,
@@ -431,7 +428,7 @@ impl<'a, 'js, B: BackendValues, S> VariantSerializer<'a, 'js, B, S> {
     }
 }
 
-impl<'a, 'js, B: BackendValues> SerializeTupleVariant
+impl<'a, 'js, B: BackendBuffers> SerializeTupleVariant
     for VariantSerializer<'a, 'js, B, ArraySerializer<'a, 'js, B>>
 {
     type Ok = Val<'js, B>;
@@ -450,7 +447,7 @@ impl<'a, 'js, B: BackendValues> SerializeTupleVariant
     }
 }
 
-impl<'a, 'js, B: BackendValues> SerializeStructVariant
+impl<'a, 'js, B: BackendBuffers> SerializeStructVariant
     for VariantSerializer<'a, 'js, B, ObjectSerializer<'a, 'js, B>>
 {
     type Ok = Val<'js, B>;
@@ -478,7 +475,7 @@ pub struct Deserializer<'a, 'js, B: Backend> {
     value: Val<'js, B>,
 }
 
-impl<'a, 'js, B: BackendValues> Deserializer<'a, 'js, B> {
+impl<'a, 'js, B: BackendBuffers> Deserializer<'a, 'js, B> {
     pub fn new(
         enter: &'a Enter<'js, B>,
         value: Val<'js, B>,
@@ -499,11 +496,14 @@ impl<B: Backend> Describe for Deserializer<'_, '_, B> {
         expected.push("bigint");
         expected.push("string");
         expected.push("array");
+        expected.push("ArrayBuffer");
+        expected.push("typed array");
+        expected.push("DataView");
         expected.push("object");
     }
 }
 
-impl<'de, 'a, 'js, B: BackendValues> de::Deserializer<'de>
+impl<'de, 'a, 'js, B: BackendBuffers> de::Deserializer<'de>
     for Deserializer<'a, 'js, B>
 {
     type Error = Error;
@@ -536,6 +536,12 @@ impl<'de, 'a, 'js, B: BackendValues> de::Deserializer<'de>
                 self.enter,
                 Elements::read(self.enter, &self.value)?,
             )),
+            Kind::ArrayBuffer | Kind::TypedArray | Kind::DataView => {
+                visitor.visit_byte_buf(
+                    BufferSource::read(self.enter, &self.value)?
+                        .bytes(self.enter)?,
+                )
+            }
             Kind::Object => visitor.visit_map(ObjectAccess::new(
                 self.enter,
                 Entries::read(self.enter, &self.value)?,
@@ -588,7 +594,7 @@ pub struct ArrayAccess<'a, 'js, B: Backend> {
     items: IntoIter<Val<'js, B>>,
 }
 
-impl<'a, 'js, B: BackendValues> ArrayAccess<'a, 'js, B> {
+impl<'a, 'js, B: BackendBuffers> ArrayAccess<'a, 'js, B> {
     pub fn new(
         enter: &'a Enter<'js, B>,
         elements: Elements<'js, B>,
@@ -600,7 +606,7 @@ impl<'a, 'js, B: BackendValues> ArrayAccess<'a, 'js, B> {
     }
 }
 
-impl<'de, 'a, 'js, B: BackendValues> de::SeqAccess<'de>
+impl<'de, 'a, 'js, B: BackendBuffers> de::SeqAccess<'de>
     for ArrayAccess<'a, 'js, B>
 {
     type Error = Error;
@@ -629,7 +635,7 @@ pub struct ObjectAccess<'a, 'js, B: Backend> {
     value: Option<Val<'js, B>>,
 }
 
-impl<'a, 'js, B: BackendValues> ObjectAccess<'a, 'js, B> {
+impl<'a, 'js, B: BackendBuffers> ObjectAccess<'a, 'js, B> {
     pub fn new(
         enter: &'a Enter<'js, B>,
         entries: Entries<'js, B>,
@@ -642,7 +648,7 @@ impl<'a, 'js, B: BackendValues> ObjectAccess<'a, 'js, B> {
     }
 }
 
-impl<'de, 'a, 'js, B: BackendValues> de::MapAccess<'de>
+impl<'de, 'a, 'js, B: BackendBuffers> de::MapAccess<'de>
     for ObjectAccess<'a, 'js, B>
 {
     type Error = Error;
@@ -686,7 +692,7 @@ pub struct VariantAccess<'a, 'js, B: Backend> {
     value: Val<'js, B>,
 }
 
-impl<'a, 'js, B: BackendValues> VariantAccess<'a, 'js, B> {
+impl<'a, 'js, B: BackendBuffers> VariantAccess<'a, 'js, B> {
     pub fn new(
         enter: &'a Enter<'js, B>,
         [(variant, value)]: [(Val<'js, B>, Val<'js, B>); 1],
@@ -699,7 +705,7 @@ impl<'a, 'js, B: BackendValues> VariantAccess<'a, 'js, B> {
     }
 }
 
-impl<'de, 'a, 'js, B: BackendValues> de::EnumAccess<'de>
+impl<'de, 'a, 'js, B: BackendBuffers> de::EnumAccess<'de>
     for VariantAccess<'a, 'js, B>
 {
     type Error = Error;
@@ -719,7 +725,7 @@ impl<'de, 'a, 'js, B: BackendValues> de::EnumAccess<'de>
     }
 }
 
-impl<'de, 'a, 'js, B: BackendValues> de::VariantAccess<'de>
+impl<'de, 'a, 'js, B: BackendBuffers> de::VariantAccess<'de>
     for VariantAccess<'a, 'js, B>
 {
     type Error = Error;
@@ -774,7 +780,7 @@ impl<T> Serde<T> {
 
 impl<B, T> ToGuest<B> for Serde<T>
 where
-    B: BackendValues,
+    B: BackendBuffers,
     T: Serialize,
 {
     fn to_guest<'js>(
@@ -787,7 +793,7 @@ where
 
 impl<B, T> FromGuest<B> for Serde<T>
 where
-    B: BackendValues,
+    B: BackendBuffers,
     T: DeserializeOwned + 'static,
 {
     type Owned = T;
@@ -841,7 +847,7 @@ mod tests {
 
     use crate::{
         backend::{
-            values::BackendValues,
+            buffers::BackendBuffers,
             Backend,
         },
         errors::Error,
@@ -853,7 +859,7 @@ mod tests {
     };
 
     #[allow(dead_code)]
-    fn conversions<B: BackendValues>() {
+    fn conversions<B: BackendBuffers>() {
         fn to<B: Backend, T: ToGuest<B>>() {}
         fn from<B: Backend, T: FromGuest<B, Owned = O>, O>() {}
 

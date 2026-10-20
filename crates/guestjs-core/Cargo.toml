@@ -10,6 +10,7 @@ readme.workspace = true
 [dependencies]
 async-trait = { workspace = true }
 futures = { workspace = true }
+bytes = { workspace = true, optional = true }
 include_dir = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["fs"] }
 tokio-util = { workspace = true, optional = true }
@@ -25,6 +26,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 
 [features]
 default = []
+bytes = ["dep:bytes"]
 embedded = ["dep:include_dir"]
 tokio = ["dep:tokio", "dep:tokio-util"]
 serde = ["dep:serde"]

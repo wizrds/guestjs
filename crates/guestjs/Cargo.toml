@@ -17,6 +17,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [features]
 default = []
+bytes = ["guestjs-core/bytes"]
 embedded = ["guestjs-core/embedded"]
 tokio = ["guestjs-core/tokio"]
 quickjs = ["dep:guestjs-quickjs"]

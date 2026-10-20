@@ -1,4 +1,5 @@
 pub mod base;
+pub mod buffer;
 pub mod class;
 pub mod function;
 pub mod iter;

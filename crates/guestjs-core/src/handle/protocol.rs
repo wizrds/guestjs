@@ -1,16 +1,21 @@
 use crate::{
-    backend::values::{
-        BackendValues,
-        Kind,
+    backend::{
+        buffers::BackendBuffers,
+        values::{
+            BackendValues,
+            Kind,
+        },
     },
     errors::Error,
     handle::{
+        buffer::ArrayBuffer,
         class::Class,
         function::Function,
         object::Object,
         HasHandle,
     },
     marshal::{
+        buffers::BufferSource,
         FromGuest,
         ToGuest,
         ToGuestArgs,
@@ -166,6 +171,40 @@ pub trait CallableProtocol<B: BackendValues>: HasHandle<B> {
         R: FromGuest<B>,
     {
         self.call_this::<_, _, R>((), args)
+    }
+}
+
+pub trait BufferProtocol<B: BackendBuffers>: HasHandle<B> {
+    fn byte_length(&self) -> Result<usize, Error> {
+        self.handle().with_enter(|enter, value| {
+            B::byte_length(enter.token(), value)
+        })
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, Error> {
+        self.handle().with_enter(|enter, value| {
+            BufferSource::read(enter, value)?.bytes(enter)
+        })
+    }
+
+    fn write_bytes(&self, byte_offset: usize, bytes: &[u8]) -> Result<(), Error> {
+        self.handle().with_enter(|enter, value| {
+            BufferSource::read(enter, value)?.write(enter, byte_offset, bytes)
+        })
+    }
+}
+
+pub trait ViewProtocol<B: BackendBuffers>: BufferProtocol<B> {
+    fn buffer(&self) -> Result<ArrayBuffer<B>, Error> {
+        self.handle().with_enter(|enter, view| {
+            ArrayBuffer::from_guest(enter, B::buffer(enter.token(), view)?)
+        })
+    }
+
+    fn byte_offset(&self) -> Result<usize, Error> {
+        self.handle().with_enter(|enter, view| {
+            B::byte_offset(enter.token(), view)
+        })
     }
 }
 

@@ -1,3 +1,4 @@
+pub mod buffers;
 pub mod callables;
 pub mod classes;
 pub mod exceptions;
@@ -72,6 +73,10 @@ pub mod tests {
 
     use crate::{
         backend::{
+            buffers::{
+                BackendBuffers,
+                ElementType,
+            },
             callables::{
                 BackendCallables,
                 RawBody,
@@ -414,6 +419,71 @@ pub mod tests {
             _token: Tok<'js, Self>,
             _iterator: &Val<'js, Self>,
         ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+    }
+
+    impl BackendBuffers for Stub {
+        fn new_array_buffer<'js>(
+            _token: Tok<'js, Self>,
+            _bytes: &[u8],
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn new_typed_array<'js>(
+            _token: Tok<'js, Self>,
+            _element: ElementType,
+            _buffer: &Val<'js, Self>,
+            _byte_offset: usize,
+            _length: usize,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn element_type<'js>(
+            _token: Tok<'js, Self>,
+            _typed_array: &Val<'js, Self>,
+        ) -> Result<ElementType, Error> {
+            unimplemented!()
+        }
+
+        fn buffer<'js>(
+            _token: Tok<'js, Self>,
+            _view: &Val<'js, Self>,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn byte_offset<'js>(
+            _token: Tok<'js, Self>,
+            _view: &Val<'js, Self>,
+        ) -> Result<usize, Error> {
+            unimplemented!()
+        }
+
+        fn byte_length<'js>(
+            _token: Tok<'js, Self>,
+            _value: &Val<'js, Self>,
+        ) -> Result<usize, Error> {
+            unimplemented!()
+        }
+
+        fn read<'js>(
+            _token: Tok<'js, Self>,
+            _buffer: &Val<'js, Self>,
+            _byte_offset: usize,
+            _byte_length: usize,
+        ) -> Result<Vec<u8>, Error> {
+            unimplemented!()
+        }
+
+        fn write<'js>(
+            _token: Tok<'js, Self>,
+            _buffer: &Val<'js, Self>,
+            _byte_offset: usize,
+            _bytes: &[u8],
+        ) -> Result<(), Error> {
             unimplemented!()
         }
     }

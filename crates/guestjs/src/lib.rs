@@ -404,6 +404,45 @@
 //! parameter. Without `backend = B`, the derives introduce their own backend parameter. Union
 //! derives require the `serde` feature as well.
 //!
+//! # Binary data
+//!
+//! JavaScript binary data lives in an `ArrayBuffer` and is read and written through views: typed
+//! arrays and `DataView`. [`guestjs_core::handle::buffer::ArrayBuffer`](guestjs_core::handle::buffer::ArrayBuffer),
+//! [`guestjs_core::handle::buffer::TypedArray`](guestjs_core::handle::buffer::TypedArray) and
+//! [`guestjs_core::handle::buffer::DataView`](guestjs_core::handle::buffer::DataView) are live
+//! handles to those guest objects. Writes go into guest memory and reads return a copy:
+//!
+//! ```ignore
+//! use guestjs::prelude::*;
+//! use guestjs::quickjs::QuickJs;
+//!
+//! let guest = Runtime::<QuickJs>::builder()
+//!     .build()?
+//!     .guest()
+//!     .build()?;
+//!
+//! guest.exec(
+//!     r#"
+//! globalThis.pixels = new Uint8Array([1, 2, 3, 4]);
+//! "#,
+//! )?;
+//!
+//! let pixels = guest
+//!     .globals()?
+//!     .get::<Uint8Array<_>, _>("pixels")?;
+//!
+//! pixels.write(1, &[9, 9])?;
+//!
+//! assert_eq!(pixels.to_vec()?, [1, 9, 9, 4]);
+//! assert_eq!(pixels.buffer()?.byte_length()?, 4);
+//! ```
+//!
+//! A slice of a typed array element type becomes a new typed array of that type, so `&[u8]`
+//! becomes a `Uint8Array` and `&[f64]` a `Float64Array`. `Vec<T>` and Rust arrays still become
+//! JavaScript arrays. Under the `bytes` Cargo feature, `bytes::Bytes` becomes a `Uint8Array` and
+//! is read from any `ArrayBuffer`, typed array or `DataView`. Serde byte data under the `serde`
+//! feature follows the same rules. A `SharedArrayBuffer` and views over one are not accepted.
+//!
 //! # Host classes and modules
 //!
 //! [`crate::host_class`](crate::host_class) exposes an ordinary Rust type as a JavaScript
