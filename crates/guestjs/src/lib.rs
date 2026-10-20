@@ -404,6 +404,54 @@
 //! parameter. Without `backend = B`, the derives introduce their own backend parameter. Union
 //! derives require the `serde` feature as well.
 //!
+//! # Arrays
+//!
+//! [`guestjs_core::handle::array::Array<B>`](guestjs_core::handle::array::Array) retains a live JavaScript array. Cloning the handle preserves the same array; indexed writes through [`guestjs_core::handle::protocol::ObjectProtocol`](guestjs_core::handle::protocol::ObjectProtocol) are visible to JavaScript. [`guestjs_core::handle::array::Array::len`](guestjs_core::handle::array::Array::len) reads its logical length, including holes. [`guestjs_core::handle::array::Array::to_vec`](guestjs_core::handle::array::Array::to_vec) copies indexed values into Rust through the existing element conversions. Use [`std::vec::Vec<T>`](std::vec::Vec) when Rust needs a collection copy rather than a live guest array.
+//!
+//! ```ignore
+//! use guestjs::prelude::*;
+//! use guestjs::quickjs::QuickJs;
+//!
+//! let guest = Runtime::<QuickJs>::builder()
+//!     .build()?
+//!     .guest()
+//!     .build()?;
+//!
+//! guest.exec(
+//!     r#"
+//! globalThis.items = [1, 2, 3];
+//! "#,
+//! )?;
+//!
+//! let items = guest
+//!     .globals()?
+//!     .get::<Array<_>, _>("items")?;
+//! let same_items = items.clone();
+//! let copied = items.to_vec::<f64>()?;
+//!
+//! items.set(0, 10.0)?;
+//!
+//! assert_eq!(same_items.get::<f64, _>(0)?, 10.0);
+//! assert_eq!(copied, [1.0, 2.0, 3.0]);
+//!
+//! assert_eq!(items.call_method::<_, _, usize>("push", (4.0,))?, 4);
+//! assert_eq!(items.len()?, 4);
+//! assert!(!items.is_empty()?);
+//!
+//! items.delete(1)?;
+//!
+//! assert_eq!(items.len()?, 4);
+//! assert_eq!(
+//!     items.to_vec::<Option<f64>>()?,
+//!     [Some(10.0), None, Some(3.0), Some(4.0)],
+//! );
+//!
+//! items.set("length", 1)?;
+//!
+//! assert_eq!(items.to_vec::<f64>()?, [10.0]);
+//! assert_eq!(guest.eval::<f64>("items[0]")?, 10.0);
+//! ```
+//!
 //! # Binary data
 //!
 //! JavaScript binary data lives in an `ArrayBuffer` and is read and written through views: typed
@@ -442,6 +490,8 @@
 //! JavaScript arrays. Under the `bytes` Cargo feature, `bytes::Bytes` becomes a `Uint8Array` and
 //! is read from any `ArrayBuffer`, typed array or `DataView`. Serde byte data under the `serde`
 //! feature follows the same rules. A `SharedArrayBuffer` and views over one are not accepted.
+//!
+//! [`guestjs_core::handle::buffer::TypedArray::from_values`](guestjs_core::handle::buffer::TypedArray::from_values) constructs a fresh typed array from a Rust array, slice, or vector of its element type. The input is copied into guest memory; cloning the resulting handle instead retains the same guest view.
 //!
 //! # Host classes and modules
 //!

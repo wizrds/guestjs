@@ -33,6 +33,7 @@ pub use crate::{
         WeakGuest,
     },
     handle::{
+        array::*,
         base::*,
         buffer::*,
         class::*,

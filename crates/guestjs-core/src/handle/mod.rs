@@ -1,3 +1,4 @@
+pub mod array;
 pub mod base;
 pub mod buffer;
 pub mod class;

@@ -100,6 +100,16 @@ pub struct TypedArray<B: Backend, T> {
 }
 
 impl<B: BackendBuffers, T: Element> TypedArray<B, T> {
+    pub fn from_values<A>(
+        enter: &Enter<'_, B>,
+        values: A,
+    ) -> Result<Self, Error>
+    where
+        A: AsRef<[T]>,
+    {
+        Self::from_guest(enter, values.as_ref().to_guest(enter)?)
+    }
+
     pub fn len(&self) -> Result<usize, Error> {
         self.byte_length()
             .map(|byte_length| byte_length / T::TYPE.size())
