@@ -191,6 +191,18 @@ impl<B: BackendCallables> Declaration<B> for NamespaceDeclaration<B> {
     }
 }
 
+impl<B: BackendCallables> ToGuest<B> for NamespaceDeclaration<B> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        (&self).to_guest(enter)
+    }
+}
+
+impl<B: BackendCallables> ToGuest<B> for &NamespaceDeclaration<B> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        self.realise(enter, &HostState::empty(), "Object")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
@@ -210,6 +222,7 @@ mod tests {
             property::PropertyDeclaration,
             value::ValueDeclaration,
         },
+        marshal::ToGuest,
     };
 
     struct Counter;
@@ -239,6 +252,7 @@ mod tests {
         B: BackendClasses + BackendPromises + BackendExceptions,
     {
         fn declaration<B: BackendCallables, T: Declaration<B>>() {}
+        fn to<B: BackendCallables, T: ToGuest<B>>() {}
         fn clone<T: Clone>() {}
 
         let _ = NamespaceDeclaration::<B>::new()
@@ -263,6 +277,8 @@ mod tests {
             );
 
         declaration::<B, NamespaceDeclaration<B>>();
+        to::<B, NamespaceDeclaration<B>>();
+        to::<B, &NamespaceDeclaration<B>>();
         clone::<NamespaceDeclaration<B>>();
     }
 }

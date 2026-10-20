@@ -2,6 +2,7 @@ pub mod buffers;
 pub mod callables;
 pub mod classes;
 pub mod exceptions;
+pub mod gc;
 pub mod interrupt;
 pub mod library;
 pub mod modules;

@@ -111,7 +111,13 @@ impl<B: BackendCallables> Declaration<B> for FunctionDeclaration<B> {
 
 impl<B: BackendCallables> ToGuest<B> for FunctionDeclaration<B> {
     fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
-        self.realise(enter, &HostState::empty(), "")
+        (&self).to_guest(enter)
+    }
+}
+
+impl<B: BackendCallables> ToGuest<B> for &FunctionDeclaration<B> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        self.realise(enter, &HostState::empty(), "Function")
     }
 }
 

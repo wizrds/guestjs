@@ -26,6 +26,19 @@ pub struct Promise<B: Backend, T> {
     target: PhantomData<fn() -> T>,
 }
 
+impl<B: BackendPromises, T: 'static> Promise<B, T> {
+    pub fn resolve_value<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self, Error> {
+        Self::from_guest(enter, B::resolve(enter.token(), value)?)
+    }
+
+    pub fn resolve<V>(enter: &Enter<'_, B>, value: V) -> Result<Self, Error>
+    where
+        V: ToGuest<B>,
+    {
+        Self::resolve_value(enter, value.to_guest(enter)?)
+    }
+}
+
 impl<B: Backend, T> Clone for Promise<B, T> {
     fn clone(&self) -> Self {
         Self {

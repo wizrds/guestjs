@@ -8,12 +8,9 @@ pub mod catalog;
 pub mod driver;
 pub mod enter;
 pub mod errors;
-pub mod extensions;
-
-#[doc(hidden)]
-pub mod fixtures;
-
 pub mod eval;
+pub mod extensions;
+pub mod gc;
 pub mod guest;
 pub mod handle;
 pub mod host;
@@ -21,6 +18,9 @@ pub mod imports;
 pub mod marshal;
 pub mod policy;
 pub mod runtime;
+
+#[doc(hidden)]
+pub mod fixtures;
 
 #[cfg(feature = "embedded")]
 pub mod embed {

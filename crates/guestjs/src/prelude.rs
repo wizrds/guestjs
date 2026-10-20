@@ -1,7 +1,7 @@
 pub use crate::{
     backend::{
-        Backend, Tok, Val, buffers::*, callables::*, classes::*, exceptions::*, interrupt::*,
-        library::*, modules::*, promises::*, values::*,
+        Backend, Tok, Val, buffers::*, callables::*, classes::*, exceptions::*, gc::*,
+        interrupt::*, library::*, modules::*, promises::*, values::*,
     },
     builder::*,
     bundle::*,
@@ -11,10 +11,11 @@ pub use crate::{
     errors::*,
     eval::*,
     extensions::*,
+    gc::*,
     guest::{Guest, GuestId, WeakGuest, activity::*, registry::*},
     handle::{
         HasHandle, array::*, base::*, buffer::*, class::*, function::*, iter::*, module::*,
-        object::*, promise::*, protocol::*, value::*,
+        object::*, promise::*, protocol::*, stream::*, value::*,
     },
     host::{
         class::*, context::*, declaration::*, exception::*, function::*, library::*, module::*,
@@ -23,7 +24,7 @@ pub use crate::{
     imports::{GuestModules, GuestModulesExt, Imports, bindings::*, realise::*, resolver::*},
     marshal::{
         FromGuest, FromGuestMut, FromGuestRef, ToGuest, ToGuestArgs, args::*, buffers::*,
-        collections::*, describe::*, primitives::*,
+        collections::*, describe::*, nullish::*, primitives::*,
     },
     policy::*,
     runtime::*,

@@ -2,6 +2,7 @@ pub mod buffers;
 pub mod callables;
 pub mod classes;
 pub mod exceptions;
+pub mod gc;
 pub mod interrupt;
 pub mod library;
 pub mod modules;
@@ -62,6 +63,7 @@ pub mod tests {
             callables::{BackendCallables, RawBody},
             classes::BackendClasses,
             exceptions::BackendExceptions,
+            gc::BackendGc,
             interrupt::{BackendInterrupt, InterruptCondition},
             library::BackendLibrary,
             modules::{BackendModules, ModuleDispatcher},
@@ -567,6 +569,12 @@ pub mod tests {
         fn set_interrupt_condition(_engine: &Self::Engine, _condition: InterruptCondition) {}
 
         fn check<'js>(_token: Tok<'js, Self>) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+
+    impl BackendGc for Stub {
+        fn run_gc(_engine: &Self::Engine) -> Result<(), Error> {
             Ok(())
         }
     }

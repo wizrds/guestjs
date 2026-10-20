@@ -8,6 +8,7 @@ pub mod module;
 pub mod object;
 pub mod promise;
 pub mod protocol;
+pub mod stream;
 pub mod value;
 
 use crate::{backend::Backend, handle::base::Handle};

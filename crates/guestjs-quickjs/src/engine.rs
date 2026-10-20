@@ -199,4 +199,17 @@ impl Engine {
                     .expect("runtime lock is held elsewhere")
             })
     }
+
+    pub fn run_gc(&self) -> Result<(), Error> {
+        if self.is_entered() {
+            return Err(Error::unsupported("garbage collection requires an unentered engine"));
+        }
+
+        let _guard = DepthGuard::new(&self.depth);
+
+        self.runtime
+            .run_gc()
+            .now_or_never()
+            .ok_or_else(|| Error::engine("runtime lock is held elsewhere"))
+    }
 }

@@ -9,6 +9,20 @@ use crate::{
 };
 
 pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
+    fn prototype(&self) -> Result<Option<Object<B>>, Error> {
+        self.handle()
+            .with_enter(|enter, object| {
+                Option::<Object<B>>::from_guest(enter, B::prototype_of(enter.token(), object)?)
+            })
+    }
+
+    fn is_instance_of<R>(&self, class: &Class<B, R>) -> Result<bool, Error> {
+        self.handle()
+            .with_enter(|enter, object| {
+                B::instance_of(enter.token(), object, &class.to_guest(enter)?)
+            })
+    }
+
     fn cast<T>(&self) -> Result<T::Owned, Error>
     where
         T: FromGuest<B>,
@@ -74,13 +88,6 @@ pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
     {
         self.handle()
             .with_enter(|enter, object| B::has(enter.token(), object, &key.to_guest(enter)?))
-    }
-
-    fn is_instance_of<R>(&self, class: &Class<B, R>) -> Result<bool, Error> {
-        self.handle()
-            .with_enter(|enter, object| {
-                B::instance_of(enter.token(), object, &class.to_guest(enter)?)
-            })
     }
 
     fn keys<K>(&self) -> Result<Vec<K::Owned>, Error>
