@@ -37,38 +37,76 @@ use crate::{
         FromGuestMut,
         FromGuestRef,
         ToGuest,
+        ToGuestArgs,
     },
 };
 
-pub struct Class<B: Backend> {
+pub struct Class<B: Backend, R = Instance<B>> {
     handle: Handle<B>,
+    marker: PhantomData<fn() -> R>,
 }
 
-impl<B: Backend> Clone for Class<B> {
-    fn clone(&self) -> Self {
+impl<B: Backend, R> Class<B, R> {
+    fn from_handle(handle: Handle<B>) -> Self {
         Self {
-            handle: self.handle.clone(),
+            handle,
+            marker: PhantomData,
         }
+    }
+
+    pub fn with_result<O>(&self) -> Class<B, O> {
+        Class::from_handle(self.handle.clone())
+    }
+
+    pub fn into_result<O>(self) -> Class<B, O> {
+        Class::from_handle(self.handle)
     }
 }
 
-impl<B: Backend> HasHandle<B> for Class<B> {
+impl<B: BackendValues, R> Class<B, R> {
+    pub fn construct<A>(&self, args: A) -> Result<R::Owned, Error>
+    where
+        A: ToGuestArgs<B>,
+        R: FromGuest<B>,
+    {
+        self.construct_as::<A, R>(args)
+    }
+
+    pub fn construct_as<A, O>(
+        &self,
+        args: A,
+    ) -> Result<O::Owned, Error>
+    where
+        A: ToGuestArgs<B>,
+        O: FromGuest<B>,
+    {
+        ConstructorProtocol::construct::<O, A>(self, args)
+    }
+}
+
+impl<B: Backend, R> Clone for Class<B, R> {
+    fn clone(&self) -> Self {
+        Self::from_handle(self.handle.clone())
+    }
+}
+
+impl<B: Backend, R> HasHandle<B> for Class<B, R> {
     fn handle(&self) -> &Handle<B> {
         &self.handle
     }
 }
 
-impl<B: BackendValues> ObjectProtocol<B> for Class<B> {}
+impl<B: BackendValues, R> ObjectProtocol<B> for Class<B, R> {}
 
-impl<B: BackendValues> ConstructorProtocol<B> for Class<B> {}
+impl<B: BackendValues, R> ConstructorProtocol<B> for Class<B, R> {}
 
-impl<B: Backend> Describe for Class<B> {
+impl<B: Backend, R> Describe for Class<B, R> {
     fn describe(expected: &mut Expected) {
         expected.push("class");
     }
 }
 
-impl<B: BackendValues> FromGuest<B> for Class<B> {
+impl<B: BackendValues, R: 'static> FromGuest<B> for Class<B, R> {
     type Owned = Self;
 
     fn from_guest<'js>(
@@ -76,15 +114,15 @@ impl<B: BackendValues> FromGuest<B> for Class<B> {
         value: Val<'js, B>,
     ) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
-            Kind::Function => Ok(Self {
-                handle: Handle::from_value(enter, value),
-            }),
+            Kind::Function => {
+                Ok(Self::from_handle(Handle::from_value(enter, value)))
+            }
             kind => Err(Expected::of::<Self>().mismatch(kind)),
         }
     }
 }
 
-impl<B: Backend> ToGuest<B> for Class<B> {
+impl<B: Backend, R> ToGuest<B> for Class<B, R> {
     fn to_guest<'js>(
         self,
         enter: &Enter<'js, B>,
@@ -93,7 +131,7 @@ impl<B: Backend> ToGuest<B> for Class<B> {
     }
 }
 
-impl<B: Backend> ToGuest<B> for &Class<B> {
+impl<B: Backend, R> ToGuest<B> for &Class<B, R> {
     fn to_guest<'js>(
         self,
         enter: &Enter<'js, B>,
@@ -404,6 +442,37 @@ mod tests {
     }
 
     #[allow(dead_code)]
+    fn class_result_capabilities<B: BackendValues, R: 'static>() {
+        fn handle<B: Backend, T: HasHandle<B> + Clone>() {}
+        fn object<B: BackendValues, T: ObjectProtocol<B>>() {}
+        fn constructor<B: BackendValues, T: ConstructorProtocol<B>>() {}
+        fn from<B: BackendValues, T: FromGuest<B>>() {}
+        fn to<B: Backend, T: ToGuest<B>>() {}
+
+        handle::<B, Class<B, R>>();
+        object::<B, Class<B, R>>();
+        constructor::<B, Class<B, R>>();
+        from::<B, Class<B, R>>();
+        to::<B, Class<B, R>>();
+        to::<B, &Class<B, R>>();
+    }
+
+    #[allow(dead_code)]
+    fn class_result_methods<B, R>(
+        class: &Class<B, R>,
+    ) -> Result<R::Owned, Error>
+    where
+        B: BackendValues,
+        R: FromGuest<B>,
+    {
+        class.with_result::<Object<B>>();
+        class.clone().into_result::<Object<B>>();
+        class.construct_as::<_, Object<B>>(())?;
+
+        class.construct(())
+    }
+
+    #[allow(dead_code)]
     fn payload_capabilities<B: BackendClasses>() {
         fn object<B: BackendClasses, T: ObjectProtocol<B>>() {}
         fn from<B, T>()
@@ -474,6 +543,22 @@ mod tests {
     #[test]
     fn class_description_names_a_class() {
         assert_eq!(Expected::of::<Class<Stub>>().to_string(), "class");
+    }
+
+    #[test]
+    fn class_defaults_to_the_untyped_instance_result() {
+        assert_eq!(
+            TypeId::of::<Class<Stub>>(),
+            TypeId::of::<Class<Stub, Instance<Stub>>>(),
+        );
+    }
+
+    #[test]
+    fn class_description_does_not_depend_on_the_result() {
+        assert_eq!(
+            Expected::of::<Class<Stub, Counter>>().to_string(),
+            "class",
+        );
     }
 
     #[test]

@@ -27,6 +27,7 @@ use crate::{
     guest::Guest,
     handle::class::{
         Class,
+        Instance,
         Payload,
     },
     host::{
@@ -225,7 +226,9 @@ impl<B: Backend> Default for RealisedClasses<B> {
 pub trait HostClass<B: Backend>: Payload + Sized {
     fn declaration() -> ClassDeclaration<B, Self>;
 
-    fn class<'js>(enter: &Enter<'js, B>) -> Result<Class<B>, Error>
+    fn class<'js>(
+        enter: &Enter<'js, B>,
+    ) -> Result<Class<B, Instance<B, Self>>, Error>
     where
         B: BackendClasses + BackendExceptions,
     {
@@ -513,6 +516,7 @@ mod tests {
         handle::{
             class::{
                 Class,
+                Instance,
                 Payload,
             },
             value::Value,
@@ -682,7 +686,9 @@ mod tests {
     {
         fn declaration<B: BackendClasses + BackendExceptions, T: Declaration<B>>() {}
         fn to<B: BackendClasses, T: ToGuest<B>>() {}
-        fn class<B>(enter: &Enter<'_, B>) -> Result<Class<B>, Error>
+        fn class<B>(
+            enter: &Enter<'_, B>,
+        ) -> Result<Class<B, Instance<B, Counter>>, Error>
         where
             B: BackendClasses + BackendExceptions,
         {
