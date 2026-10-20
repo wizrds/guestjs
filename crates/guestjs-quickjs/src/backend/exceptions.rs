@@ -1,24 +1,12 @@
 use guestjs_core::{
-    backend::{
-        exceptions::BackendExceptions,
-        Tok,
-        Val,
-    },
-    errors::{
-        Error,
-        GuestErrorKind,
-    },
+    backend::{Tok, Val, exceptions::BackendExceptions},
+    errors::{Error, GuestErrorKind},
 };
 use rquickjs::Object;
 
 use crate::{
     backend::QuickJs,
-    error::{
-        Capture,
-        Create,
-        Raise,
-        Thrown,
-    },
+    error::{Capture, Create, Raise, Thrown},
 };
 
 impl BackendExceptions for QuickJs {
@@ -26,13 +14,8 @@ impl BackendExceptions for QuickJs {
         Thrown(value).into_error(token)
     }
 
-    fn exception<'js>(
-        token: Tok<'js, Self>,
-        error: Error,
-    ) -> Result<Val<'js, Self>, Error> {
-        error
-            .exception(token)
-            .capture(token)
+    fn exception<'js>(token: Tok<'js, Self>, error: Error) -> Result<Val<'js, Self>, Error> {
+        error.exception(token).capture(token)
     }
 
     fn error<'js>(
@@ -40,8 +23,7 @@ impl BackendExceptions for QuickJs {
         kind: GuestErrorKind,
         message: &str,
     ) -> Result<Val<'js, Self>, Error> {
-        kind
-            .create(token, message)
+        kind.create(token, message)
             .map(Object::into_value)
             .capture(token)
     }
@@ -50,22 +32,14 @@ impl BackendExceptions for QuickJs {
 #[cfg(test)]
 mod tests {
     use guestjs_core::{
-        backend::{
-            exceptions::BackendExceptions,
-            values::BackendValues,
-            Backend,
-        },
-        errors::{
-            Error,
-            GuestErrorKind,
-        },
+        backend::{Backend, exceptions::BackendExceptions, values::BackendValues},
+        errors::{Error, GuestErrorKind},
     };
     use rquickjs::Value;
 
-    use crate::{
-        backend::QuickJs,
-        engine::Config,
-    };
+    use crate::{backend::QuickJs, engine::Config};
+
+    guestjs_core::fixtures::exceptions::tests!(QuickJs);
 
     #[test]
     fn exception_returns_the_value_a_guest_catches() {
@@ -119,12 +93,8 @@ mod tests {
             assert_eq!(
                 QuickJs::as_string(
                     token,
-                    &QuickJs::get(
-                        token,
-                        &error,
-                        &QuickJs::new_string(token, "message").unwrap(),
-                    )
-                    .unwrap(),
+                    &QuickJs::get(token, &error, &QuickJs::new_string(token, "message").unwrap(),)
+                        .unwrap(),
                 )
                 .unwrap(),
                 message,
@@ -146,9 +116,7 @@ mod tests {
 
             assert_eq!(exception.name(), "RangeError");
             assert!(exception.matches("RangeError"));
-            assert!(!token
-                .ctx()
-                .has_exception());
+            assert!(!token.ctx().has_exception());
             assert!(QuickJs::same(
                 token,
                 &QuickJs::attach(token, exception.value().unwrap()).unwrap(),

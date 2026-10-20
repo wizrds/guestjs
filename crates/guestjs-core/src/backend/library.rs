@@ -1,8 +1,5 @@
 use crate::{
-    backend::{
-        modules::BackendModules,
-        Tok,
-    },
+    backend::{Tok, modules::BackendModules},
     errors::Error,
 };
 

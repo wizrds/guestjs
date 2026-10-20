@@ -1,21 +1,10 @@
 use std::cell::Cell;
 
 use crate::{
-    backend::{
-        callables::RawCall,
-        values::BackendValues,
-        Backend,
-        Val,
-    },
+    backend::{Backend, Val, callables::RawCall, values::BackendValues},
     enter::Enter,
     errors::Error,
-    marshal::{
-        FromGuest,
-        FromGuestMut,
-        FromGuestRef,
-        ToGuest,
-        ToGuestArgs,
-    },
+    marshal::{FromGuest, FromGuestMut, FromGuestRef, ToGuest, ToGuestArgs},
 };
 
 pub struct Args<'js, B: Backend> {
@@ -45,80 +34,56 @@ impl<'js, B: BackendValues> Args<'js, B> {
             .unwrap_or(&self.undefined)
     }
 
-    pub fn this<T>(
-        &self,
-        enter: &Enter<'js, B>,
-    ) -> Result<T::Owned, Error>
+    pub fn this<T>(&self, enter: &Enter<'js, B>) -> Result<T::Owned, Error>
     where
         T: FromGuest<B>,
     {
         T::from_guest(enter, self.this.clone())
     }
 
-    pub fn this_ref<T>(
-        &self,
-        enter: &Enter<'js, B>,
-    ) -> Result<T::Ref<'_>, Error>
+    pub fn this_ref<T>(&self, enter: &Enter<'js, B>) -> Result<T::Ref<'_>, Error>
     where
         T: FromGuestRef<B>,
     {
         T::from_guest_ref(enter, &self.this)
     }
 
-    pub fn this_mut<T>(
-        &self,
-        enter: &Enter<'js, B>,
-    ) -> Result<T::Mut<'_>, Error>
+    pub fn this_mut<T>(&self, enter: &Enter<'js, B>) -> Result<T::Mut<'_>, Error>
     where
         T: FromGuestMut<B>,
     {
         T::from_guest_mut(enter, &self.this)
     }
 
-    pub fn new_target<T>(
-        &self,
-        enter: &Enter<'js, B>,
-    ) -> Result<T::Owned, Error>
+    pub fn new_target<T>(&self, enter: &Enter<'js, B>) -> Result<T::Owned, Error>
     where
         T: FromGuest<B>,
     {
         T::from_guest(enter, self.new_target.clone())
     }
 
-    pub fn next<T>(
-        &self,
-        enter: &Enter<'js, B>,
-    ) -> Result<T::Owned, Error>
+    pub fn next<T>(&self, enter: &Enter<'js, B>) -> Result<T::Owned, Error>
     where
         T: FromGuest<B>,
     {
         T::from_guest(enter, self.advance().clone())
     }
 
-    pub fn next_ref<T>(
-        &self,
-        enter: &Enter<'js, B>,
-    ) -> Result<T::Ref<'_>, Error>
+    pub fn next_ref<T>(&self, enter: &Enter<'js, B>) -> Result<T::Ref<'_>, Error>
     where
         T: FromGuestRef<B>,
     {
         T::from_guest_ref(enter, self.advance())
     }
 
-    pub fn next_mut<T>(
-        &self,
-        enter: &Enter<'js, B>,
-    ) -> Result<T::Mut<'_>, Error>
+    pub fn next_mut<T>(&self, enter: &Enter<'js, B>) -> Result<T::Mut<'_>, Error>
     where
         T: FromGuestMut<B>,
     {
         T::from_guest_mut(enter, self.advance())
     }
 
-    pub fn rest<T>(
-        &self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Vec<T::Owned>, Error>
+    pub fn rest<T>(&self, enter: &Enter<'js, B>) -> Result<Vec<T::Owned>, Error>
     where
         T: FromGuest<B>,
     {
@@ -164,10 +129,7 @@ tuple!(A a, B2 b, C c, D d, E e, F f, G g, H h, I i, J j, K k);
 tuple!(A a, B2 b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l);
 
 impl<B: Backend> ToGuestArgs<B> for () {
-    fn to_guest_args<'js>(
-        self,
-        _enter: &Enter<'js, B>,
-    ) -> Result<Vec<Val<'js, B>>, Error> {
+    fn to_guest_args<'js>(self, _enter: &Enter<'js, B>) -> Result<Vec<Val<'js, B>>, Error> {
         Ok(Vec::new())
     }
 }
@@ -177,10 +139,7 @@ where
     B: Backend,
     T: ToGuest<B>,
 {
-    fn to_guest_args<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Vec<Val<'js, B>>, Error> {
+    fn to_guest_args<'js>(self, enter: &Enter<'js, B>) -> Result<Vec<Val<'js, B>>, Error> {
         self.into_iter()
             .map(|value| value.to_guest(enter))
             .collect()
@@ -189,12 +148,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        backend::tests::Stub,
-        guest::Guest,
-        marshal::ToGuestArgs,
-        runtime::Runtime,
-    };
+    use crate::{backend::tests::Stub, guest::Guest, marshal::ToGuestArgs, runtime::Runtime};
 
     #[test]
     fn unit_passes_no_arguments() {

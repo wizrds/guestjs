@@ -1,32 +1,15 @@
-use proc_macro2::{
-    Span,
-    TokenStream,
-};
+use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
-    spanned::Spanned,
-    FnArg,
-    GenericParam,
-    Ident,
-    Path,
-    ReturnType,
-    Safety,
-    Signature,
-    Type,
+    FnArg, GenericParam, Ident, Path, ReturnType, Safety, Signature, Type, spanned::Spanned,
 };
 
 use crate::{
     backend::BackendParameter,
     diagnostics::MacroError,
     host::{
-        parameter::{
-            Parameter,
-            ParameterSyntax,
-        },
-        receiver::{
-            ModuleReceiver,
-            Receiver,
-        },
+        parameter::{Parameter, ParameterSyntax},
+        receiver::{ModuleReceiver, Receiver},
     },
 };
 
@@ -36,20 +19,13 @@ struct AsyncArguments {
 }
 
 impl AsyncArguments {
-    fn new(
-        parameters: &[Parameter],
-        context: &TokenStream,
-        args: &TokenStream,
-    ) -> Self {
+    fn new(parameters: &[Parameter], context: &TokenStream, args: &TokenStream) -> Self {
         Self {
             names: parameters
                 .iter()
                 .enumerate()
                 .map(|(index, _)| {
-                    Ident::new(
-                        &format!("__guestjs_argument_{index}"),
-                        Span::mixed_site(),
-                    )
+                    Ident::new(&format!("__guestjs_argument_{index}"), Span::mixed_site())
                 })
                 .collect(),
             values: parameters
@@ -99,9 +75,12 @@ impl Callable {
             .into());
         }
 
-        if signature.generics.params.iter().any(|parameter| {
-            !matches!(parameter, GenericParam::Lifetime(_))
-        }) {
+        if signature
+            .generics
+            .params
+            .iter()
+            .any(|parameter| !matches!(parameter, GenericParam::Lifetime(_)))
+        {
             return Err(syn::Error::new_spanned(
                 &signature.generics,
                 "host callables cannot declare type or const parameters",
@@ -153,11 +132,7 @@ impl Callable {
         syn::Error::new(self.span, message)
     }
 
-    fn arguments(
-        &self,
-        context: &TokenStream,
-        args: &TokenStream,
-    ) -> Vec<TokenStream> {
+    fn arguments(&self, context: &TokenStream, args: &TokenStream) -> Vec<TokenStream> {
         self.parameters
             .iter()
             .map(|parameter| parameter.expression(context, args))
@@ -179,7 +154,11 @@ impl Callable {
     pub fn state_types(&self) -> Vec<Type> {
         let mut types = Vec::new();
 
-        for ty in self.parameters.iter().filter_map(Parameter::state_type) {
+        for ty in self
+            .parameters
+            .iter()
+            .filter_map(Parameter::state_type)
+        {
             if !types.contains(ty) {
                 types.push(ty.clone());
             }
@@ -191,9 +170,10 @@ impl Callable {
     pub fn validate_async(&self, module: bool) -> syn::Result<()> {
         if self.asynchronous
             && ((!module && self.has_receiver())
-                || self.parameters.iter().any(
-                    Parameter::borrows_context_or_argument,
-                ))
+                || self
+                    .parameters
+                    .iter()
+                    .any(Parameter::borrows_context_or_argument))
         {
             return Err(self.error(
                 "async host functions require owned arguments and no borrowed class receiver, context, entry, or this",
@@ -205,9 +185,7 @@ impl Callable {
 
     pub fn validate_constructor(&self) -> syn::Result<()> {
         if self.has_receiver() || self.asynchronous {
-            return Err(self.error(
-                "a constructor must be synchronous and have no receiver",
-            ));
+            return Err(self.error("a constructor must be synchronous and have no receiver"));
         }
 
         Ok(())
@@ -215,11 +193,14 @@ impl Callable {
 
     pub fn validate_instance(&self) -> syn::Result<()> {
         if !self.has_receiver()
-            && !self.parameters.iter().any(Parameter::is_this)
+            && !self
+                .parameters
+                .iter()
+                .any(Parameter::is_this)
         {
-            return Err(self.error(
-                "an instance member requires a payload receiver or explicit this",
-            ));
+            return Err(
+                self.error("an instance member requires a payload receiver or explicit this")
+            );
         }
 
         Ok(())
@@ -229,11 +210,12 @@ impl Callable {
         self.validate_instance()?;
 
         if self.asynchronous
-            || self.parameters.iter().any(Parameter::consumes_argument)
+            || self
+                .parameters
+                .iter()
+                .any(Parameter::consumes_argument)
         {
-            return Err(self.error(
-                "a getter must be synchronous and consume no positional values",
-            ));
+            return Err(self.error("a getter must be synchronous and consume no positional values"));
         }
 
         Ok(())
@@ -243,20 +225,22 @@ impl Callable {
         self.validate_instance()?;
 
         if self.asynchronous
-            || self.parameters
+            || self
+                .parameters
                 .iter()
                 .filter(|parameter| parameter.consumes_argument())
                 .count()
                 != 1
-            || self.parameters
+            || self
+                .parameters
                 .iter()
                 .filter(|parameter| parameter.is_value())
                 .count()
                 != 1
         {
-            return Err(self.error(
-                "a setter must be synchronous and take one ordinary positional value",
-            ));
+            return Err(
+                self.error("a setter must be synchronous and take one ordinary positional value")
+            );
         }
 
         Ok(())
@@ -264,9 +248,7 @@ impl Callable {
 
     pub fn validate_static(&self) -> syn::Result<()> {
         if self.has_receiver() {
-            return Err(self.error(
-                "a static member cannot have a payload receiver",
-            ));
+            return Err(self.error("a static member cannot have a payload receiver"));
         }
 
         Ok(())
@@ -274,9 +256,7 @@ impl Callable {
 
     pub fn validate_namespace_factory(&self) -> syn::Result<()> {
         if self.has_receiver() || self.asynchronous || !self.parameters.is_empty() {
-            return Err(self.error(
-                "a namespace factory must be synchronous and take no arguments",
-            ));
+            return Err(self.error("a namespace factory must be synchronous and take no arguments"));
         }
 
         Ok(())
@@ -285,7 +265,10 @@ impl Callable {
     pub fn validate_factory(&self) -> syn::Result<()> {
         if self.has_receiver()
             || self.asynchronous
-            || self.parameters.iter().any(|parameter| !parameter.is_enter())
+            || self
+                .parameters
+                .iter()
+                .any(|parameter| !parameter.is_enter())
         {
             return Err(self.error(
                 "a state factory must be synchronous and accept only injected entry parameters",
@@ -306,7 +289,10 @@ impl Callable {
         let ident = &self.ident;
         let turbofish = backend.turbofish();
         let enter = Ident::new("__guestjs_enter", Span::mixed_site());
-        let arguments = self.parameters.iter().map(|_| quote!(#enter));
+        let arguments = self
+            .parameters
+            .iter()
+            .map(|_| quote!(#enter));
 
         quote!(|#enter| Self::#ident #turbofish (#(#arguments),*))
     }
@@ -316,11 +302,7 @@ impl Callable {
         let args = Ident::new("__guestjs_args", Span::mixed_site());
 
         if self.asynchronous {
-            let prepared = AsyncArguments::new(
-                &self.parameters,
-                &quote!(#context),
-                &quote!(#args),
-            );
+            let prepared = AsyncArguments::new(&self.parameters, &quote!(#context), &quote!(#args));
             let preparation = prepared.preparation();
             let invocation = self.receiver.invoke(
                 &self.ident,
@@ -369,17 +351,9 @@ impl Callable {
 
         if self.asynchronous {
             let state = Ident::new("__guestjs_state", Span::mixed_site());
-            let prepared = AsyncArguments::new(
-                &self.parameters,
-                &quote!(#context),
-                &quote!(#args),
-            );
+            let prepared = AsyncArguments::new(&self.parameters, &quote!(#context), &quote!(#args));
             let preparation = prepared.preparation();
-            let state_preparation = receiver.preparation(
-                krate,
-                &quote!(#context),
-                &state,
-            );
+            let state_preparation = receiver.preparation(krate, &quote!(#context), &state);
             let invocation = receiver.invoke_prepared(
                 &self.ident,
                 &backend.turbofish(),
@@ -420,36 +394,22 @@ impl Callable {
 #[cfg(test)]
 mod tests {
     use proc_macro2::TokenStream;
-    use syn::{
-        parse2,
-        parse_quote,
-        Expr,
-        Signature,
-    };
+    use syn::{Expr, Signature, parse_quote, parse2};
 
     use crate::{
         backend::BackendParameter,
-        host::{
-            callable::Callable,
-            receiver::ModuleReceiver,
-        },
+        host::{callable::Callable, receiver::ModuleReceiver},
     };
 
     struct CallableFixture;
 
     impl CallableFixture {
         fn parse(mut signature: Signature) -> Callable {
-            Callable::new(&mut signature)
-                .unwrap_or_else(|error| panic!("{}", error.into_tokens()))
+            Callable::new(&mut signature).unwrap_or_else(|error| panic!("{}", error.into_tokens()))
         }
 
         fn backend() -> BackendParameter {
-            BackendParameter::resolve(
-                None,
-                &Default::default(),
-                &[],
-            )
-            .unwrap()
+            BackendParameter::resolve(None, &Default::default(), &[]).unwrap()
         }
 
         fn expression(tokens: TokenStream) -> Expr {
@@ -468,12 +428,8 @@ mod tests {
                 .class_callback(&CallableFixture::backend()),
             ),
             parse_quote!(|__guestjs_context, __guestjs_args| {
-                (&*__guestjs_args
-                    .this_ref::<Self>(__guestjs_context.enter())?)
-                    .read(
-                        &*__guestjs_args
-                            .next_ref::<Point>(__guestjs_context.enter())?
-                    )
+                (&*__guestjs_args.this_ref::<Self>(__guestjs_context.enter())?)
+                    .read(&*__guestjs_args.next_ref::<Point>(__guestjs_context.enter())?)
                     .map_err(::core::convert::Into::into)
             }),
         );
@@ -481,27 +437,33 @@ mod tests {
 
     #[test]
     fn allows_injection_after_rest_but_not_positionals() {
-        assert!(Callable::new(&mut parse_quote!(
-            fn receive(
-                #[guestjs(rest)] values: Vec<String>,
-                #[guestjs(enter)] enter: &Enter<'_, B>,
-            ) -> Result<(), Error>
-        ))
-        .is_ok());
-        assert!(Callable::new(&mut parse_quote!(
-            fn receive(
-                #[guestjs(rest)] values: Vec<String>,
-                value: String,
-            ) -> Result<(), Error>
-        ))
-        .is_err());
-        assert!(Callable::new(&mut parse_quote!(
-            fn receive(
-                #[guestjs(rest)] first: Vec<String>,
-                #[guestjs(rest)] second: Vec<String>,
-            ) -> Result<(), Error>
-        ))
-        .is_err());
+        assert!(
+            Callable::new(&mut parse_quote!(
+                fn receive(
+                    #[guestjs(rest)] values: Vec<String>,
+                    #[guestjs(enter)] enter: &Enter<'_, B>,
+                ) -> Result<(), Error>
+            ))
+            .is_ok()
+        );
+        assert!(
+            Callable::new(&mut parse_quote!(
+                fn receive(
+                    #[guestjs(rest)] values: Vec<String>,
+                    value: String,
+                ) -> Result<(), Error>
+            ))
+            .is_err()
+        );
+        assert!(
+            Callable::new(&mut parse_quote!(
+                fn receive(
+                    #[guestjs(rest)] first: Vec<String>,
+                    #[guestjs(rest)] second: Vec<String>,
+                ) -> Result<(), Error>
+            ))
+            .is_err()
+        );
     }
 
     #[test]
@@ -555,20 +517,24 @@ mod tests {
                     -> Result<(), Error>
             ),
         ] {
-            assert!(CallableFixture::parse(signature)
-                .validate_async(true)
-                .is_err());
+            assert!(
+                CallableFixture::parse(signature)
+                    .validate_async(true)
+                    .is_err()
+            );
         }
     }
 
     #[test]
     fn synchronous_future_factories_can_prepare_from_borrows() {
-        assert!(CallableFixture::parse(parse_quote!(
-            fn prepare(&mut self, #[guestjs(borrow)] point: &Point)
-                -> Result<impl Future<Output = Result<(), Error>>, Error>
-        ))
-        .validate_async(false)
-        .is_ok());
+        assert!(
+            CallableFixture::parse(parse_quote!(
+                fn prepare(&mut self, #[guestjs(borrow)] point: &Point)
+                    -> Result<impl Future<Output = Result<(), Error>>, Error>
+            ))
+            .validate_async(false)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -586,16 +552,14 @@ mod tests {
                 ),
             ),
             parse_quote!(|__guestjs_context, __guestjs_args| {
-                let (__guestjs_argument_0,) = (
-                    __guestjs_args.next::<String>(
-                        __guestjs_context.enter()
-                    )?,
-                );
-                let __guestjs_state = __guestjs_context
-                    .resolve::<crate::host::state::ModuleState<Self>>()?;
+                let (__guestjs_argument_0,) =
+                    (__guestjs_args.next::<String>(__guestjs_context.enter())?,);
+                let __guestjs_state =
+                    __guestjs_context.resolve::<crate::host::state::ModuleState<Self>>()?;
 
                 ::core::result::Result::Ok(async move {
-                    __guestjs_state.send(__guestjs_argument_0)
+                    __guestjs_state
+                        .send(__guestjs_argument_0)
                         .await
                         .map_err(::core::convert::Into::into)
                 })

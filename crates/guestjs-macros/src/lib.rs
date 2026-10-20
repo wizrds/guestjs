@@ -14,16 +14,12 @@ mod path;
 mod derive;
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput, ItemImpl};
+use syn::{DeriveInput, ItemImpl, parse_macro_input};
 
 use crate::{
     bundle::BundleMacro,
     guest::{class::GuestClassMacro, module::GuestModuleMacro},
-    host::{
-        class::HostClassMacro,
-        exception::HostExceptionDerive,
-        module::HostModuleMacro,
-    },
+    host::{class::HostClassMacro, exception::HostExceptionDerive, module::HostModuleMacro},
 };
 
 #[cfg(feature = "serde")]
@@ -40,10 +36,7 @@ pub fn bundle(input: TokenStream) -> TokenStream {
 
 #[proc_macro_attribute]
 pub fn host_class(args: TokenStream, input: TokenStream) -> TokenStream {
-    match HostClassMacro::new(
-        args.into(),
-        parse_macro_input!(input as ItemImpl),
-    ) {
+    match HostClassMacro::new(args.into(), parse_macro_input!(input as ItemImpl)) {
         Ok(model) => model.expand(),
         Err(error) => error.into_tokens(),
     }
@@ -52,10 +45,7 @@ pub fn host_class(args: TokenStream, input: TokenStream) -> TokenStream {
 
 #[proc_macro_attribute]
 pub fn host_module(args: TokenStream, input: TokenStream) -> TokenStream {
-    match HostModuleMacro::new(
-        args.into(),
-        parse_macro_input!(input as ItemImpl),
-    ) {
+    match HostModuleMacro::new(args.into(), parse_macro_input!(input as ItemImpl)) {
         Ok(model) => model.expand(),
         Err(error) => error.into_tokens(),
     }

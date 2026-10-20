@@ -1,12 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    backend::{
-        values::BackendValues,
-        Backend,
-        Tok,
-        Val,
-    },
+    backend::{Backend, Tok, Val, values::BackendValues},
     errors::Error,
 };
 
@@ -17,9 +12,7 @@ pub struct RawCall<'js, B: Backend> {
     pub new_target: Option<Val<'js, B>>,
 }
 
-pub type RawBody<B> = Rc<
-    dyn for<'js> Fn(RawCall<'js, B>) -> Result<Val<'js, B>, Error>,
->;
+pub type RawBody<B> = Rc<dyn for<'js> Fn(RawCall<'js, B>) -> Result<Val<'js, B>, Error>>;
 
 pub trait BackendCallables: BackendValues {
     fn function<'js>(

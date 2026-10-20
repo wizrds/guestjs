@@ -1,8 +1,5 @@
 use crate::{
-    backend::{
-        modules::BackendModules,
-        Backend,
-    },
+    backend::{Backend, modules::BackendModules},
     catalog::ModuleSource,
     enter::Enter,
     errors::Error,
@@ -17,16 +14,10 @@ where
     B: BackendModules,
 {
     pub fn new(enter: &'e Enter<'js, B>) -> Self {
-        Self {
-            enter,
-        }
+        Self { enter }
     }
 
-    pub fn realise(
-        &self,
-        name: &str,
-        source: &ModuleSource<B>,
-    ) -> Result<B::Module<'js>, Error> {
+    pub fn realise(&self, name: &str, source: &ModuleSource<B>) -> Result<B::Module<'js>, Error> {
         match source {
             ModuleSource::Bundle(bundle) => B::declare(
                 self.enter.token(),
@@ -37,7 +28,7 @@ where
             ),
             ModuleSource::Host(module) => {
                 B::synthetic(self.enter.token(), name, module.exports(self.enter)?)
-            },
+            }
             ModuleSource::Native(module) => module.declare(self.enter, name),
         }
     }

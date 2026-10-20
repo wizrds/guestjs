@@ -1,9 +1,5 @@
 use crate::{
-    backend::{
-        values::BackendValues,
-        Tok,
-        Val,
-    },
+    backend::{Tok, Val, values::BackendValues},
     errors::Error,
 };
 
@@ -44,9 +40,7 @@ impl ElementType {
             ElementType::Int8 | ElementType::Uint8 | ElementType::Uint8Clamped => 1,
             ElementType::Int16 | ElementType::Uint16 | ElementType::Float16 => 2,
             ElementType::Int32 | ElementType::Uint32 | ElementType::Float32 => 4,
-            ElementType::BigInt64
-            | ElementType::BigUint64
-            | ElementType::Float64 => 8,
+            ElementType::BigInt64 | ElementType::BigUint64 | ElementType::Float64 => 8,
         }
     }
 
@@ -69,10 +63,7 @@ impl ElementType {
 }
 
 pub trait BackendBuffers: BackendValues {
-    fn new_array_buffer<'js>(
-        token: Tok<'js, Self>,
-        bytes: &[u8],
-    ) -> Result<Val<'js, Self>, Error>;
+    fn new_array_buffer<'js>(token: Tok<'js, Self>, bytes: &[u8]) -> Result<Val<'js, Self>, Error>;
     fn new_typed_array<'js>(
         token: Tok<'js, Self>,
         element: ElementType,
@@ -85,18 +76,9 @@ pub trait BackendBuffers: BackendValues {
         token: Tok<'js, Self>,
         typed_array: &Val<'js, Self>,
     ) -> Result<ElementType, Error>;
-    fn buffer<'js>(
-        token: Tok<'js, Self>,
-        view: &Val<'js, Self>,
-    ) -> Result<Val<'js, Self>, Error>;
-    fn byte_offset<'js>(
-        token: Tok<'js, Self>,
-        view: &Val<'js, Self>,
-    ) -> Result<usize, Error>;
-    fn byte_length<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<usize, Error>;
+    fn buffer<'js>(token: Tok<'js, Self>, view: &Val<'js, Self>) -> Result<Val<'js, Self>, Error>;
+    fn byte_offset<'js>(token: Tok<'js, Self>, view: &Val<'js, Self>) -> Result<usize, Error>;
+    fn byte_length<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<usize, Error>;
 
     fn read<'js>(
         token: Tok<'js, Self>,
@@ -132,9 +114,11 @@ mod tests {
 
     #[test]
     fn all_lists_each_element_type_once() {
-        assert!(ElementType::ALL
-            .iter()
-            .enumerate()
-            .all(|(index, element)| !ElementType::ALL[..index].contains(element)));
+        assert!(
+            ElementType::ALL
+                .iter()
+                .enumerate()
+                .all(|(index, element)| !ElementType::ALL[..index].contains(element))
+        );
     }
 }

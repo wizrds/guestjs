@@ -1,39 +1,16 @@
-use std::{
-    ffi::c_int,
-    mem::MaybeUninit,
-    ptr,
-    slice,
-};
+use std::{ffi::c_int, mem::MaybeUninit, ptr, slice};
 
 use guestjs_core::{
     backend::{
-        buffers::{
-            BackendBuffers,
-            ElementType,
-        },
-        values::{
-            BackendValues,
-            Kind,
-        },
-        Tok,
-        Val,
+        Tok, Val,
+        buffers::{BackendBuffers, ElementType},
+        values::{BackendValues, Kind},
     },
     errors::Error,
 };
-use rquickjs::{
-    function::This,
-    qjs,
-    ArrayBuffer,
-    Exception,
-    Function,
-    Value,
-};
+use rquickjs::{ArrayBuffer, Exception, Function, Value, function::This, qjs};
 
-use crate::{
-    backend::QuickJs,
-    context::Token,
-    error::Capture,
-};
+use crate::{backend::QuickJs, context::Token, error::Capture};
 
 pub struct PropertyAtom<'js> {
     token: Token<'js>,
@@ -41,16 +18,9 @@ pub struct PropertyAtom<'js> {
 }
 
 impl<'js> PropertyAtom<'js> {
-    pub fn new(
-        token: Token<'js>,
-        name: &str,
-    ) -> rquickjs::Result<Self> {
+    pub fn new(token: Token<'js>, name: &str) -> rquickjs::Result<Self> {
         match unsafe {
-            qjs::JS_NewAtomLen(
-                token.pointer().as_ptr(),
-                name.as_ptr().cast(),
-                name.len() as _,
-            )
+            qjs::JS_NewAtomLen(token.pointer().as_ptr(), name.as_ptr().cast(), name.len() as _)
         } {
             qjs::JS_ATOM_NULL => Err(rquickjs::Error::Exception),
             atom => Ok(Self { token, atom }),
@@ -65,10 +35,7 @@ impl<'js> PropertyAtom<'js> {
 impl Drop for PropertyAtom<'_> {
     fn drop(&mut self) {
         unsafe {
-            qjs::JS_FreeAtom(
-                self.token.pointer().as_ptr(),
-                self.atom,
-            );
+            qjs::JS_FreeAtom(self.token.pointer().as_ptr(), self.atom);
         }
     }
 }
@@ -114,11 +81,7 @@ impl<'js> ArrayBufferData<'js> for Value<'js> {
         match unsafe { qjs::JS_IsArrayBuffer(self.as_raw()) } {
             false => Err(Exception::throw_type(&token.ctx(), "not an ArrayBuffer")),
             true => match unsafe {
-                qjs::JS_GetArrayBuffer(
-                    token.pointer().as_ptr(),
-                    &mut size,
-                    self.as_raw(),
-                )
+                qjs::JS_GetArrayBuffer(token.pointer().as_ptr(), &mut size, self.as_raw())
             } {
                 data if data.is_null()
                     && unsafe { qjs::JS_HasException(token.pointer().as_ptr()) } =>
@@ -137,28 +100,22 @@ impl<'js> ArrayBufferData<'js> for Value<'js> {
         length: usize,
     ) -> rquickjs::Result<&mut [u8]> {
         match self.array_buffer(token)? {
-            (_, size) if byte_offset
-                .checked_add(length)
-                .is_none_or(|end| end > size) =>
+            (_, size)
+                if byte_offset
+                    .checked_add(length)
+                    .is_none_or(|end| end > size) =>
             {
-                Err(Exception::throw_range(
-                    &token.ctx(),
-                    "byte range is outside the ArrayBuffer",
-                ))
+                Err(Exception::throw_range(&token.ctx(), "byte range is outside the ArrayBuffer"))
             }
             _ if length == 0 => Ok(&mut []),
-            (data, _) => Ok(unsafe {
-                slice::from_raw_parts_mut(data.add(byte_offset), length)
-            }),
+            (data, _) => Ok(unsafe { slice::from_raw_parts_mut(data.add(byte_offset), length) }),
         }
     }
 }
 
 pub trait TypedArrayBuffer<'js> {
-    fn typed_array_buffer(
-        &self,
-        token: Token<'js>,
-    ) -> rquickjs::Result<(Value<'js>, usize, usize)>;
+    fn typed_array_buffer(&self, token: Token<'js>)
+    -> rquickjs::Result<(Value<'js>, usize, usize)>;
 }
 
 impl<'js> TypedArrayBuffer<'js> for Value<'js> {
@@ -189,19 +146,11 @@ impl<'js> TypedArrayBuffer<'js> for Value<'js> {
 }
 
 pub trait IntrinsicAccessor<'js> {
-    fn intrinsic(
-        &self,
-        token: Token<'js>,
-        name: &str,
-    ) -> rquickjs::Result<Value<'js>>;
+    fn intrinsic(&self, token: Token<'js>, name: &str) -> rquickjs::Result<Value<'js>>;
 }
 
 impl<'js> IntrinsicAccessor<'js> for Value<'js> {
-    fn intrinsic(
-        &self,
-        token: Token<'js>,
-        name: &str,
-    ) -> rquickjs::Result<Value<'js>> {
+    fn intrinsic(&self, token: Token<'js>, name: &str) -> rquickjs::Result<Value<'js>> {
         let mut descriptor = MaybeUninit::<qjs::JSPropertyDescriptor>::uninit();
 
         match unsafe {
@@ -228,20 +177,14 @@ impl<'js> IntrinsicAccessor<'js> for Value<'js> {
                 Function::from_value(Value::from_raw(token.ctx(), descriptor.getter))
             }
             .and_then(|getter| getter.call::<_, Value>((This(self.clone()),))),
-            0 => Err(Exception::throw_type(
-                &token.ctx(),
-                "intrinsic accessor is missing",
-            )),
+            0 => Err(Exception::throw_type(&token.ctx(), "intrinsic accessor is missing")),
             _ => Err(rquickjs::Error::Exception),
         }
     }
 }
 
 impl BackendBuffers for QuickJs {
-    fn new_array_buffer<'js>(
-        token: Tok<'js, Self>,
-        bytes: &[u8],
-    ) -> Result<Val<'js, Self>, Error> {
+    fn new_array_buffer<'js>(token: Tok<'js, Self>, bytes: &[u8]) -> Result<Val<'js, Self>, Error> {
         ArrayBuffer::new_copy(token.ctx(), bytes)
             .map(ArrayBuffer::into_value)
             .capture(token)
@@ -280,34 +223,24 @@ impl BackendBuffers for QuickJs {
         ElementType::ALL
             .into_iter()
             .find(|element| {
-                element.raw() as c_int
-                    == unsafe { qjs::JS_GetTypedArrayType(typed_array.as_raw()) }
+                element.raw() as c_int == unsafe { qjs::JS_GetTypedArrayType(typed_array.as_raw()) }
             })
             .ok_or_else(|| Exception::throw_type(&token.ctx(), "not a TypedArray"))
             .capture(token)
     }
 
-    fn buffer<'js>(
-        token: Tok<'js, Self>,
-        view: &Val<'js, Self>,
-    ) -> Result<Val<'js, Self>, Error> {
+    fn buffer<'js>(token: Tok<'js, Self>, view: &Val<'js, Self>) -> Result<Val<'js, Self>, Error> {
         match Self::kind(token, view) {
             Kind::TypedArray => view
                 .typed_array_buffer(token)
                 .map(|(buffer, _, _)| buffer),
             Kind::DataView => view.intrinsic(token, "buffer"),
-            _ => Err(Exception::throw_type(
-                &token.ctx(),
-                "not an ArrayBuffer view",
-            )),
+            _ => Err(Exception::throw_type(&token.ctx(), "not an ArrayBuffer view")),
         }
         .capture(token)
     }
 
-    fn byte_offset<'js>(
-        token: Tok<'js, Self>,
-        view: &Val<'js, Self>,
-    ) -> Result<usize, Error> {
+    fn byte_offset<'js>(token: Tok<'js, Self>, view: &Val<'js, Self>) -> Result<usize, Error> {
         match Self::kind(token, view) {
             Kind::TypedArray => view
                 .typed_array_buffer(token)
@@ -316,18 +249,12 @@ impl BackendBuffers for QuickJs {
                 .intrinsic(token, "byteOffset")
                 .and_then(|byte_offset| byte_offset.get::<u32>())
                 .map(|byte_offset| byte_offset as usize),
-            _ => Err(Exception::throw_type(
-                &token.ctx(),
-                "not an ArrayBuffer view",
-            )),
+            _ => Err(Exception::throw_type(&token.ctx(), "not an ArrayBuffer view")),
         }
         .capture(token)
     }
 
-    fn byte_length<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<usize, Error> {
+    fn byte_length<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<usize, Error> {
         match Self::kind(token, value) {
             Kind::ArrayBuffer => value
                 .array_buffer(token)
@@ -339,10 +266,7 @@ impl BackendBuffers for QuickJs {
                 .intrinsic(token, "byteLength")
                 .and_then(|byte_length| byte_length.get::<u32>())
                 .map(|byte_length| byte_length as usize),
-            _ => Err(Exception::throw_type(
-                &token.ctx(),
-                "not an ArrayBuffer or ArrayBuffer view",
-            )),
+            _ => Err(Exception::throw_type(&token.ctx(), "not an ArrayBuffer or ArrayBuffer view")),
         }
         .capture(token)
     }
@@ -365,10 +289,7 @@ impl BackendBuffers for QuickJs {
         bytes: &[u8],
     ) -> Result<(), Error> {
         match unsafe { qjs::JS_IsImmutableArrayBuffer(buffer.as_raw()) } {
-            1 => Err(Exception::throw_type(
-                &token.ctx(),
-                "ArrayBuffer is immutable",
-            )),
+            1 => Err(Exception::throw_type(&token.ctx(), "ArrayBuffer is immutable")),
             _ => unsafe { buffer.range(token, byte_offset, bytes.len()) }
                 .map(|range| range.copy_from_slice(bytes)),
         }
@@ -379,22 +300,13 @@ impl BackendBuffers for QuickJs {
 #[cfg(test)]
 mod tests {
     use guestjs_core::backend::{
-        buffers::{
-            BackendBuffers,
-            ElementType,
-        },
-        values::BackendValues,
         Backend,
+        buffers::{BackendBuffers, ElementType},
+        values::BackendValues,
     };
-    use rquickjs::{
-        qjs,
-        Value,
-    };
+    use rquickjs::{Value, qjs};
 
-    use crate::{
-        backend::QuickJs,
-        engine::Config,
-    };
+    use crate::{backend::QuickJs, engine::Config};
 
     #[test]
     fn typed_arrays_view_a_new_array_buffer() {
@@ -489,32 +401,43 @@ mod tests {
                     .unwrap()
             };
             let buffer = QuickJs::new_array_buffer(token, &[0; 4]).unwrap();
-            let detached = eval("const detached = new ArrayBuffer(4); detached.transfer(); detached");
+            let detached =
+                eval("const detached = new ArrayBuffer(4); detached.transfer(); detached");
 
-            assert!(QuickJs::read(token, &buffer, 2, 4)
-                .unwrap_err()
-                .is_guest());
-            assert!(QuickJs::read(token, &detached, 0, 0)
-                .unwrap_err()
-                .is_guest());
-            assert!(QuickJs::byte_length(token, &detached)
-                .unwrap_err()
-                .is_guest());
-            assert!(QuickJs::read(token, &eval("new SharedArrayBuffer(4)"), 0, 0)
-                .unwrap_err()
-                .is_guest());
-            assert!(QuickJs::byte_length(token, &eval("({ byteLength: 4 })"))
-                .unwrap_err()
-                .is_guest());
+            assert!(
+                QuickJs::read(token, &buffer, 2, 4)
+                    .unwrap_err()
+                    .is_guest()
+            );
+            assert!(
+                QuickJs::read(token, &detached, 0, 0)
+                    .unwrap_err()
+                    .is_guest()
+            );
+            assert!(
+                QuickJs::byte_length(token, &detached)
+                    .unwrap_err()
+                    .is_guest()
+            );
+            assert!(
+                QuickJs::read(token, &eval("new SharedArrayBuffer(4)"), 0, 0)
+                    .unwrap_err()
+                    .is_guest()
+            );
+            assert!(
+                QuickJs::byte_length(token, &eval("({ byteLength: 4 })"))
+                    .unwrap_err()
+                    .is_guest()
+            );
 
             unsafe { qjs::JS_SetImmutableArrayBuffer(buffer.as_raw(), true) };
 
-            assert!(QuickJs::write(token, &buffer, 0, &[1])
-                .unwrap_err()
-                .is_guest());
-            assert!(!token
-                .ctx()
-                .has_exception());
+            assert!(
+                QuickJs::write(token, &buffer, 0, &[1])
+                    .unwrap_err()
+                    .is_guest()
+            );
+            assert!(!token.ctx().has_exception());
         });
     }
 }

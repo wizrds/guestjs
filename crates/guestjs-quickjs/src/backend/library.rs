@@ -1,25 +1,16 @@
 use std::ptr;
 
 use guestjs_core::{
-    backend::{
-        library::BackendLibrary,
-        Tok,
-    },
+    backend::{Tok, library::BackendLibrary},
     errors::Error,
 };
 use rquickjs::{
-    module::{
-        ModuleDef,
-        ModuleLoadFn,
-    },
-    qjs,
     Module,
+    module::{ModuleDef, ModuleLoadFn},
+    qjs,
 };
 
-use crate::{
-    backend::QuickJs,
-    error::Capture,
-};
+use crate::{backend::QuickJs, error::Capture};
 
 #[derive(Clone, Copy)]
 pub struct NativeModule {
@@ -31,9 +22,7 @@ impl NativeModule {
     where
         D: ModuleDef,
     {
-        Self {
-            init: Self::init::<D>,
-        }
+        Self { init: Self::init::<D> }
     }
 
     pub unsafe extern "C" fn init<D>(
@@ -46,10 +35,7 @@ impl NativeModule {
         match unsafe { Module::init_raw::<D>(ctx, name) } {
             module if module.is_null() || unsafe { qjs::JS_HasException(ctx) } => ptr::null_mut(),
             module => match unsafe {
-                qjs::JS_ResolveModule(
-                    ctx,
-                    qjs::JS_MKPTR(qjs::JS_TAG_MODULE, module.cast()),
-                )
+                qjs::JS_ResolveModule(ctx, qjs::JS_MKPTR(qjs::JS_TAG_MODULE, module.cast()))
             } {
                 0 => module,
                 _ => ptr::null_mut(),
@@ -73,27 +59,16 @@ impl BackendLibrary for QuickJs {
 #[cfg(test)]
 mod tests {
     use guestjs_core::{
-        backend::{
-            library::BackendLibrary,
-            modules::BackendModules,
-            Backend,
-        },
+        backend::{Backend, library::BackendLibrary, modules::BackendModules},
         errors::Error,
     };
     use rquickjs::{
-        module::{
-            Declarations,
-            Exports,
-            ModuleDef,
-        },
         Ctx,
+        module::{Declarations, Exports, ModuleDef},
     };
 
     use crate::{
-        backend::{
-            library::NativeModule,
-            QuickJs,
-        },
+        backend::{QuickJs, library::NativeModule},
         engine::Config,
     };
 
@@ -106,10 +81,7 @@ mod tests {
                 .map(|_| ())
         }
 
-        fn evaluate<'js>(
-            _ctx: &Ctx<'js>,
-            exports: &Exports<'js>,
-        ) -> rquickjs::Result<()> {
+        fn evaluate<'js>(_ctx: &Ctx<'js>, exports: &Exports<'js>) -> rquickjs::Result<()> {
             exports
                 .export("greeting", "hello")
                 .map(|_| ())
@@ -135,7 +107,8 @@ mod tests {
         QuickJs::enter(&engine, &context, |token| {
             let (namespace, _) = QuickJs::evaluate(
                 token,
-                QuickJs::declare_native(token, &NativeModule::new::<Greeting>(), "greeting").unwrap(),
+                QuickJs::declare_native(token, &NativeModule::new::<Greeting>(), "greeting")
+                    .unwrap(),
             )
             .unwrap();
 

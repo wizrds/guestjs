@@ -1,20 +1,9 @@
 use darling::FromMeta;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{
-    ext::IdentExt,
-    parse_quote,
-    DeriveInput,
-    Generics,
-    Ident,
-    Path,
-};
+use syn::{DeriveInput, Generics, Ident, Path, ext::IdentExt, parse_quote};
 
-use crate::{
-    attributes::HelperAttributes,
-    diagnostics::MacroError,
-    path::CratePath,
-};
+use crate::{attributes::HelperAttributes, diagnostics::MacroError, path::CratePath};
 
 #[derive(Default, FromMeta)]
 #[darling(default)]
@@ -40,18 +29,25 @@ pub struct HostExceptionDerive {
 
 impl HostExceptionDerive {
     pub fn new(input: &DeriveInput) -> Result<Self, MacroError> {
-        let (name, builtin, path) = ExceptionOptions::from_list(
-            &HelperAttributes::take(&mut input.attrs.clone())?,
-        )?.into_parts();
+        let (name, builtin, path) =
+            ExceptionOptions::from_list(&HelperAttributes::take(&mut input.attrs.clone())?)?
+                .into_parts();
         let builtin = builtin.unwrap_or_else(|| "Error".to_owned());
 
         if ![
-            "Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError",
-        ].contains(&builtin.as_str()) {
+            "Error",
+            "TypeError",
+            "RangeError",
+            "ReferenceError",
+            "SyntaxError",
+        ]
+        .contains(&builtin.as_str())
+        {
             return Err(syn::Error::new(
                 input.ident.span(),
                 "unknown JavaScript built-in error kind",
-            ).into());
+            )
+            .into());
         }
 
         Ok(Self {
@@ -74,9 +70,10 @@ impl HostExceptionDerive {
         let source = generics.clone();
         let (_, target_generics, _) = source.split_for_impl();
 
-        generics.make_where_clause().predicates.push(
-            parse_quote!(#target #target_generics: 'static),
-        );
+        generics
+            .make_where_clause()
+            .predicates
+            .push(parse_quote!(#target #target_generics: 'static));
 
         let (implementation, _, clause) = generics.split_for_impl();
 
@@ -94,11 +91,7 @@ impl HostExceptionDerive {
 
 #[cfg(test)]
 mod tests {
-    use syn::{
-        parse2,
-        parse_quote,
-        ItemImpl,
-    };
+    use syn::{ItemImpl, parse_quote, parse2};
 
     use crate::host::exception::HostExceptionDerive;
 
@@ -116,7 +109,8 @@ mod tests {
                 ))
                 .unwrap_or_else(|error| panic!("{}", error.into_tokens()))
                 .expand(),
-            ).unwrap(),
+            )
+            .unwrap(),
             parse_quote!(
                 impl crate::host::exception::HostException for Invalid
                 where
@@ -132,9 +126,12 @@ mod tests {
 
     #[test]
     fn rejects_unknown_builtins() {
-        assert!(HostExceptionDerive::new(&parse_quote!(
-            #[guestjs(crate_path = crate, builtin = "ValueError")]
-            struct Invalid;
-        )).is_err());
+        assert!(
+            HostExceptionDerive::new(&parse_quote!(
+                #[guestjs(crate_path = crate, builtin = "ValueError")]
+                struct Invalid;
+            ))
+            .is_err()
+        );
     }
 }

@@ -1,27 +1,14 @@
 use crate::{
     backend::{
-        values::{
-            BackendValues,
-            Kind,
-        },
-        Backend,
-        Val,
+        Backend, Val,
+        values::{BackendValues, Kind},
     },
     enter::Enter,
     errors::Error,
-    handle::{
-        base::Handle,
-        protocol::ObjectProtocol,
-        HasHandle,
-    },
+    handle::{HasHandle, base::Handle, protocol::ObjectProtocol},
     marshal::{
-        describe::{
-            Describe,
-            Expected,
-        },
-        FromGuest,
-        ToGuest,
-        ToGuestArgs,
+        FromGuest, ToGuest, ToGuestArgs,
+        describe::{Describe, Expected},
     },
 };
 
@@ -30,20 +17,11 @@ pub struct Array<B: Backend> {
 }
 
 impl<B: BackendValues> Array<B> {
-    pub fn from_values<A>(
-        enter: &Enter<'_, B>,
-        values: A,
-    ) -> Result<Self, Error>
+    pub fn from_values<A>(enter: &Enter<'_, B>, values: A) -> Result<Self, Error>
     where
         A: ToGuestArgs<B>,
     {
-        Self::from_guest(
-            enter,
-            B::new_array(
-                enter.token(),
-                values.to_guest_args(enter)?,
-            )?,
-        )
+        Self::from_guest(enter, B::new_array(enter.token(), values.to_guest_args(enter)?)?)
     }
 
     pub fn len(&self) -> Result<usize, Error> {
@@ -64,9 +42,7 @@ impl<B: BackendValues> Array<B> {
 
 impl<B: Backend> Clone for Array<B> {
     fn clone(&self) -> Self {
-        Self {
-            handle: self.handle.clone(),
-        }
+        Self { handle: self.handle.clone() }
     }
 }
 
@@ -87,33 +63,22 @@ impl<B: Backend> Describe for Array<B> {
 impl<B: BackendValues> FromGuest<B> for Array<B> {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
-            Kind::Array => Ok(Self {
-                handle: Handle::from_value(enter, value),
-            }),
+            Kind::Array => Ok(Self { handle: Handle::from_value(enter, value) }),
             kind => Err(Expected::of::<Self>().mismatch(kind)),
         }
     }
 }
 
 impl<B: Backend> ToGuest<B> for Array<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
 
 impl<B: Backend> ToGuest<B> for &Array<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
@@ -121,23 +86,13 @@ impl<B: Backend> ToGuest<B> for &Array<B> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::{
-            tests::Stub,
-            values::BackendValues,
-        },
+        backend::{tests::Stub, values::BackendValues},
         handle::{
-            array::Array,
-            protocol::{
-                ObjectProtocol,
-                ValueProtocol,
-            },
             HasHandle,
+            array::Array,
+            protocol::{ObjectProtocol, ValueProtocol},
         },
-        marshal::{
-            describe::Expected,
-            FromGuest,
-            ToGuest,
-        },
+        marshal::{FromGuest, ToGuest, describe::Expected},
     };
 
     #[test]

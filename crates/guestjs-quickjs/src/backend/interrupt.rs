@@ -1,10 +1,7 @@
 use guestjs_core::{
     backend::{
-        interrupt::{
-            BackendInterrupt,
-            InterruptCondition,
-        },
         Tok,
+        interrupt::{BackendInterrupt, InterruptCondition},
     },
     errors::Error,
 };
@@ -12,20 +9,14 @@ use guestjs_core::{
 use crate::backend::QuickJs;
 
 impl BackendInterrupt for QuickJs {
-    fn set_interrupt_condition(
-        engine: &Self::Engine,
-        condition: InterruptCondition,
-    ) {
+    fn set_interrupt_condition(engine: &Self::Engine, condition: InterruptCondition) {
         engine
             .interrupt()
             .set_condition(condition);
     }
 
     fn check<'js>(token: Tok<'js, Self>) -> Result<(), Error> {
-        match token
-            .interrupt()
-            .should_interrupt()
-        {
+        match token.interrupt().should_interrupt() {
             true => Err(Error::interrupted()),
             false => Ok(()),
         }
@@ -37,24 +28,15 @@ mod tests {
     use std::{
         cell::Cell,
         rc::Rc,
-        task::{
-            self,
-            Poll,
-        },
+        task::{self, Poll},
     };
 
     use futures::task::noop_waker_ref;
     use guestjs_core::backend::{
-        interrupt::BackendInterrupt,
-        modules::BackendModules,
-        promises::BackendPromises,
-        Backend,
+        Backend, interrupt::BackendInterrupt, modules::BackendModules, promises::BackendPromises,
     };
 
-    use crate::{
-        backend::QuickJs,
-        engine::Config,
-    };
+    use crate::{backend::QuickJs, engine::Config};
 
     #[test]
     fn condition_interrupts_guest_code_while_it_is_met() {
@@ -69,17 +51,10 @@ mod tests {
         });
 
         QuickJs::enter(&engine, &context, |token| {
+            assert!(QuickJs::check(token).is_err_and(|error| error.is_interrupted()),);
             assert!(
-                QuickJs::check(token)
+                QuickJs::eval(token, "try { for (;;) {} } catch { 'caught'; }", "loop.js",)
                     .is_err_and(|error| error.is_interrupted()),
-            );
-            assert!(
-                QuickJs::eval(
-                    token,
-                    "try { for (;;) {} } catch { 'caught'; }",
-                    "loop.js",
-                )
-                .is_err_and(|error| error.is_interrupted()),
             );
         });
 
@@ -103,12 +78,7 @@ mod tests {
         let mut task = task::Context::from_waker(noop_waker_ref());
 
         QuickJs::enter(&engine, &context, |token| {
-            QuickJs::eval(
-                token,
-                "queueMicrotask(() => { for (;;) {} });",
-                "queue.js",
-            )
-            .unwrap();
+            QuickJs::eval(token, "queueMicrotask(() => { for (;;) {} });", "queue.js").unwrap();
         });
 
         QuickJs::set_interrupt_condition(&engine, Rc::new(|| true));

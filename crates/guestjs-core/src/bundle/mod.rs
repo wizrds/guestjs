@@ -2,17 +2,11 @@ pub mod name;
 pub mod transpiler;
 
 use std::{
-    collections::{
-        BTreeMap,
-        BTreeSet,
-    },
+    collections::{BTreeMap, BTreeSet},
     num::NonZeroU64,
     sync::{
-        atomic::{
-            AtomicU64,
-            Ordering,
-        },
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
 };
 
@@ -23,16 +17,10 @@ use std::path::Path;
 use tokio::fs;
 
 #[cfg(feature = "embedded")]
-use crate::embed::{
-    Dir,
-    DirEntry,
-};
+use crate::embed::{Dir, DirEntry};
 
 use crate::{
-    bundle::{
-        name::ModuleName,
-        transpiler::Transpiler,
-    },
+    bundle::{name::ModuleName, transpiler::Transpiler},
     errors::Error,
 };
 
@@ -43,15 +31,8 @@ struct BundleState {
 }
 
 impl BundleState {
-    pub fn new(
-        modules: BTreeMap<String, Arc<str>>,
-        data: BTreeMap<String, Arc<[u8]>>,
-    ) -> Self {
-        Self {
-            id: BundleId::next(),
-            modules,
-            data,
-        }
+    pub fn new(modules: BTreeMap<String, Arc<str>>, data: BTreeMap<String, Arc<[u8]>>) -> Self {
+        Self { id: BundleId::next(), modules, data }
     }
 
     pub fn id(&self) -> BundleId {
@@ -59,9 +40,7 @@ impl BundleState {
     }
 
     pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.modules
-            .keys()
-            .map(String::as_str)
+        self.modules.keys().map(String::as_str)
     }
 
     pub fn contains(&self, name: &str) -> bool {
@@ -75,9 +54,7 @@ impl BundleState {
     }
 
     pub fn data(&self, path: &str) -> Option<&[u8]> {
-        self.data
-            .get(path)
-            .map(AsRef::as_ref)
+        self.data.get(path).map(AsRef::as_ref)
     }
 
     pub fn files(&self) -> impl Iterator<Item = (&str, &[u8])> {
@@ -114,17 +91,12 @@ impl<'a> BundlePath<'a> {
     pub fn new(path: &'a str) -> Result<Self, Error> {
         match path
             .split('/')
-            .all(|segment| {
-                !matches!(segment, "" | "." | "..")
-                    && !segment.contains('\\')
-            })
+            .all(|segment| !matches!(segment, "" | "." | "..") && !segment.contains('\\'))
         {
-            true => Ok(Self {
-                path,
-            }),
-            false => Err(Error::bundle(format!(
-                "{path:?} is not a relative path of named segments",
-            ))),
+            true => Ok(Self { path }),
+            false => {
+                Err(Error::bundle(format!("{path:?} is not a relative path of named segments",)))
+            }
         }
     }
 
@@ -143,10 +115,7 @@ pub struct Bundle {
 }
 
 impl Bundle {
-    fn new(
-        modules: BTreeMap<String, Arc<str>>,
-        data: BTreeMap<String, Arc<[u8]>>,
-    ) -> Self {
+    fn new(modules: BTreeMap<String, Arc<str>>, data: BTreeMap<String, Arc<[u8]>>) -> Self {
         Self {
             state: Arc::new(BundleState::new(modules, data)),
         }
@@ -170,10 +139,7 @@ impl Bundle {
     {
         files
             .into_iter()
-            .fold(
-                Self::builder(),
-                |builder, (path, contents)| builder.file(path, contents),
-            )
+            .fold(Self::builder(), |builder, (path, contents)| builder.file(path, contents))
             .build()
     }
 
@@ -277,19 +243,10 @@ impl BundleBuilder {
         self
     }
 
-    fn insert_module(
-        &mut self,
-        path: BundlePath,
-        source: &str,
-    ) -> Result<(), Error> {
-        let name = path
-            .module_name()
-            .ok_or_else(|| {
-                Error::bundle(format!(
-                    "{:?} is not a JavaScript or TypeScript module",
-                    path.as_str(),
-                ))
-            })?;
+    fn insert_module(&mut self, path: BundlePath, source: &str) -> Result<(), Error> {
+        let name = path.module_name().ok_or_else(|| {
+            Error::bundle(format!("{:?} is not a JavaScript or TypeScript module", path.as_str(),))
+        })?;
 
         match self.modules.contains_key(name.as_str()) {
             true => Err(Error::bundle(format!(
@@ -306,41 +263,28 @@ impl BundleBuilder {
                 );
 
                 Ok(())
-            },
+            }
         }
     }
 
-    fn insert_data(
-        &mut self,
-        path: BundlePath,
-        contents: &[u8],
-    ) -> Result<(), Error> {
+    fn insert_data(&mut self, path: BundlePath, contents: &[u8]) -> Result<(), Error> {
         match self.data.contains_key(path.as_str()) {
-            true => Err(Error::bundle(format!(
-                "{:?} is added a second time",
-                path.as_str(),
-            ))),
+            true => Err(Error::bundle(format!("{:?} is added a second time", path.as_str(),))),
             false => {
-                self.data.insert(path.as_str().to_owned(), contents.into());
+                self.data
+                    .insert(path.as_str().to_owned(), contents.into());
 
                 Ok(())
-            },
+            }
         }
     }
 
-    fn insert_file(
-        &mut self,
-        path: BundlePath,
-        contents: &[u8],
-    ) -> Result<(), Error> {
+    fn insert_file(&mut self, path: BundlePath, contents: &[u8]) -> Result<(), Error> {
         match path.module_name() {
             Some(_) => self.insert_module(
                 path,
                 std::str::from_utf8(contents).map_err(|error| {
-                    Error::bundle(format!(
-                        "{:?} is not UTF-8: {error}",
-                        path.as_str(),
-                    ))
+                    Error::bundle(format!("{:?} is not UTF-8: {error}", path.as_str(),))
                 })?,
             ),
             None => self.insert_data(path, contents),
@@ -348,34 +292,24 @@ impl BundleBuilder {
     }
 
     #[cfg(feature = "tokio")]
-    async fn insert_directory(
-        &mut self,
-        root: &Path,
-        directory: &Path,
-    ) -> Result<(), Error> {
+    async fn insert_directory(&mut self, root: &Path, directory: &Path) -> Result<(), Error> {
         let mut directories = vec![directory.to_owned()];
 
         while let Some(directory) = directories.pop() {
             let mut entries = fs::read_dir(&directory)
                 .await
-                .map_err(|error| {
-                    Error::bundle(format!("{}: {error}", directory.display()))
-                })?;
+                .map_err(|error| Error::bundle(format!("{}: {error}", directory.display())))?;
 
             while let Some(entry) = entries
                 .next_entry()
                 .await
-                .map_err(|error| {
-                    Error::bundle(format!("{}: {error}", directory.display()))
-                })?
+                .map_err(|error| Error::bundle(format!("{}: {error}", directory.display())))?
             {
                 let path = entry.path();
 
                 if fs::metadata(&path)
                     .await
-                    .map_err(|error| {
-                        Error::bundle(format!("{}: {error}", path.display()))
-                    })?
+                    .map_err(|error| Error::bundle(format!("{}: {error}", path.display())))?
                     .is_dir()
                 {
                     directories.push(path);
@@ -391,9 +325,7 @@ impl BundleBuilder {
                             .and_then(|relative| {
                                 relative
                                     .components()
-                                    .map(|component| {
-                                        component.as_os_str().to_str()
-                                    })
+                                    .map(|component| component.as_os_str().to_str())
                                     .collect::<Option<Vec<_>>>()
                             })
                             .ok_or_else(|| {
@@ -407,9 +339,7 @@ impl BundleBuilder {
                     )?,
                     &fs::read(&path)
                         .await
-                        .map_err(|error| {
-                            Error::bundle(format!("{}: {error}", path.display()))
-                        })?,
+                        .map_err(|error| Error::bundle(format!("{}: {error}", path.display())))?,
                 )?;
             }
         }
@@ -419,22 +349,21 @@ impl BundleBuilder {
 
     #[cfg(feature = "embedded")]
     fn insert_embedded(&mut self, directory: &Dir<'_>) -> Result<(), Error> {
-        directory.entries().iter().try_for_each(|entry| {
-            match entry {
+        directory
+            .entries()
+            .iter()
+            .try_for_each(|entry| match entry {
                 DirEntry::Dir(directory) => self.insert_embedded(directory),
                 DirEntry::File(file) => self.insert_file(
-                    BundlePath::new(
-                        file.path().to_str().ok_or_else(|| {
-                            Error::bundle(format!(
-                                "{} is not a UTF-8 embedded path",
-                                file.path().display(),
-                            ))
-                        })?,
-                    )?,
+                    BundlePath::new(file.path().to_str().ok_or_else(|| {
+                        Error::bundle(format!(
+                            "{} is not a UTF-8 embedded path",
+                            file.path().display(),
+                        ))
+                    })?)?,
                     file.contents(),
                 ),
-            }
-        })
+            })
     }
 
     pub fn module<P, S>(self, path: P, source: S) -> Self
@@ -443,10 +372,7 @@ impl BundleBuilder {
         S: AsRef<str>,
     {
         self.attempt(|builder| {
-            builder.insert_module(
-                BundlePath::new(path.as_ref())?,
-                source.as_ref(),
-            )
+            builder.insert_module(BundlePath::new(path.as_ref())?, source.as_ref())
         })
     }
 
@@ -456,10 +382,7 @@ impl BundleBuilder {
         C: AsRef<[u8]>,
     {
         self.attempt(|builder| {
-            builder.insert_data(
-                BundlePath::new(path.as_ref())?,
-                contents.as_ref(),
-            )
+            builder.insert_data(BundlePath::new(path.as_ref())?, contents.as_ref())
         })
     }
 
@@ -469,10 +392,7 @@ impl BundleBuilder {
         C: AsRef<[u8]>,
     {
         self.attempt(|builder| {
-            builder.insert_file(
-                BundlePath::new(path.as_ref())?,
-                contents.as_ref(),
-            )
+            builder.insert_file(BundlePath::new(path.as_ref())?, contents.as_ref())
         })
     }
 
@@ -497,9 +417,7 @@ impl BundleBuilder {
     pub fn build(self) -> Result<Bundle, Error> {
         match (self.error, self.modules.is_empty()) {
             (Some(error), _) => Err(error),
-            (None, true) => {
-                Err(Error::bundle("a bundle needs at least one module"))
-            },
+            (None, true) => Err(Error::bundle("a bundle needs at least one module")),
             (None, false) => Ok(Bundle::new(self.modules, self.data)),
         }
     }
@@ -514,20 +432,12 @@ impl Default for BundleBuilder {
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "embedded")]
-    use crate::embed::{
-        Dir,
-        DirEntry,
-        File,
-    };
+    use crate::embed::{Dir, DirEntry, File};
 
     #[cfg(feature = "tokio")]
     use crate::errors::Error;
 
-    use crate::bundle::{
-        Bundle,
-        BundleBuilder,
-        BundlePath,
-    };
+    use crate::bundle::{Bundle, BundleBuilder, BundlePath};
 
     #[test]
     fn files_enumerate_the_data_in_path_order() {
@@ -563,10 +473,7 @@ mod tests {
         ["", "/a.js", "a//b.js", "./a.js", "a/../b.js", "a\\b.js"]
             .into_iter()
             .for_each(|path| {
-                assert!(
-                    BundlePath::new(path).is_err_and(|error| error.is_bundle()),
-                    "{path}",
-                );
+                assert!(BundlePath::new(path).is_err_and(|error| error.is_bundle()), "{path}",);
             });
     }
 
@@ -580,11 +487,13 @@ mod tests {
 
     #[test]
     fn typescript_is_transpiled_when_added() {
-        assert!(!Bundle::single("main.ts", "export const x: number = 1;")
-            .unwrap()
-            .module("main")
-            .unwrap()
-            .contains(": number"));
+        assert!(
+            !Bundle::single("main.ts", "export const x: number = 1;")
+                .unwrap()
+                .module("main")
+                .unwrap()
+                .contains(": number")
+        );
     }
 
     #[test]
@@ -614,28 +523,29 @@ mod tests {
 
     #[test]
     fn the_first_error_is_kept() {
-        assert!(Bundle::builder()
-            .module("a//b.js", "")
-            .module("c.ts", "export const = ;")
-            .build()
-            .is_err_and(|error| {
-                error.is_bundle() && error.to_string().contains("a//b.js")
-            }));
+        assert!(
+            Bundle::builder()
+                .module("a//b.js", "")
+                .module("c.ts", "export const = ;")
+                .build()
+                .is_err_and(|error| { error.is_bundle() && error.to_string().contains("a//b.js") })
+        );
     }
 
     #[test]
     fn two_paths_naming_one_module_are_rejected() {
-        assert!(Bundle::builder()
-            .module("a.js", "")
-            .module("a.ts", "")
-            .build()
-            .is_err_and(|error| error.is_bundle()));
+        assert!(
+            Bundle::builder()
+                .module("a.js", "")
+                .module("a.ts", "")
+                .build()
+                .is_err_and(|error| error.is_bundle())
+        );
     }
 
     #[test]
     fn a_module_path_needs_a_script_extension() {
-        assert!(Bundle::single("table.json", "{}")
-            .is_err_and(|error| error.is_bundle()));
+        assert!(Bundle::single("table.json", "{}").is_err_and(|error| error.is_bundle()));
     }
 
     #[test]
@@ -653,10 +563,12 @@ mod tests {
 
     #[test]
     fn a_bundle_without_modules_is_rejected() {
-        assert!(Bundle::builder()
-            .data("table.json", "{}")
-            .build()
-            .is_err_and(|error| error.is_bundle()));
+        assert!(
+            Bundle::builder()
+                .data("table.json", "{}")
+                .build()
+                .is_err_and(|error| error.is_bundle())
+        );
     }
 
     #[test]
@@ -689,33 +601,48 @@ mod tests {
     #[cfg(feature = "embedded")]
     #[test]
     fn embedded_files_use_existing_module_and_data_rules() {
-        const DIRECTORY: Dir<'static> = Dir::new("guest", &[
-            DirEntry::Dir(Dir::new("app", &[
-                DirEntry::File(File::new(
-                    "app/index.ts",
-                    b"export const value: number = 1;",
+        const DIRECTORY: Dir<'static> = Dir::new(
+            "guest",
+            &[
+                DirEntry::Dir(Dir::new(
+                    "app",
+                    &[
+                        DirEntry::File(File::new(
+                            "app/index.ts",
+                            b"export const value: number = 1;",
+                        )),
+                        DirEntry::File(File::new("app/util.js", b"export {};")),
+                    ],
                 )),
-                DirEntry::File(File::new("app/util.js", b"export {};")),
-            ])),
-            DirEntry::File(File::new("schema.json", b"{}")),
-        ]);
+                DirEntry::File(File::new("schema.json", b"{}")),
+            ],
+        );
 
         let bundle = Bundle::from_embedded(&DIRECTORY).unwrap();
 
         assert_eq!(bundle.names().collect::<Vec<_>>(), ["app/index", "app/util"]);
-        assert!(!bundle.module("app/index").unwrap().contains(": number"));
+        assert!(
+            !bundle
+                .module("app/index")
+                .unwrap()
+                .contains(": number")
+        );
         assert_eq!(bundle.data("schema.json"), Some(b"{}".as_slice()));
         assert!(!bundle.contains("guest/app/index"));
         assert_eq!(bundle.clone().id(), bundle.id());
-        assert_ne!(Bundle::from_embedded(&DIRECTORY).unwrap().id(), bundle.id());
+        assert_ne!(
+            Bundle::from_embedded(&DIRECTORY)
+                .unwrap()
+                .id(),
+            bundle.id()
+        );
     }
 
     #[cfg(feature = "embedded")]
     #[test]
     fn embedded_builder_input_composes_without_replacing_entries() {
-        const DIRECTORY: Dir<'static> = Dir::new("", &[
-            DirEntry::File(File::new("app.js", b"export {};")),
-        ]);
+        const DIRECTORY: Dir<'static> =
+            Dir::new("", &[DirEntry::File(File::new("app.js", b"export {};"))]);
 
         let bundle = BundleBuilder::new()
             .embedded(&DIRECTORY)
@@ -725,46 +652,54 @@ mod tests {
 
         assert!(bundle.contains("app"));
         assert!(bundle.contains("bootstrap"));
-        assert!(BundleBuilder::new()
-            .embedded(&DIRECTORY)
-            .module("app.ts", "export {};")
-            .build()
-            .is_err_and(|error| error.is_bundle()));
+        assert!(
+            BundleBuilder::new()
+                .embedded(&DIRECTORY)
+                .module("app.ts", "export {};")
+                .build()
+                .is_err_and(|error| error.is_bundle())
+        );
     }
 
     #[cfg(feature = "embedded")]
     #[test]
     fn embedded_paths_and_module_bytes_are_validated() {
-        assert!(Bundle::from_embedded(&Dir::new("", &[
-            DirEntry::File(File::new("../app.js", b"")),
-        ]))
-        .is_err_and(|error| error.is_bundle()));
+        assert!(
+            Bundle::from_embedded(&Dir::new("", &[DirEntry::File(File::new("../app.js", b"")),]))
+                .is_err_and(|error| error.is_bundle())
+        );
 
-        assert!(Bundle::from_embedded(&Dir::new("", &[
-            DirEntry::File(File::new("app.js", &[0xff])),
-        ]))
-        .is_err_and(|error| {
-            error.is_bundle() && error.to_string().contains("app.js")
-        }));
+        assert!(
+            Bundle::from_embedded(&Dir::new("", &[DirEntry::File(File::new("app.js", &[0xff])),]))
+                .is_err_and(|error| { error.is_bundle() && error.to_string().contains("app.js") })
+        );
 
-        assert!(Bundle::from_embedded(&Dir::new("", &[
-            DirEntry::File(File::new("schema.json", b"{}")),
-        ]))
-        .is_err_and(|error| error.is_bundle()));
+        assert!(
+            Bundle::from_embedded(&Dir::new(
+                "",
+                &[DirEntry::File(File::new("schema.json", b"{}")),]
+            ))
+            .is_err_and(|error| error.is_bundle())
+        );
     }
 
     #[cfg(feature = "embedded")]
     #[test]
     fn embedded_input_preserves_an_existing_builder_error() {
-        assert!(BundleBuilder::new()
-            .module("invalid//app.js", "")
-            .embedded(&Dir::new("", &[
-                DirEntry::File(File::new("app.ts", b"export const = ;")),
-            ]))
-            .build()
-            .is_err_and(|error| {
-                error.is_bundle()
-                    && error.to_string().contains("invalid//app.js")
-            }));
+        assert!(
+            BundleBuilder::new()
+                .module("invalid//app.js", "")
+                .embedded(&Dir::new(
+                    "",
+                    &[DirEntry::File(File::new("app.ts", b"export const = ;")),]
+                ))
+                .build()
+                .is_err_and(|error| {
+                    error.is_bundle()
+                        && error
+                            .to_string()
+                            .contains("invalid//app.js")
+                })
+        );
     }
 }

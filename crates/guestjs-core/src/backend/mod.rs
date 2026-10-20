@@ -8,10 +8,7 @@ pub mod modules;
 pub mod promises;
 pub mod values;
 
-use std::{
-    fmt::Debug,
-    hash::Hash,
-};
+use std::{fmt::Debug, hash::Hash};
 
 use crate::errors::Error;
 
@@ -33,11 +30,7 @@ pub trait Backend: Sized + 'static {
 
     fn new_context(engine: &Self::Engine) -> Result<Self::Context, Error>;
 
-    fn enter<F, R>(
-        engine: &Self::Engine,
-        context: &Self::Context,
-        f: F,
-    ) -> R
+    fn enter<F, R>(engine: &Self::Engine, context: &Self::Context, f: F) -> R
     where
         F: for<'js> FnOnce(Tok<'js, Self>) -> R;
 
@@ -45,15 +38,9 @@ pub trait Backend: Sized + 'static {
 
     fn globals<'js>(token: Tok<'js, Self>) -> Val<'js, Self>;
 
-    fn detach<'js>(
-        token: Tok<'js, Self>,
-        value: Val<'js, Self>,
-    ) -> Self::Owned;
+    fn detach<'js>(token: Tok<'js, Self>, value: Val<'js, Self>) -> Self::Owned;
 
-    fn attach<'js>(
-        token: Tok<'js, Self>,
-        owned: &Self::Owned,
-    ) -> Result<Val<'js, Self>, Error>;
+    fn attach<'js>(token: Tok<'js, Self>, owned: &Self::Owned) -> Result<Val<'js, Self>, Error>;
 
     fn owned_ptr_eq(first: &Self::Owned, second: &Self::Owned) -> bool;
 }
@@ -65,52 +52,23 @@ pub mod tests {
         cell::Cell,
         marker::PhantomData,
         rc::Rc,
-        task::{
-            self,
-            Poll,
-        },
+        task::{self, Poll},
     };
 
     use crate::{
         backend::{
-            buffers::{
-                BackendBuffers,
-                ElementType,
-            },
-            callables::{
-                BackendCallables,
-                RawBody,
-            },
+            Backend, Tok, Val,
+            buffers::{BackendBuffers, ElementType},
+            callables::{BackendCallables, RawBody},
             classes::BackendClasses,
             exceptions::BackendExceptions,
-            interrupt::{
-                BackendInterrupt,
-                InterruptCondition,
-            },
+            interrupt::{BackendInterrupt, InterruptCondition},
             library::BackendLibrary,
-            modules::{
-                BackendModules,
-                ModuleDispatcher,
-            },
-            promises::{
-                BackendPromises,
-                PromiseState,
-            },
-            values::{
-                BackendValues,
-                IteratorKind,
-                Kind,
-                Property,
-                WellKnown,
-            },
-            Backend,
-            Tok,
-            Val,
+            modules::{BackendModules, ModuleDispatcher},
+            promises::{BackendPromises, PromiseState},
+            values::{BackendValues, IteratorKind, Kind, Property, WellKnown},
         },
-        errors::{
-            Error,
-            GuestErrorKind,
-        },
+        errors::{Error, GuestErrorKind},
     };
 
     pub struct Stub;
@@ -142,18 +100,11 @@ pub mod tests {
             Ok(engine.get())
         }
 
-        fn enter<F, R>(
-            _engine: &Self::Engine,
-            context: &Self::Context,
-            f: F,
-        ) -> R
+        fn enter<F, R>(_engine: &Self::Engine, context: &Self::Context, f: F) -> R
         where
             F: for<'js> FnOnce(Tok<'js, Self>) -> R,
         {
-            f(StubToken {
-                context: *context,
-                brand: PhantomData,
-            })
+            f(StubToken { context: *context, brand: PhantomData })
         }
 
         fn context_id<'js>(token: Tok<'js, Self>) -> Self::ContextId {
@@ -162,10 +113,7 @@ pub mod tests {
 
         fn globals<'js>(_token: Tok<'js, Self>) -> Val<'js, Self> {}
 
-        fn detach<'js>(
-            _token: Tok<'js, Self>,
-            _value: Val<'js, Self>,
-        ) -> Self::Owned {}
+        fn detach<'js>(_token: Tok<'js, Self>, _value: Val<'js, Self>) -> Self::Owned {}
 
         fn attach<'js>(
             _token: Tok<'js, Self>,
@@ -188,31 +136,19 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn new_boolean<'js>(
-            _token: Tok<'js, Self>,
-            _value: bool,
-        ) -> Val<'js, Self> {
+        fn new_boolean<'js>(_token: Tok<'js, Self>, _value: bool) -> Val<'js, Self> {
             unimplemented!()
         }
 
-        fn new_number<'js>(
-            _token: Tok<'js, Self>,
-            _value: f64,
-        ) -> Val<'js, Self> {
+        fn new_number<'js>(_token: Tok<'js, Self>, _value: f64) -> Val<'js, Self> {
             unimplemented!()
         }
 
-        fn new_bigint<'js>(
-            _token: Tok<'js, Self>,
-            _value: i64,
-        ) -> Result<Val<'js, Self>, Error> {
+        fn new_bigint<'js>(_token: Tok<'js, Self>, _value: i64) -> Result<Val<'js, Self>, Error> {
             unimplemented!()
         }
 
-        fn new_string<'js>(
-            _token: Tok<'js, Self>,
-            _value: &str,
-        ) -> Result<Val<'js, Self>, Error> {
+        fn new_string<'js>(_token: Tok<'js, Self>, _value: &str) -> Result<Val<'js, Self>, Error> {
             unimplemented!()
         }
 
@@ -223,10 +159,7 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn well_known<'js>(
-            _token: Tok<'js, Self>,
-            _symbol: WellKnown,
-        ) -> Val<'js, Self> {
+        fn well_known<'js>(_token: Tok<'js, Self>, _symbol: WellKnown) -> Val<'js, Self> {
             unimplemented!()
         }
 
@@ -237,9 +170,7 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn new_object<'js>(
-            _token: Tok<'js, Self>,
-        ) -> Result<Val<'js, Self>, Error> {
+        fn new_object<'js>(_token: Tok<'js, Self>) -> Result<Val<'js, Self>, Error> {
             unimplemented!()
         }
 
@@ -254,31 +185,19 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn as_bool<'js>(
-            _token: Tok<'js, Self>,
-            _value: &Val<'js, Self>,
-        ) -> Result<bool, Error> {
+        fn as_bool<'js>(_token: Tok<'js, Self>, _value: &Val<'js, Self>) -> Result<bool, Error> {
             unimplemented!()
         }
 
-        fn truthy<'js>(
-            _token: Tok<'js, Self>,
-            _value: &Val<'js, Self>,
-        ) -> Result<bool, Error> {
+        fn truthy<'js>(_token: Tok<'js, Self>, _value: &Val<'js, Self>) -> Result<bool, Error> {
             unimplemented!()
         }
 
-        fn as_f64<'js>(
-            _token: Tok<'js, Self>,
-            _value: &Val<'js, Self>,
-        ) -> Result<f64, Error> {
+        fn as_f64<'js>(_token: Tok<'js, Self>, _value: &Val<'js, Self>) -> Result<f64, Error> {
             unimplemented!()
         }
 
-        fn as_i64<'js>(
-            _token: Tok<'js, Self>,
-            _value: &Val<'js, Self>,
-        ) -> Result<i64, Error> {
+        fn as_i64<'js>(_token: Tok<'js, Self>, _value: &Val<'js, Self>) -> Result<i64, Error> {
             unimplemented!()
         }
 
@@ -289,10 +208,7 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn display<'js>(
-            _token: Tok<'js, Self>,
-            _value: &Val<'js, Self>,
-        ) -> Result<String, Error> {
+        fn display<'js>(_token: Tok<'js, Self>, _value: &Val<'js, Self>) -> Result<String, Error> {
             unimplemented!()
         }
 
@@ -520,10 +436,7 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn payload_type<'js>(
-            _token: Tok<'js, Self>,
-            _value: &Val<'js, Self>,
-        ) -> Option<TypeId> {
+        fn payload_type<'js>(_token: Tok<'js, Self>, _value: &Val<'js, Self>) -> Option<TypeId> {
             unimplemented!()
         }
 
@@ -547,10 +460,7 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn exception<'js>(
-            _token: Tok<'js, Self>,
-            _error: Error,
-        ) -> Result<Val<'js, Self>, Error> {
+        fn exception<'js>(_token: Tok<'js, Self>, _error: Error) -> Result<Val<'js, Self>, Error> {
             unimplemented!()
         }
 
@@ -654,10 +564,7 @@ pub mod tests {
     }
 
     impl BackendInterrupt for Stub {
-        fn set_interrupt_condition(
-            _engine: &Self::Engine,
-            _condition: InterruptCondition,
-        ) {}
+        fn set_interrupt_condition(_engine: &Self::Engine, _condition: InterruptCondition) {}
 
         fn check<'js>(_token: Tok<'js, Self>) -> Result<(), Error> {
             Ok(())

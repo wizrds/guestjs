@@ -1,42 +1,14 @@
-use darling::{
-    ast::NestedMeta,
-    util::Flag,
-    FromMeta,
-};
-use proc_macro2::{
-    Span,
-    TokenStream,
-};
+use darling::{FromMeta, ast::NestedMeta, util::Flag};
+use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{
-    parse_quote,
-    Attribute,
-    Ident,
-    ImplItem,
-    ItemImpl,
-    Path,
-    Type,
-};
+use syn::{Attribute, Ident, ImplItem, ItemImpl, Path, Type, parse_quote};
 
 use crate::{
     attributes::HelperAttributes,
-    backend::{
-        BackendBounds,
-        BackendOption,
-        BackendParameter,
-    },
+    backend::{BackendBounds, BackendOption, BackendParameter},
     diagnostics::MacroError,
-    host::{
-        callable::Callable,
-        receiver::ModuleReceiver,
-        HostSyntax,
-        StateRequirements,
-        TypeList,
-    },
-    naming::{
-        Naming,
-        RenameRule,
-    },
+    host::{HostSyntax, StateRequirements, TypeList, callable::Callable, receiver::ModuleReceiver},
+    naming::{Naming, RenameRule},
     path::CratePath,
 };
 
@@ -53,7 +25,9 @@ struct ModuleOptions {
 }
 
 impl ModuleOptions {
-    fn into_parts(self) -> (
+    fn into_parts(
+        self,
+    ) -> (
         Option<String>,
         Option<RenameRule>,
         Option<Ident>,
@@ -108,7 +82,12 @@ impl ModuleItemOptions {
             (self.state.is_present(), ModuleRole::State),
         ];
 
-        if roles.iter().filter(|(present, _)| *present).count() != 1 {
+        if roles
+            .iter()
+            .filter(|(present, _)| *present)
+            .count()
+            != 1
+        {
             return Err(syn::Error::new(
                 ident.span(),
                 "a module member requires exactly one guestjs role",
@@ -116,12 +95,10 @@ impl ModuleItemOptions {
         }
 
         Ok((
-            roles.into_iter()
+            roles
+                .into_iter()
                 .find_map(|(present, role)| present.then_some(role))
-                .ok_or_else(|| syn::Error::new(
-                    ident.span(),
-                    "missing module member role",
-                ))?,
+                .ok_or_else(|| syn::Error::new(ident.span(), "missing module member role"))?,
             Naming::member(ident, self.name.clone(), rename),
         ))
     }
@@ -150,8 +127,7 @@ enum ModuleMember {
 impl ModuleMember {
     fn ident(&self) -> &Ident {
         match self {
-            Self::Function { callable, .. }
-            | Self::Namespace { callable, .. } => callable.ident(),
+            Self::Function { callable, .. } | Self::Namespace { callable, .. } => callable.ident(),
             Self::Constant { ident, .. } => ident,
         }
     }
@@ -192,17 +168,11 @@ impl ModuleMember {
         }
     }
 
-    fn render(
-        &self,
-        krate: &Path,
-        backend: &BackendParameter,
-        declaration: &Ident,
-    ) -> TokenStream {
+    fn render(&self, krate: &Path, backend: &BackendParameter, declaration: &Ident) -> TokenStream {
         let (attributes, operation) = match self {
-            Self::Constant { ident, name, attributes } => (
-                attributes,
-                quote!(.value(#name, Self::#ident)),
-            ),
+            Self::Constant { ident, name, attributes } => {
+                (attributes, quote!(.value(#name, Self::#ident)))
+            }
             Self::Namespace { callable, name, attributes } => {
                 let invocation = callable.associated(backend);
 
@@ -215,11 +185,7 @@ impl ModuleMember {
                 name,
                 attributes,
             } => {
-                let callback = callable.module_callback(
-                    krate,
-                    backend,
-                    receiver,
-                );
+                let callback = callable.module_callback(krate, backend, receiver);
 
                 (
                     attributes,
@@ -255,16 +221,11 @@ struct HostModuleDefinition {
 }
 
 impl HostModuleDefinition {
-    fn new(
-        args: TokenStream,
-        item: &mut ItemImpl,
-    ) -> Result<Self, MacroError> {
+    fn new(args: TokenStream, item: &mut ItemImpl) -> Result<Self, MacroError> {
         let target = HostSyntax::target(item)?;
         let exported_generics = HostSyntax::exported_generics(item);
         let (name, rename, method_name, backend, classes, exceptions, path) =
-            ModuleOptions::from_list(
-                &NestedMeta::parse_meta_list(args)?,
-            )?.into_parts();
+            ModuleOptions::from_list(&NestedMeta::parse_meta_list(args)?)?.into_parts();
         let krate = CratePath::new(path).resolve()?;
         let mut members = Vec::new();
         let mut factory = None;
@@ -293,7 +254,8 @@ impl HostModuleDefinition {
                                 return Err(syn::Error::new(
                                     callable.ident().span(),
                                     "only one state factory is permitted",
-                                ).into());
+                                )
+                                .into());
                             }
 
                             factory = Some(callable);
@@ -308,13 +270,12 @@ impl HostModuleDefinition {
                             });
                         }
                         ModuleRole::Function | ModuleRole::AsyncFunction => {
-                            if role == ModuleRole::AsyncFunction
-                                && callable.is_async()
-                            {
+                            if role == ModuleRole::AsyncFunction && callable.is_async() {
                                 return Err(syn::Error::new(
                                     callable.ident().span(),
                                     "async_function marks a synchronous future factory",
-                                ).into());
+                                )
+                                .into());
                             }
 
                             members.push(ModuleMember::Function {
@@ -330,7 +291,8 @@ impl HostModuleDefinition {
                             return Err(syn::Error::new(
                                 callable.ident().span(),
                                 "constant requires an associated const",
-                            ).into());
+                            )
+                            .into());
                         }
                     }
                 }
@@ -341,14 +303,15 @@ impl HostModuleDefinition {
                         continue;
                     }
 
-                    let (role, name) = ModuleItemOptions::from_list(&helpers)?
-                        .resolve(&constant.ident, rename)?;
+                    let (role, name) =
+                        ModuleItemOptions::from_list(&helpers)?.resolve(&constant.ident, rename)?;
 
                     if role != ModuleRole::Constant {
                         return Err(syn::Error::new(
                             constant.ident.span(),
                             "an exported const requires the constant role",
-                        ).into());
+                        )
+                        .into());
                     }
 
                     members.push(ModuleMember::Constant {
@@ -365,35 +328,29 @@ impl HostModuleDefinition {
 
         for member in &members {
             if names.contains(&member.name()) {
-                return Err(syn::Error::new(
-                    member.ident().span(),
-                    "duplicate module export",
-                ).into());
+                return Err(
+                    syn::Error::new(member.ident().span(), "duplicate module export").into()
+                );
             }
 
             names.push(member.name());
         }
 
-        let backend = BackendParameter::resolve(
-            backend,
-            &item.generics,
-            &exported_generics,
-        )?;
-        let mut bounds = BackendBounds::new(
-            &backend,
-            vec![parse_quote!(#krate::backend::Backend)],
-        );
+        let backend = BackendParameter::resolve(backend, &item.generics, &exported_generics)?;
+        let mut bounds = BackendBounds::new(&backend, vec![parse_quote!(#krate::backend::Backend)]);
 
         if members.iter().any(|member| {
-            matches!(member, ModuleMember::Function { .. }
-                | ModuleMember::Namespace { .. })
+            matches!(member, ModuleMember::Function { .. } | ModuleMember::Namespace { .. })
         }) {
             bounds.push(parse_quote!(
                 #krate::backend::callables::BackendCallables
             ));
         }
 
-        if members.iter().any(ModuleMember::promises) {
+        if members
+            .iter()
+            .any(ModuleMember::promises)
+        {
             bounds.push(parse_quote!(
                 #krate::backend::promises::BackendPromises
             ));
@@ -411,7 +368,8 @@ impl HostModuleDefinition {
             ));
         }
 
-        let mut methods = members.iter()
+        let mut methods = members
+            .iter()
             .map(|member| member.ident().clone())
             .collect::<Vec<_>>();
 
@@ -445,19 +403,19 @@ impl HostModuleDefinition {
     fn render(&self, item: &ItemImpl) -> TokenStream {
         let target = item.self_ty.as_ref();
         let (source_impl, _, source_where) = item.generics.split_for_impl();
-        let mut generics = self.backend.definition_generics(
-            &item.generics,
-            &self.bounds,
-        );
+        let mut generics = self
+            .backend
+            .definition_generics(&item.generics, &self.bounds);
 
         if self.shared || self.factory.is_some() {
-            generics.make_where_clause().predicates.push(
-                if self.factory.is_some() {
+            generics
+                .make_where_clause()
+                .predicates
+                .push(if self.factory.is_some() {
                     parse_quote!(Self: 'static)
                 } else {
                     parse_quote!(Self: Default + 'static)
-                },
-            );
+                });
         }
 
         let method_where = &generics.where_clause;
@@ -481,9 +439,10 @@ impl HostModuleDefinition {
             }
             None => TokenStream::new(),
         };
-        let members = self.members.iter().map(|member| {
-            member.render(krate, &self.backend, &declaration)
-        });
+        let members = self
+            .members
+            .iter()
+            .map(|member| member.render(krate, &self.backend, &declaration));
         let classes = self.classes.types();
         let exceptions = self.exceptions.types();
 
@@ -516,10 +475,7 @@ pub struct HostModuleMacro {
 }
 
 impl HostModuleMacro {
-    pub fn new(
-        args: TokenStream,
-        mut item: ItemImpl,
-    ) -> Result<Self, MacroError> {
+    pub fn new(args: TokenStream, mut item: ItemImpl) -> Result<Self, MacroError> {
         Ok(Self {
             definition: HostModuleDefinition::new(args, &mut item)?,
             item,
@@ -540,11 +496,7 @@ impl HostModuleMacro {
 #[cfg(test)]
 mod tests {
     use quote::quote;
-    use syn::{
-        parse2,
-        parse_quote,
-        File,
-    };
+    use syn::{File, parse_quote, parse2};
 
     use crate::host::module::HostModuleMacro;
 
@@ -567,26 +519,33 @@ mod tests {
                 .expand(),
             )
             .unwrap()
-            .items.len(),
+            .items
+            .len(),
             2,
         );
     }
 
     #[test]
     fn rejects_exclusive_module_receivers_and_deferred_roles() {
-        assert!(HostModuleMacro::new(
-            quote!(crate_path = crate),
-            parse_quote!(impl Metrics {
-                #[guestjs(function)]
-                fn increment(&mut self) -> Result<(), Error> { Ok(()) }
-            }),
-        ).is_err());
-        assert!(HostModuleMacro::new(
-            quote!(crate_path = crate),
-            parse_quote!(impl Metrics {
-                #[guestjs(init)]
-                fn init() -> Result<(), Error> { Ok(()) }
-            }),
-        ).is_err());
+        assert!(
+            HostModuleMacro::new(
+                quote!(crate_path = crate),
+                parse_quote!(impl Metrics {
+                    #[guestjs(function)]
+                    fn increment(&mut self) -> Result<(), Error> { Ok(()) }
+                }),
+            )
+            .is_err()
+        );
+        assert!(
+            HostModuleMacro::new(
+                quote!(crate_path = crate),
+                parse_quote!(impl Metrics {
+                    #[guestjs(init)]
+                    fn init() -> Result<(), Error> { Ok(()) }
+                }),
+            )
+            .is_err()
+        );
     }
 }

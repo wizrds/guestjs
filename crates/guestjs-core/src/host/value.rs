@@ -1,14 +1,8 @@
 use crate::{
-    backend::{
-        Backend,
-        Val,
-    },
+    backend::{Backend, Val},
     enter::Enter,
     errors::Error,
-    host::{
-        declaration::Declaration,
-        state::HostState,
-    },
+    host::{declaration::Declaration, state::HostState},
     marshal::ToGuest,
 };
 
@@ -18,9 +12,7 @@ pub struct ValueDeclaration<T> {
 
 impl<T> ValueDeclaration<T> {
     pub fn new(value: T) -> Self {
-        Self {
-            value,
-        }
+        Self { value }
     }
 }
 
@@ -35,9 +27,7 @@ where
         _state: &HostState,
         _name: &str,
     ) -> Result<Val<'js, B>, Error> {
-        self.value
-            .clone()
-            .to_guest(enter)
+        self.value.clone().to_guest(enter)
     }
 }
 
@@ -45,10 +35,7 @@ where
 mod tests {
     use crate::{
         backend::values::BackendValues,
-        host::{
-            declaration::Declaration,
-            value::ValueDeclaration,
-        },
+        host::{declaration::Declaration, value::ValueDeclaration},
     };
 
     #[allow(dead_code)]

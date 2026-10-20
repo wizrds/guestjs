@@ -2,20 +2,10 @@ use std::ptr::NonNull;
 
 use futures::FutureExt;
 use guestjs_core::errors::Error;
-use rquickjs::{
-    AsyncContext,
-    AsyncRuntime,
-    Ctx,
-    markers::Invariant,
-    qjs::JSContext,
-};
+use rquickjs::{AsyncContext, AsyncRuntime, Ctx, markers::Invariant, qjs::JSContext};
 
 use crate::{
-    engine::{
-        Engine,
-        Interrupt,
-        WeakRuntime,
-    },
+    engine::{Engine, Interrupt, WeakRuntime},
     error::Capture,
 };
 
@@ -27,10 +17,7 @@ pub struct Token<'js> {
 
 impl<'js> Token<'js> {
     pub(crate) fn new(pointer: NonNull<JSContext>) -> Self {
-        Self {
-            pointer,
-            brand: Invariant::new(),
-        }
+        Self { pointer, brand: Invariant::new() }
     }
 
     pub fn from_ctx(ctx: &Ctx<'js>) -> Self {
@@ -71,9 +58,7 @@ pub struct Context {
 impl Context {
     pub fn new(engine: &Engine) -> Result<Self, Error> {
         if engine.is_entered() {
-            return Err(Error::unsupported(
-                "a context cannot be created inside an entry",
-            ));
+            return Err(Error::unsupported("a context cannot be created inside an entry"));
         }
 
         async {
@@ -93,9 +78,7 @@ impl Context {
                             .map(|_| ctx.as_raw())
                     })
                     .await
-                    .map_err(|_| {
-                        Error::engine("runtime userdata is borrowed")
-                    })?,
+                    .map_err(|_| Error::engine("runtime userdata is borrowed"))?,
                 context,
             })
         }

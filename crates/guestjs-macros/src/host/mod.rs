@@ -9,28 +9,13 @@ use darling::FromMeta;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
-    parse::Parser,
-    parse_quote,
+    Generics, Ident, ImplItem, ItemImpl, Meta, Path, Token, Type, parse::Parser, parse_quote,
     punctuated::Punctuated,
-    Generics,
-    Ident,
-    ImplItem,
-    ItemImpl,
-    Meta,
-    Path,
-    Token,
-    Type,
 };
 
 use crate::{
-    backend::{
-        BackendBounds,
-        BackendParameter,
-    },
-    naming::{
-        Naming,
-        RenameRule,
-    },
+    backend::{BackendBounds, BackendParameter},
+    naming::{Naming, RenameRule},
 };
 
 #[derive(Default)]
@@ -73,10 +58,7 @@ impl MemberKey {
         rename: Option<RenameRule>,
     ) -> syn::Result<Self> {
         if name.is_some() && symbol.is_some() {
-            return Err(syn::Error::new(
-                ident.span(),
-                "name and symbol cannot be combined",
-            ));
+            return Err(syn::Error::new(ident.span(), "name and symbol cannot be combined"));
         }
 
         match symbol {
@@ -123,22 +105,18 @@ pub struct MemberRegistry {
 }
 
 impl MemberRegistry {
-    pub fn insert(
-        &mut self,
-        key: MemberKey,
-        role: Registration,
-        ident: &Ident,
-    ) -> syn::Result<()> {
-        if self.keys.iter().any(|(existing, previous)| {
-            *existing == key
-                && (*previous == role
-                    || *previous == Registration::Data
-                    || role == Registration::Data)
-        }) {
-            return Err(syn::Error::new(
-                ident.span(),
-                "duplicate guest member registration",
-            ));
+    pub fn insert(&mut self, key: MemberKey, role: Registration, ident: &Ident) -> syn::Result<()> {
+        if self
+            .keys
+            .iter()
+            .any(|(existing, previous)| {
+                *existing == key
+                    && (*previous == role
+                        || *previous == Registration::Data
+                        || role == Registration::Data)
+            })
+        {
+            return Err(syn::Error::new(ident.span(), "duplicate guest member registration"));
         }
 
         self.keys.push((key, role));
@@ -174,10 +152,7 @@ pub struct HostSyntax;
 impl HostSyntax {
     pub fn target(item: &ItemImpl) -> syn::Result<Ident> {
         if item.trait_.is_some() {
-            return Err(syn::Error::new_spanned(
-                item,
-                "host attributes require an inherent impl",
-            ));
+            return Err(syn::Error::new_spanned(item, "host attributes require an inherent impl"));
         }
 
         let Type::Path(target) = item.self_ty.as_ref() else {
@@ -188,31 +163,32 @@ impl HostSyntax {
         };
 
         if target.qself.is_some() {
-            return Err(syn::Error::new_spanned(
-                target,
-                "host attributes require a named type",
-            ));
+            return Err(syn::Error::new_spanned(target, "host attributes require a named type"));
         }
 
-        target.path.segments.last()
+        target
+            .path
+            .segments
+            .last()
             .map(|segment| segment.ident.clone())
             .ok_or_else(|| syn::Error::new_spanned(target, "missing type name"))
     }
 
     pub fn exported_generics(item: &ItemImpl) -> Vec<Generics> {
-        item.items.iter().filter_map(|member| {
-            match member {
+        item.items
+            .iter()
+            .filter_map(|member| match member {
                 ImplItem::Fn(method)
-                    if method.attrs.iter().any(|attribute| {
-                        attribute.path().is_ident("guestjs")
-                    }) =>
+                    if method
+                        .attrs
+                        .iter()
+                        .any(|attribute| attribute.path().is_ident("guestjs")) =>
                 {
                     Some(method.sig.generics.clone())
                 }
                 _ => None,
-            }
-        })
-        .collect()
+            })
+            .collect()
     }
 
     pub fn rewrite(
@@ -239,9 +215,10 @@ impl HostSyntax {
         let mut generics = item.generics.clone();
         let target = item.self_ty.as_ref();
 
-        generics.make_where_clause().predicates.push(
-            parse_quote!(#target: 'static),
-        );
+        generics
+            .make_where_clause()
+            .predicates
+            .push(parse_quote!(#target: 'static));
 
         generics
     }
@@ -251,48 +228,40 @@ impl HostSyntax {
 mod tests {
     use syn::parse_quote;
 
-    use crate::host::{
-        HostSyntax,
-        MemberKey,
-        MemberRegistry,
-        Registration,
-        StateRequirements,
-    };
+    use crate::host::{HostSyntax, MemberKey, MemberRegistry, Registration, StateRequirements};
 
     #[test]
     fn only_named_inherent_impls_are_accepted() {
         assert!(HostSyntax::target(&parse_quote!(impl Counter {})).is_ok());
-        assert!(HostSyntax::target(
-            &parse_quote!(impl Trait for Counter {})
-        )
-        .is_err());
-        assert!(HostSyntax::target(&parse_quote!(impl (Counter,) {})).is_err());
+        assert!(HostSyntax::target(&parse_quote!(impl Trait for Counter {})).is_err());
+        assert!(
+            HostSyntax::target(&parse_quote!(
+                impl (Counter,) {}
+            ))
+            .is_err()
+        );
     }
 
     #[test]
     fn accessor_pairs_share_a_key_without_allowing_duplicates() {
         let mut registry = MemberRegistry::default();
-        let key = MemberKey::new(&parse_quote!(value), None, None, None)
-            .unwrap();
+        let key = MemberKey::new(&parse_quote!(value), None, None, None).unwrap();
 
-        assert!(registry.insert(
-            key.clone(),
-            Registration::Get,
-            &parse_quote!(value),
-        )
-        .is_ok());
-        assert!(registry.insert(
-            key.clone(),
-            Registration::Set,
-            &parse_quote!(set_value),
-        )
-        .is_ok());
-        assert!(registry.insert(
-            key,
-            Registration::Get,
-            &parse_quote!(other),
-        )
-        .is_err());
+        assert!(
+            registry
+                .insert(key.clone(), Registration::Get, &parse_quote!(value),)
+                .is_ok()
+        );
+        assert!(
+            registry
+                .insert(key.clone(), Registration::Set, &parse_quote!(set_value),)
+                .is_ok()
+        );
+        assert!(
+            registry
+                .insert(key, Registration::Get, &parse_quote!(other),)
+                .is_err()
+        );
     }
 
     #[test]

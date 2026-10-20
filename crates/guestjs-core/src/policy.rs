@@ -1,16 +1,10 @@
 use std::{
     rc::Rc,
     sync::{
-        atomic::{
-            AtomicBool,
-            Ordering,
-        },
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
-    time::{
-        Duration,
-        Instant,
-    },
+    time::{Duration, Instant},
 };
 
 use crate::errors::Error;
@@ -32,7 +26,8 @@ impl Cancellation {
     }
 
     pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Relaxed);
+        self.cancelled
+            .store(true, Ordering::Relaxed);
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -67,10 +62,7 @@ pub struct ExecutionPolicy {
 
 impl ExecutionPolicy {
     pub fn new() -> Self {
-        Self {
-            timeout: None,
-            cancellation: None,
-        }
+        Self { timeout: None, cancellation: None }
     }
 
     pub fn timeout<T>(mut self, timeout: T) -> Self
@@ -108,14 +100,9 @@ pub struct ArmedPolicy {
 }
 
 impl ArmedPolicy {
-    pub fn new(
-        timeout: Option<Duration>,
-        cancellation: Option<Rc<dyn CancelSignal>>,
-    ) -> Self {
+    pub fn new(timeout: Option<Duration>, cancellation: Option<Rc<dyn CancelSignal>>) -> Self {
         Self {
-            deadline: timeout.and_then(|timeout| {
-                Instant::now().checked_add(timeout)
-            }),
+            deadline: timeout.and_then(|timeout| Instant::now().checked_add(timeout)),
             cancellation,
         }
     }
@@ -146,20 +133,17 @@ impl ArmedPolicy {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        thread,
-        time::Duration,
-    };
+    use std::{thread, time::Duration};
 
-    use crate::policy::{
-        CancelSignal,
-        Cancellation,
-        ExecutionPolicy,
-    };
+    use crate::policy::{CancelSignal, Cancellation, ExecutionPolicy};
 
     #[test]
     fn default_policy_is_never_due() {
-        assert!(!ExecutionPolicy::default().arm().is_due());
+        assert!(
+            !ExecutionPolicy::default()
+                .arm()
+                .is_due()
+        );
     }
 
     #[test]
@@ -169,15 +153,21 @@ mod tests {
             .arm();
 
         assert!(armed.is_due());
-        assert!(armed.due_error().is_some_and(|error| error.is_timeout()));
+        assert!(
+            armed
+                .due_error()
+                .is_some_and(|error| error.is_timeout())
+        );
     }
 
     #[test]
     fn unrepresentable_deadline_never_expires() {
-        assert!(!ExecutionPolicy::new()
-            .timeout(Duration::MAX)
-            .arm()
-            .is_expired());
+        assert!(
+            !ExecutionPolicy::new()
+                .timeout(Duration::MAX)
+                .arm()
+                .is_expired()
+        );
     }
 
     #[test]
@@ -193,7 +183,11 @@ mod tests {
             .join()
             .unwrap();
 
-        assert!(armed.due_error().is_some_and(|error| error.is_cancelled()));
+        assert!(
+            armed
+                .due_error()
+                .is_some_and(|error| error.is_cancelled())
+        );
     }
 
     #[test]
@@ -222,10 +216,12 @@ mod tests {
             }
         }
 
-        assert!(ExecutionPolicy::new()
-            .cancellation(Cancelled)
-            .arm()
-            .due_error()
-            .is_some_and(|error| error.is_cancelled()));
+        assert!(
+            ExecutionPolicy::new()
+                .cancellation(Cancelled)
+                .arm()
+                .due_error()
+                .is_some_and(|error| error.is_cancelled())
+        );
     }
 }

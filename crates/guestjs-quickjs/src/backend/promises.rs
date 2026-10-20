@@ -1,28 +1,15 @@
-use std::task::{
-    self,
-    Poll,
-};
+use std::task::{self, Poll};
 
 use guestjs_core::{
     backend::{
-        promises::{
-            BackendPromises,
-            PromiseState,
-        },
-        Tok,
-        Val,
+        Tok, Val,
+        promises::{BackendPromises, PromiseState},
     },
     errors::Error,
 };
-use rquickjs::{
-    Promise,
-    Value,
-};
+use rquickjs::{Promise, Value};
 
-use crate::{
-    backend::QuickJs,
-    error::Capture,
-};
+use crate::{backend::QuickJs, error::Capture};
 
 impl BackendPromises for QuickJs {
     fn promise<'js>(
@@ -32,19 +19,12 @@ impl BackendPromises for QuickJs {
             .ctx()
             .promise()
             .map(|(promise, resolve, reject)| {
-                (
-                    promise.into_value(),
-                    resolve.into_value(),
-                    reject.into_value(),
-                )
+                (promise.into_value(), resolve.into_value(), reject.into_value())
             })
             .capture(token)
     }
 
-    fn resolve<'js>(
-        token: Tok<'js, Self>,
-        value: Val<'js, Self>,
-    ) -> Result<Val<'js, Self>, Error> {
+    fn resolve<'js>(token: Tok<'js, Self>, value: Val<'js, Self>) -> Result<Val<'js, Self>, Error> {
         match value.is_promise() {
             true => Ok(value),
             false => token
@@ -85,34 +65,24 @@ impl BackendPromises for QuickJs {
 mod tests {
     use std::{
         rc::Rc,
-        task::{
-            self,
-            Poll,
-        },
+        task::{self, Poll},
     };
 
     use futures::task::noop_waker_ref;
     use guestjs_core::{
         backend::{
-            callables::{
-                BackendCallables,
-                RawCall,
-            },
-            modules::BackendModules,
-            promises::{
-                BackendPromises,
-                PromiseState,
-            },
-            values::BackendValues,
             Backend,
+            callables::{BackendCallables, RawCall},
+            modules::BackendModules,
+            promises::{BackendPromises, PromiseState},
+            values::BackendValues,
         },
         errors::Error,
     };
 
-    use crate::{
-        backend::QuickJs,
-        engine::Config,
-    };
+    use crate::{backend::QuickJs, engine::Config};
+
+    guestjs_core::fixtures::promises::tests!(QuickJs);
 
     #[test]
     fn promise_settles_through_its_resolvers() {
@@ -124,10 +94,7 @@ mod tests {
             let (rejected, _, reject) = QuickJs::promise(token).unwrap();
             let reason = QuickJs::new_object(token).unwrap();
 
-            assert!(matches!(
-                QuickJs::state(token, &fulfilled),
-                Ok(PromiseState::Pending),
-            ));
+            assert!(matches!(QuickJs::state(token, &fulfilled), Ok(PromiseState::Pending),));
 
             QuickJs::call(
                 token,
@@ -136,13 +103,8 @@ mod tests {
                 &[QuickJs::new_number(token, 42.0)],
             )
             .unwrap();
-            QuickJs::call(
-                token,
-                &reject,
-                &QuickJs::new_undefined(token),
-                &[reason.clone()],
-            )
-            .unwrap();
+            QuickJs::call(token, &reject, &QuickJs::new_undefined(token), &[reason.clone()])
+                .unwrap();
 
             assert!(matches!(
                 QuickJs::state(token, &fulfilled),
@@ -179,19 +141,11 @@ mod tests {
 
             let thenable = QuickJs::resolve(
                 token,
-                QuickJs::eval(
-                    token,
-                    "({ then(resolve) { resolve(3); } })",
-                    "thenable.js",
-                )
-                .unwrap(),
+                QuickJs::eval(token, "({ then(resolve) { resolve(3); } })", "thenable.js").unwrap(),
             )
             .unwrap();
 
-            assert!(matches!(
-                QuickJs::state(token, &thenable),
-                Ok(PromiseState::Pending),
-            ));
+            assert!(matches!(QuickJs::state(token, &thenable), Ok(PromiseState::Pending),));
 
             QuickJs::detach(token, thenable)
         });
@@ -231,7 +185,8 @@ mod tests {
 
                         move |call: RawCall<'_, QuickJs>| {
                             QuickJs::enter(&engine, &context, |token| {
-                                QuickJs::eval(token, "globalThis.ran = true;", "probe.js").map(|_| ())
+                                QuickJs::eval(token, "globalThis.ran = true;", "probe.js")
+                                    .map(|_| ())
                             })?;
 
                             Ok(QuickJs::new_undefined(call.token))
@@ -242,20 +197,11 @@ mod tests {
             )
             .unwrap();
 
-            assert!(matches!(
-                QuickJs::poll_jobs(&engine, &mut task),
-                Poll::Ready(Ok(false)),
-            ));
+            assert!(matches!(QuickJs::poll_jobs(&engine, &mut task), Poll::Ready(Ok(false)),));
         });
 
-        assert!(matches!(
-            QuickJs::poll_jobs(&engine, &mut task),
-            Poll::Ready(Ok(true)),
-        ));
-        assert!(matches!(
-            QuickJs::poll_jobs(&engine, &mut task),
-            Poll::Ready(Ok(false)),
-        ));
+        assert!(matches!(QuickJs::poll_jobs(&engine, &mut task), Poll::Ready(Ok(true)),));
+        assert!(matches!(QuickJs::poll_jobs(&engine, &mut task), Poll::Ready(Ok(false)),));
 
         QuickJs::enter(&engine, &context, |token| {
             assert_eq!(

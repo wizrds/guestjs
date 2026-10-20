@@ -1,29 +1,18 @@
 use crate::{
     backend::{
-        values::{
-            BackendValues,
-            Kind,
-        },
-        Backend,
-        Val,
+        Backend, Val,
+        values::{BackendValues, Kind},
     },
     enter::Enter,
     errors::Error,
     handle::{
-        base::Handle,
-        protocol::{
-            CallableProtocol,
-            ObjectProtocol,
-        },
         HasHandle,
+        base::Handle,
+        protocol::{CallableProtocol, ObjectProtocol},
     },
     marshal::{
-        describe::{
-            Describe,
-            Expected,
-        },
-        FromGuest,
-        ToGuest,
+        FromGuest, ToGuest,
+        describe::{Describe, Expected},
     },
 };
 
@@ -33,9 +22,7 @@ pub struct Function<B: Backend> {
 
 impl<B: Backend> Clone for Function<B> {
     fn clone(&self) -> Self {
-        Self {
-            handle: self.handle.clone(),
-        }
+        Self { handle: self.handle.clone() }
     }
 }
 
@@ -58,33 +45,22 @@ impl<B: Backend> Describe for Function<B> {
 impl<B: BackendValues> FromGuest<B> for Function<B> {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
-            Kind::Function => Ok(Self {
-                handle: Handle::from_value(enter, value),
-            }),
+            Kind::Function => Ok(Self { handle: Handle::from_value(enter, value) }),
             kind => Err(Expected::of::<Self>().mismatch(kind)),
         }
     }
 }
 
 impl<B: Backend> ToGuest<B> for Function<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
 
 impl<B: Backend> ToGuest<B> for &Function<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
@@ -92,22 +68,12 @@ impl<B: Backend> ToGuest<B> for &Function<B> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::{
-            tests::Stub,
-            values::BackendValues,
-        },
+        backend::{tests::Stub, values::BackendValues},
         handle::{
             function::Function,
-            protocol::{
-                CallableProtocol,
-                ObjectProtocol,
-            },
+            protocol::{CallableProtocol, ObjectProtocol},
         },
-        marshal::{
-            describe::Expected,
-            FromGuest,
-            ToGuest,
-        },
+        marshal::{FromGuest, ToGuest, describe::Expected},
     };
 
     #[allow(dead_code)]
@@ -126,9 +92,6 @@ mod tests {
 
     #[test]
     fn description_names_a_function() {
-        assert_eq!(
-            Expected::of::<Function<Stub>>().to_string(),
-            "function",
-        );
+        assert_eq!(Expected::of::<Function<Stub>>().to_string(), "function",);
     }
 }

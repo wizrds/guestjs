@@ -1,8 +1,5 @@
 use crate::{
-    backend::{
-        modules::BackendModules,
-        values::BackendValues,
-    },
+    backend::{modules::BackendModules, values::BackendValues},
     errors::Error,
     guest::Guest,
     handle::object::Object,
@@ -25,21 +22,14 @@ where
     B: BackendModules,
 {
     fn exec(&self, source: &str) -> Result<(), Error> {
-        self.enter(|enter| {
-            B::eval(enter.token(), source, "<guest>").map(drop)
-        })
+        self.enter(|enter| B::eval(enter.token(), source, "<guest>").map(drop))
     }
 
     fn eval<T>(&self, source: &str) -> Result<T::Owned, Error>
     where
         T: FromGuest<B>,
     {
-        self.enter(|enter| {
-            T::from_guest(
-                enter,
-                B::eval(enter.token(), source, "<guest>")?,
-            )
-        })
+        self.enter(|enter| T::from_guest(enter, B::eval(enter.token(), source, "<guest>")?))
     }
 }
 
@@ -55,9 +45,7 @@ where
     B: BackendValues,
 {
     fn globals(&self) -> Result<Object<B>, Error> {
-        self.enter(|enter| {
-            Object::<B>::from_guest(enter, B::globals(enter.token()))
-        })
+        self.enter(|enter| Object::<B>::from_guest(enter, B::globals(enter.token())))
     }
 }
 
@@ -65,11 +53,8 @@ where
 mod tests {
     use crate::{
         backend::tests::Stub,
+        eval::{GuestEvalExt, GuestGlobalsExt},
         guest::Guest,
-        eval::{
-            GuestEvalExt,
-            GuestGlobalsExt,
-        },
         runtime::Runtime,
     };
 
@@ -80,8 +65,20 @@ mod tests {
 
         guest.close();
 
-        assert!(guest.exec("").is_err_and(|error| error.is_closed()));
-        assert!(guest.eval::<f64>("").is_err_and(|error| error.is_closed()));
-        assert!(guest.globals().is_err_and(|error| error.is_closed()));
+        assert!(
+            guest
+                .exec("")
+                .is_err_and(|error| error.is_closed())
+        );
+        assert!(
+            guest
+                .eval::<f64>("")
+                .is_err_and(|error| error.is_closed())
+        );
+        assert!(
+            guest
+                .globals()
+                .is_err_and(|error| error.is_closed())
+        );
     }
 }

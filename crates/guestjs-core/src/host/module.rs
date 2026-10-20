@@ -1,40 +1,24 @@
-use std::{
-    future::Future,
-    rc::Rc,
-};
+use std::{future::Future, rc::Rc};
 
 use crate::{
     backend::{
-        callables::BackendCallables,
-        classes::BackendClasses,
-        exceptions::BackendExceptions,
-        promises::BackendPromises,
-        Backend,
-        Val,
+        Backend, Val, callables::BackendCallables, classes::BackendClasses,
+        exceptions::BackendExceptions, promises::BackendPromises,
     },
     enter::Enter,
     errors::Error,
     host::{
         class::HostClass,
-        context::{
-            CallContext,
-            FromContext,
-        },
+        context::{CallContext, FromContext},
         declaration::Declaration,
-        exception::{
-            ExceptionDeclaration,
-            HostException,
-        },
+        exception::{ExceptionDeclaration, HostException},
         function::FunctionDeclaration,
         namespace::NamespaceDeclaration,
         requirements::Requirements,
         state::HostState,
         value::ValueDeclaration,
     },
-    marshal::{
-        args::Args,
-        ToGuest,
-    },
+    marshal::{ToGuest, args::Args},
 };
 
 pub struct ModuleDeclaration<B: Backend> {
@@ -71,7 +55,8 @@ impl<B: Backend> ModuleDeclaration<B> {
         N: Into<String>,
         D: Declaration<B> + 'static,
     {
-        self.members.push((name.into(), Rc::new(declaration)));
+        self.members
+            .push((name.into(), Rc::new(declaration)));
 
         self
     }
@@ -98,10 +83,7 @@ impl<B: Backend> ModuleDeclaration<B> {
         &self.name
     }
 
-    pub fn exports<'js>(
-        &self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Vec<(String, Val<'js, B>)>, Error> {
+    pub fn exports<'js>(&self, enter: &Enter<'js, B>) -> Result<Vec<(String, Val<'js, B>)>, Error> {
         let state = (self.state)(enter)?;
 
         self.requirements.check(&state)?;
@@ -119,11 +101,7 @@ impl<B: BackendCallables> ModuleDeclaration<B> {
     pub fn function<N, F, R>(self, name: N, function: F) -> Self
     where
         N: Into<String>,
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<R, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<R, Error> + 'static,
         R: ToGuest<B>,
     {
         self.member(name, FunctionDeclaration::new(function))
@@ -144,11 +122,7 @@ where
     pub fn function_async<N, F, Fut, R>(self, name: N, function: F) -> Self
     where
         N: Into<String>,
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<Fut, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<Fut, Error> + 'static,
         Fut: Future<Output = Result<R, Error>> + 'static,
         R: ToGuest<B> + 'static,
     {
@@ -177,28 +151,19 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        cell::Cell,
-        rc::Rc,
-    };
+    use std::{cell::Cell, rc::Rc};
 
     use crate::{
         backend::{
-            classes::BackendClasses,
-            exceptions::BackendExceptions,
-            promises::BackendPromises,
+            Val, classes::BackendClasses, exceptions::BackendExceptions, promises::BackendPromises,
             tests::Stub,
-            Val,
         },
         enter::Enter,
         errors::Error,
         guest::Guest,
         handle::class::Payload,
         host::{
-            class::{
-                ClassDeclaration,
-                HostClass,
-            },
+            class::{ClassDeclaration, HostClass},
             declaration::Declaration,
             exception::HostException,
             module::ModuleDeclaration,
@@ -220,7 +185,8 @@ mod tests {
             state: &HostState,
             _name: &str,
         ) -> Result<Val<'js, Stub>, Error> {
-            self.state.set(state.get::<u8>().map(|state| *state));
+            self.state
+                .set(state.get::<u8>().map(|state| *state));
 
             Ok(())
         }
@@ -277,12 +243,7 @@ mod tests {
             .enter(|enter| {
                 ModuleDeclaration::new("stateful")
                     .state(|_| Ok(7_u8))
-                    .member(
-                        "a",
-                        Seen {
-                            state: seen.clone(),
-                        },
-                    )
+                    .member("a", Seen { state: seen.clone() })
                     .exports(enter)
             })
             .unwrap();
@@ -298,12 +259,7 @@ mod tests {
             .unwrap()
             .enter(|enter| {
                 ModuleDeclaration::new("stateless")
-                    .member(
-                        "a",
-                        Seen {
-                            state: seen.clone(),
-                        },
-                    )
+                    .member("a", Seen { state: seen.clone() })
                     .exports(enter)
             })
             .unwrap();
@@ -345,9 +301,7 @@ mod tests {
             .value("version", "1.0")
             .value("default", 1.0)
             .function("add", |_, _| Ok::<_, Error>(1.0))
-            .function_async("fetch", |_, _| {
-                Ok::<_, Error>(async { Ok::<_, Error>(1.0) })
-            })
+            .function_async("fetch", |_, _| Ok::<_, Error>(async { Ok::<_, Error>(1.0) }))
             .class::<Counter>()
             .exception::<NetworkError>()
             .namespace("units", {

@@ -1,25 +1,11 @@
 use crate::{
     backend::{
         buffers::BackendBuffers,
-        values::{
-            BackendValues,
-            Kind,
-        },
+        values::{BackendValues, Kind},
     },
     errors::Error,
-    handle::{
-        buffer::ArrayBuffer,
-        class::Class,
-        function::Function,
-        object::Object,
-        HasHandle,
-    },
-    marshal::{
-        buffers::BufferSource,
-        FromGuest,
-        ToGuest,
-        ToGuestArgs,
-    },
+    handle::{HasHandle, buffer::ArrayBuffer, class::Class, function::Function, object::Object},
+    marshal::{FromGuest, ToGuest, ToGuestArgs, buffers::BufferSource},
 };
 
 pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
@@ -27,9 +13,8 @@ pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
     where
         T: FromGuest<B>,
     {
-        self.handle().with_enter(|enter, object| {
-            T::from_guest(enter, object.clone())
-        })
+        self.handle()
+            .with_enter(|enter, object| T::from_guest(enter, object.clone()))
     }
 
     fn get<T, K>(&self, key: K) -> Result<T::Owned, Error>
@@ -37,12 +22,10 @@ pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
         T: FromGuest<B>,
         K: ToGuest<B>,
     {
-        self.handle().with_enter(|enter, object| {
-            T::from_guest(
-                enter,
-                B::get(enter.token(), object, &key.to_guest(enter)?)?,
-            )
-        })
+        self.handle()
+            .with_enter(|enter, object| {
+                T::from_guest(enter, B::get(enter.token(), object, &key.to_guest(enter)?)?)
+            })
     }
 
     fn object<K>(&self, key: K) -> Result<Object<B>, Error>
@@ -71,77 +54,66 @@ pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
         K: ToGuest<B>,
         V: ToGuest<B>,
     {
-        self.handle().with_enter(|enter, object| {
-            B::set(
-                enter.token(),
-                object,
-                &key.to_guest(enter)?,
-                value.to_guest(enter)?,
-            )
-        })
+        self.handle()
+            .with_enter(|enter, object| {
+                B::set(enter.token(), object, &key.to_guest(enter)?, value.to_guest(enter)?)
+            })
     }
 
     fn delete<K>(&self, key: K) -> Result<(), Error>
     where
         K: ToGuest<B>,
     {
-        self.handle().with_enter(|enter, object| {
-            B::delete(enter.token(), object, &key.to_guest(enter)?)
-        })
+        self.handle()
+            .with_enter(|enter, object| B::delete(enter.token(), object, &key.to_guest(enter)?))
     }
 
     fn has<K>(&self, key: K) -> Result<bool, Error>
     where
         K: ToGuest<B>,
     {
-        self.handle().with_enter(|enter, object| {
-            B::has(enter.token(), object, &key.to_guest(enter)?)
-        })
+        self.handle()
+            .with_enter(|enter, object| B::has(enter.token(), object, &key.to_guest(enter)?))
     }
 
     fn is_instance_of<R>(&self, class: &Class<B, R>) -> Result<bool, Error> {
-        self.handle().with_enter(|enter, object| {
-            B::instance_of(enter.token(), object, &class.to_guest(enter)?)
-        })
+        self.handle()
+            .with_enter(|enter, object| {
+                B::instance_of(enter.token(), object, &class.to_guest(enter)?)
+            })
     }
 
     fn keys<K>(&self) -> Result<Vec<K::Owned>, Error>
     where
         K: FromGuest<B>,
     {
-        self.handle().with_enter(|enter, object| {
-            B::keys(enter.token(), object)?
-                .into_iter()
-                .map(|key| K::from_guest(enter, key))
-                .collect()
-        })
+        self.handle()
+            .with_enter(|enter, object| {
+                B::keys(enter.token(), object)?
+                    .into_iter()
+                    .map(|key| K::from_guest(enter, key))
+                    .collect()
+            })
     }
 
-    fn call_method<K, A, R>(
-        &self,
-        key: K,
-        args: A,
-    ) -> Result<R::Owned, Error>
+    fn call_method<K, A, R>(&self, key: K, args: A) -> Result<R::Owned, Error>
     where
         K: ToGuest<B>,
         A: ToGuestArgs<B>,
         R: FromGuest<B>,
     {
-        self.handle().with_enter(|enter, object| {
-            R::from_guest(
-                enter,
-                B::call(
-                    enter.token(),
-                    &B::get(
+        self.handle()
+            .with_enter(|enter, object| {
+                R::from_guest(
+                    enter,
+                    B::call(
                         enter.token(),
+                        &B::get(enter.token(), object, &key.to_guest(enter)?)?,
                         object,
-                        &key.to_guest(enter)?,
+                        &args.to_guest_args(enter)?,
                     )?,
-                    object,
-                    &args.to_guest_args(enter)?,
-                )?,
-            )
-        })
+                )
+            })
     }
 }
 
@@ -152,17 +124,18 @@ pub trait CallableProtocol<B: BackendValues>: HasHandle<B> {
         A: ToGuestArgs<B>,
         R: FromGuest<B>,
     {
-        self.handle().with_enter(|enter, function| {
-            R::from_guest(
-                enter,
-                B::call(
-                    enter.token(),
-                    function,
-                    &this.to_guest(enter)?,
-                    &args.to_guest_args(enter)?,
-                )?,
-            )
-        })
+        self.handle()
+            .with_enter(|enter, function| {
+                R::from_guest(
+                    enter,
+                    B::call(
+                        enter.token(),
+                        function,
+                        &this.to_guest(enter)?,
+                        &args.to_guest_args(enter)?,
+                    )?,
+                )
+            })
     }
 
     fn call<A, R>(&self, args: A) -> Result<R::Owned, Error>
@@ -176,21 +149,20 @@ pub trait CallableProtocol<B: BackendValues>: HasHandle<B> {
 
 pub trait BufferProtocol<B: BackendBuffers>: HasHandle<B> {
     fn byte_length(&self) -> Result<usize, Error> {
-        self.handle().with_enter(|enter, value| {
-            B::byte_length(enter.token(), value)
-        })
+        self.handle()
+            .with_enter(|enter, value| B::byte_length(enter.token(), value))
     }
 
     fn bytes(&self) -> Result<Vec<u8>, Error> {
-        self.handle().with_enter(|enter, value| {
-            BufferSource::read(enter, value)?.bytes(enter)
-        })
+        self.handle()
+            .with_enter(|enter, value| BufferSource::read(enter, value)?.bytes(enter))
     }
 
     fn write_bytes(&self, byte_offset: usize, bytes: &[u8]) -> Result<(), Error> {
-        self.handle().with_enter(|enter, value| {
-            BufferSource::read(enter, value)?.write(enter, byte_offset, bytes)
-        })
+        self.handle()
+            .with_enter(|enter, value| {
+                BufferSource::read(enter, value)?.write(enter, byte_offset, bytes)
+            })
     }
 }
 
@@ -202,9 +174,8 @@ pub trait ViewProtocol<B: BackendBuffers>: BufferProtocol<B> {
     }
 
     fn byte_offset(&self) -> Result<usize, Error> {
-        self.handle().with_enter(|enter, view| {
-            B::byte_offset(enter.token(), view)
-        })
+        self.handle()
+            .with_enter(|enter, view| B::byte_offset(enter.token(), view))
     }
 }
 
@@ -214,33 +185,27 @@ pub trait ConstructorProtocol<B: BackendValues>: HasHandle<B> {
         A: ToGuestArgs<B>,
         R: FromGuest<B>,
     {
-        self.handle().with_enter(|enter, constructor| {
-            R::from_guest(
-                enter,
-                B::construct(
-                    enter.token(),
-                    constructor,
-                    &args.to_guest_args(enter)?,
-                )?,
-            )
-        })
+        self.handle()
+            .with_enter(|enter, constructor| {
+                R::from_guest(
+                    enter,
+                    B::construct(enter.token(), constructor, &args.to_guest_args(enter)?)?,
+                )
+            })
     }
 
     fn is_subclass_of<R>(&self, class: &Class<B, R>) -> Result<bool, Error> {
-        self.handle().with_enter(|enter, constructor| {
-            let base = class.to_guest(enter)?;
+        self.handle()
+            .with_enter(|enter, constructor| {
+                let base = class.to_guest(enter)?;
 
-            Ok(B::same(enter.token(), constructor, &base)
-                || B::instance_of(
-                    enter.token(),
-                    &B::get(
+                Ok(B::same(enter.token(), constructor, &base)
+                    || B::instance_of(
                         enter.token(),
-                        constructor,
-                        &"prototype".to_guest(enter)?,
-                    )?,
-                    &base,
-                )?)
-        })
+                        &B::get(enter.token(), constructor, &"prototype".to_guest(enter)?)?,
+                        &base,
+                    )?)
+            })
     }
 }
 

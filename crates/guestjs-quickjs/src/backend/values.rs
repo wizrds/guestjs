@@ -1,47 +1,20 @@
 use guestjs_core::{
     backend::{
-        values::{
-            BackendValues,
-            IteratorKind,
-            Kind,
-            Property,
-            WellKnown,
-        },
-        Tok,
-        Val,
+        Tok, Val,
+        values::{BackendValues, IteratorKind, Kind, Property, WellKnown},
     },
     errors::Error,
 };
 use rquickjs::{
+    Array, BigInt, Coerced, Constructor, Ctx, Filter, Function, IntoJs, IteratorJs, Object, Symbol,
+    Type, Value,
     atom::PredefinedAtom,
-    function::{
-        Args,
-        This,
-    },
-    object::{
-        AsProperty,
-        PropertyFlags,
-    },
+    function::{Args, This},
+    object::{AsProperty, PropertyFlags},
     qjs,
-    Array,
-    BigInt,
-    Coerced,
-    Constructor,
-    Ctx,
-    Filter,
-    Function,
-    IntoJs,
-    IteratorJs,
-    Object,
-    Symbol,
-    Type,
-    Value,
 };
 
-use crate::{
-    backend::QuickJs,
-    error::Capture,
-};
+use crate::{backend::QuickJs, error::Capture};
 
 pub struct Descriptor<'js>(Property<'js, QuickJs>);
 
@@ -70,23 +43,20 @@ impl<'js> AsProperty<'js, ()> for Descriptor<'js> {
                     | qjs::JS_PROP_HAS_CONFIGURABLE
                     | flag(writable, qjs::JS_PROP_WRITABLE)
                     | flag(enumerable, qjs::JS_PROP_ENUMERABLE)
-                    | flag(configurable, qjs::JS_PROP_CONFIGURABLE)) as PropertyFlags,
+                    | flag(configurable, qjs::JS_PROP_CONFIGURABLE))
+                    as PropertyFlags,
                 value,
                 undefined.clone(),
                 undefined,
             ),
-            Property::Accessor {
-                get,
-                set,
-                enumerable,
-                configurable,
-            } => (
+            Property::Accessor { get, set, enumerable, configurable } => (
                 (qjs::JS_PROP_HAS_GET
                     | qjs::JS_PROP_HAS_SET
                     | qjs::JS_PROP_HAS_ENUMERABLE
                     | qjs::JS_PROP_HAS_CONFIGURABLE
                     | flag(enumerable, qjs::JS_PROP_ENUMERABLE)
-                    | flag(configurable, qjs::JS_PROP_CONFIGURABLE)) as PropertyFlags,
+                    | flag(configurable, qjs::JS_PROP_CONFIGURABLE))
+                    as PropertyFlags,
                 undefined.clone(),
                 get.unwrap_or_else(|| undefined.clone()),
                 set.unwrap_or(undefined),
@@ -112,48 +82,30 @@ impl BackendValues for QuickJs {
         Value::new_float(token.ctx(), value)
     }
 
-    fn new_bigint<'js>(
-        token: Tok<'js, Self>,
-        value: i64,
-    ) -> Result<Val<'js, Self>, Error> {
+    fn new_bigint<'js>(token: Tok<'js, Self>, value: i64) -> Result<Val<'js, Self>, Error> {
         BigInt::from_i64(token.ctx(), value)
             .map(BigInt::into_value)
             .capture(token)
     }
 
-    fn new_string<'js>(
-        token: Tok<'js, Self>,
-        value: &str,
-    ) -> Result<Val<'js, Self>, Error> {
+    fn new_string<'js>(token: Tok<'js, Self>, value: &str) -> Result<Val<'js, Self>, Error> {
         value
             .into_js(&token.ctx())
             .capture(token)
     }
 
-    fn new_symbol<'js>(
-        token: Tok<'js, Self>,
-        description: &str,
-    ) -> Result<Val<'js, Self>, Error> {
+    fn new_symbol<'js>(token: Tok<'js, Self>, description: &str) -> Result<Val<'js, Self>, Error> {
         Symbol::with_description(token.ctx(), description)
             .map(Symbol::into_value)
             .capture(token)
     }
 
-    fn well_known<'js>(
-        token: Tok<'js, Self>,
-        symbol: WellKnown,
-    ) -> Val<'js, Self> {
+    fn well_known<'js>(token: Tok<'js, Self>, symbol: WellKnown) -> Val<'js, Self> {
         match symbol {
             WellKnown::Iterator => Symbol::iterator(token.ctx()).into_value(),
-            WellKnown::AsyncIterator => {
-                Symbol::async_iterator(token.ctx()).into_value()
-            },
-            WellKnown::ToPrimitive => {
-                Symbol::to_primitive(token.ctx()).into_value()
-            },
-            WellKnown::HasInstance => {
-                Symbol::has_instance(token.ctx()).into_value()
-            },
+            WellKnown::AsyncIterator => Symbol::async_iterator(token.ctx()).into_value(),
+            WellKnown::ToPrimitive => Symbol::to_primitive(token.ctx()).into_value(),
+            WellKnown::HasInstance => Symbol::has_instance(token.ctx()).into_value(),
             WellKnown::ToStringTag => unsafe {
                 Value::from_raw(
                     token.ctx(),
@@ -211,50 +163,30 @@ impl BackendValues for QuickJs {
             Type::Array => Kind::Array,
             Type::Constructor | Type::Function => Kind::Function,
             Type::Promise => Kind::Promise,
-            _ if unsafe { qjs::JS_IsArrayBuffer(value.as_raw()) } => {
-                Kind::ArrayBuffer
-            }
-            _ if unsafe { qjs::JS_GetTypedArrayType(value.as_raw()) } >= 0 => {
-                Kind::TypedArray
-            }
+            _ if unsafe { qjs::JS_IsArrayBuffer(value.as_raw()) } => Kind::ArrayBuffer,
+            _ if unsafe { qjs::JS_GetTypedArrayType(value.as_raw()) } >= 0 => Kind::TypedArray,
             _ if unsafe { qjs::JS_IsDataView(value.as_raw()) } => Kind::DataView,
             _ if unsafe { qjs::JS_IsSet(value.as_raw()) } => Kind::Set,
             _ => Kind::Object,
         }
     }
 
-    fn truthy<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<bool, Error> {
+    fn truthy<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<bool, Error> {
         value
             .get::<Coerced<bool>>()
             .map(|truthy| truthy.0)
             .capture(token)
     }
 
-    fn as_bool<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<bool, Error> {
-        value
-            .get::<bool>()
-            .capture(token)
+    fn as_bool<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<bool, Error> {
+        value.get::<bool>().capture(token)
     }
 
-    fn as_f64<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<f64, Error> {
-        value
-            .get::<f64>()
-            .capture(token)
+    fn as_f64<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<f64, Error> {
+        value.get::<f64>().capture(token)
     }
 
-    fn as_i64<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<i64, Error> {
+    fn as_i64<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<i64, Error> {
         match value.type_of() {
             Type::BigInt => BigInt::from_value(value.clone())
                 .and_then(BigInt::to_i64)
@@ -262,36 +194,24 @@ impl BackendValues for QuickJs {
                 .and_then(|integer| {
                     match Self::same(token, value, &Self::new_bigint(token, integer)?) {
                         true => Ok(integer),
-                        false => Err(Error::conversion(
-                            "i64",
-                            "bigint out of range",
-                        )),
+                        false => Err(Error::conversion("i64", "bigint out of range")),
                     }
                 }),
             _ => value
                 .as_number()
                 .filter(|number| {
-                    number.fract() == 0.0
-                        && (i64::MIN as f64..i64::MAX as f64).contains(number)
+                    number.fract() == 0.0 && (i64::MIN as f64..i64::MAX as f64).contains(number)
                 })
                 .map(|number| number as i64)
                 .ok_or_else(|| Error::conversion("i64", value.type_name())),
         }
     }
 
-    fn as_string<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<String, Error> {
-        value
-            .get::<String>()
-            .capture(token)
+    fn as_string<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<String, Error> {
+        value.get::<String>().capture(token)
     }
 
-    fn display<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<String, Error> {
+    fn display<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<String, Error> {
         match Symbol::from_value(value.clone()) {
             Ok(symbol) => symbol
                 .description()
@@ -304,20 +224,8 @@ impl BackendValues for QuickJs {
         .capture(token)
     }
 
-    fn same<'js>(
-        token: Tok<'js, Self>,
-        first: &Val<'js, Self>,
-        second: &Val<'js, Self>,
-    ) -> bool {
-        unsafe {
-            qjs::JS_IsSameValue(
-                token
-                    .pointer()
-                    .as_ptr(),
-                first.as_raw(),
-                second.as_raw(),
-            )
-        }
+    fn same<'js>(token: Tok<'js, Self>, first: &Val<'js, Self>, second: &Val<'js, Self>) -> bool {
+        unsafe { qjs::JS_IsSameValue(token.pointer().as_ptr(), first.as_raw(), second.as_raw()) }
     }
 
     fn get<'js>(
@@ -396,13 +304,7 @@ impl BackendValues for QuickJs {
         constructor: &Val<'js, Self>,
     ) -> Result<bool, Error> {
         match unsafe {
-            qjs::JS_IsInstanceOf(
-                token
-                    .pointer()
-                    .as_ptr(),
-                value.as_raw(),
-                constructor.as_raw(),
-            )
+            qjs::JS_IsInstanceOf(token.pointer().as_ptr(), value.as_raw(), constructor.as_raw())
         } {
             -1 => Err(rquickjs::Error::Exception).capture(token),
             result => Ok(result == 1),
@@ -417,10 +319,7 @@ impl BackendValues for QuickJs {
             .map(|object| {
                 object
                     .get_prototype()
-                    .map_or_else(
-                        || Self::new_null(token),
-                        Object::into_value,
-                    )
+                    .map_or_else(|| Self::new_null(token), Object::into_value)
             })
             .capture(token)
     }
@@ -478,13 +377,8 @@ impl BackendValues for QuickJs {
             .as_object()
             .map(|object| {
                 object
-                    .get::<_, Option<Function>>(Self::well_known(
-                        token,
-                        kind.symbol(),
-                    ))?
-                    .map(|method| {
-                        method.call::<_, Value>((This(object.clone()),))
-                    })
+                    .get::<_, Option<Function>>(Self::well_known(token, kind.symbol()))?
+                    .map(|method| method.call::<_, Value>((This(object.clone()),)))
                     .transpose()
             })
             .transpose()
@@ -511,9 +405,14 @@ impl BackendValues for QuickJs {
     ) -> Result<Option<Val<'js, Self>>, Error> {
         Object::from_value(result.clone())
             .and_then(|result| {
-                match result.get::<_, Coerced<bool>>(PredefinedAtom::Done)?.0 {
+                match result
+                    .get::<_, Coerced<bool>>(PredefinedAtom::Done)?
+                    .0
+                {
                     true => Ok(None),
-                    false => result.get(PredefinedAtom::Value).map(Some),
+                    false => result
+                        .get(PredefinedAtom::Value)
+                        .map(Some),
                 }
             })
             .capture(token)
@@ -525,9 +424,7 @@ impl BackendValues for QuickJs {
     ) -> Result<Val<'js, Self>, Error> {
         Object::from_value(iterator.clone())
             .and_then(|iterator| {
-                match iterator
-                    .get::<_, Option<Function>>(PredefinedAtom::Return)?
-                {
+                match iterator.get::<_, Option<Function>>(PredefinedAtom::Return)? {
                     Some(method) => method.call::<_, Value>((This(iterator),)),
                     None => Ok(Value::new_undefined(token.ctx())),
                 }
@@ -541,21 +438,14 @@ mod tests {
     use std::iter::from_fn;
 
     use guestjs_core::backend::{
-        values::{
-            BackendValues,
-            IteratorKind,
-            Kind,
-            Property,
-        },
         Backend,
+        values::{BackendValues, IteratorKind, Kind, Property},
     };
     use rquickjs::Value;
 
-    use crate::{
-        backend::QuickJs,
-        engine::Config,
-    };
+    use crate::{backend::QuickJs, engine::Config};
 
+    guestjs_core::fixtures::values::tests!(QuickJs);
 
     #[test]
     fn kind_classifies_values() {
@@ -586,9 +476,7 @@ mod tests {
             assert_eq!(kind("new Set()"), Kind::Set);
             assert_eq!(kind("new Proxy(new ArrayBuffer(1), {})"), Kind::Object);
             assert_eq!(kind("new Error()"), Kind::Object);
-            assert!(!token
-                .ctx()
-                .has_exception());
+            assert!(!token.ctx().has_exception());
         });
     }
 
@@ -611,10 +499,7 @@ mod tests {
             assert_eq!(as_i64("42").unwrap(), 42);
             assert_eq!(as_i64("42n").unwrap(), 42);
             assert!(as_i64("1.5").is_err_and(|error| error.is_conversion()));
-            assert!(
-                as_i64("2n ** 64n")
-                    .is_err_and(|error| error.is_conversion()),
-            );
+            assert!(as_i64("2n ** 64n").is_err_and(|error| error.is_conversion()),);
             assert!(as_i64("'42'").is_err_and(|error| error.is_conversion()));
         });
     }
@@ -724,11 +609,7 @@ mod tests {
 
             assert_eq!(
                 from_fn(|| {
-                    QuickJs::step(
-                        token,
-                        &QuickJs::next(token, &iterator).unwrap(),
-                    )
-                    .unwrap()
+                    QuickJs::step(token, &QuickJs::next(token, &iterator).unwrap()).unwrap()
                 })
                 .map(|value| QuickJs::as_f64(token, &value).unwrap())
                 .collect::<Vec<_>>(),
@@ -828,7 +709,12 @@ mod tests {
                 )
                 .unwrap();
 
-            assert_eq!(QuickJs::keys(token, &object).unwrap().len(), 2);
+            assert_eq!(
+                QuickJs::keys(token, &object)
+                    .unwrap()
+                    .len(),
+                2
+            );
         });
     }
 
@@ -859,23 +745,13 @@ mod tests {
         QuickJs::enter(&engine, &context, |token| {
             let even = token
                 .ctx()
-                .eval::<Value, _>(
-                    "({ [Symbol.hasInstance]: (value) => value % 2 === 0 })",
-                )
+                .eval::<Value, _>("({ [Symbol.hasInstance]: (value) => value % 2 === 0 })")
                 .unwrap();
 
-            assert!(QuickJs::instance_of(
-                token,
-                &QuickJs::new_number(token, 2.0),
-                &even,
-            )
-            .unwrap());
-            assert!(!QuickJs::instance_of(
-                token,
-                &QuickJs::new_number(token, 3.0),
-                &even,
-            )
-            .unwrap());
+            assert!(QuickJs::instance_of(token, &QuickJs::new_number(token, 2.0), &even,).unwrap());
+            assert!(
+                !QuickJs::instance_of(token, &QuickJs::new_number(token, 3.0), &even,).unwrap()
+            );
         });
     }
 }

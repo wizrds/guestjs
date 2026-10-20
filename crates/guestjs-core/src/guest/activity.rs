@@ -1,14 +1,8 @@
-use std::cell::{
-    Cell,
-    RefCell,
-};
+use std::cell::{Cell, RefCell};
 
 use crate::{
     errors::Error,
-    policy::{
-        ArmedPolicy,
-        ExecutionPolicy,
-    },
+    policy::{ArmedPolicy, ExecutionPolicy},
 };
 
 pub struct GuestActivity {
@@ -79,9 +73,7 @@ pub struct Activation<'a> {
 
 impl<'a> Activation<'a> {
     fn new(activity: &'a GuestActivity) -> Self {
-        Self {
-            activity,
-        }
+        Self { activity }
     }
 }
 
@@ -97,19 +89,18 @@ mod tests {
 
     use crate::{
         guest::activity::GuestActivity,
-        policy::{
-            Cancellation,
-            ExecutionPolicy,
-        },
+        policy::{Cancellation, ExecutionPolicy},
     };
 
     #[test]
     fn due_policy_refuses_the_outermost_activation() {
-        let activity = GuestActivity::new(
-            ExecutionPolicy::new().timeout(Duration::ZERO),
-        );
+        let activity = GuestActivity::new(ExecutionPolicy::new().timeout(Duration::ZERO));
 
-        assert!(activity.begin().is_err_and(|error| error.is_timeout()));
+        assert!(
+            activity
+                .begin()
+                .is_err_and(|error| error.is_timeout())
+        );
         assert!(!activity.is_active());
         assert!(!activity.is_due());
     }
@@ -117,9 +108,8 @@ mod tests {
     #[test]
     fn outermost_activation_owns_the_armed_policy() {
         let cancellation = Cancellation::new();
-        let activity = GuestActivity::new(
-            ExecutionPolicy::new().cancellation(cancellation.clone()),
-        );
+        let activity =
+            GuestActivity::new(ExecutionPolicy::new().cancellation(cancellation.clone()));
         let outer = activity.begin().unwrap();
 
         drop(activity.begin().unwrap());
@@ -130,7 +120,11 @@ mod tests {
         cancellation.cancel();
 
         assert!(activity.is_due());
-        assert!(activity.due_error().is_some_and(|error| error.is_cancelled()));
+        assert!(
+            activity
+                .due_error()
+                .is_some_and(|error| error.is_cancelled())
+        );
 
         drop(outer);
 

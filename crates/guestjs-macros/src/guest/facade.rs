@@ -1,27 +1,12 @@
 use darling::FromMeta;
-use proc_macro2::{
-    Span,
-    TokenStream,
-};
+use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
-    braced,
-    parse::{
-        ParseStream,
-        Parser,
-    },
-    Attribute,
-    Ident,
-    Path,
-    Type,
-    Visibility,
+    Attribute, Ident, Path, Type, Visibility, braced,
+    parse::{ParseStream, Parser},
 };
 
-use crate::{
-    attributes::HelperAttributes,
-    guest::member::GuestMember,
-    path::CratePath,
-};
+use crate::{attributes::HelperAttributes, guest::member::GuestMember, path::CratePath};
 
 #[derive(Default, FromMeta)]
 #[darling(default)]
@@ -36,12 +21,10 @@ impl FacadeOptions {
         kind: GuestFacadeKind,
     ) -> syn::Result<(Path, Option<Path>)> {
         let options = Self::from_list(
-            &HelperAttributes::take(attributes).map_err(|error| {
-                syn::Error::new(Span::call_site(), error.to_string())
-            })?,
-        ).map_err(|error| {
-            syn::Error::new(Span::call_site(), error.to_string())
-        })?;
+            &HelperAttributes::take(attributes)
+                .map_err(|error| syn::Error::new(Span::call_site(), error.to_string()))?,
+        )
+        .map_err(|error| syn::Error::new(Span::call_site(), error.to_string()))?;
 
         if kind == GuestFacadeKind::Module && options.payload.is_some() {
             return Err(syn::Error::new(
@@ -50,10 +33,7 @@ impl FacadeOptions {
             ));
         }
 
-        Ok((
-            CratePath::new(options.crate_path).resolve()?,
-            options.payload,
-        ))
+        Ok((CratePath::new(options.crate_path).resolve()?, options.payload))
     }
 }
 
@@ -107,25 +87,21 @@ pub struct GuestFacadeSyntax {
 }
 
 impl GuestFacadeSyntax {
-    pub fn new(
-        tokens: TokenStream,
-        kind: GuestFacadeKind,
-    ) -> syn::Result<Self> {
+    pub fn new(tokens: TokenStream, kind: GuestFacadeKind) -> syn::Result<Self> {
         (|input: ParseStream| Self::parse(input, kind)).parse2(tokens)
     }
 
-    fn parse(
-        input: ParseStream,
-        kind: GuestFacadeKind,
-    ) -> syn::Result<Self> {
+    fn parse(input: ParseStream, kind: GuestFacadeKind) -> syn::Result<Self> {
         let mut attributes = input.call(Attribute::parse_outer)?;
         let visibility = input.parse()?;
         let keyword = input.parse::<Ident>()?;
 
-        if keyword != match kind {
-            GuestFacadeKind::Class => "class",
-            GuestFacadeKind::Module => "module",
-        } {
+        if keyword
+            != match kind {
+                GuestFacadeKind::Class => "class",
+                GuestFacadeKind::Module => "module",
+            }
+        {
             return Err(syn::Error::new(keyword.span(), "unexpected facade kind"));
         }
 
@@ -138,7 +114,10 @@ impl GuestFacadeSyntax {
         let mut names = match kind {
             GuestFacadeKind::Class => vec!["new", "instance", "into_instance"],
             GuestFacadeKind::Module => vec!["new", "module", "into_module"],
-        }.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        }
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
 
         while !contents.is_empty() {
             let member = contents.parse::<GuestMember>()?;
@@ -170,14 +149,9 @@ impl GuestFacadeSyntax {
         })
     }
 
-    pub fn into_parts(self) -> (
-        Vec<Attribute>,
-        Visibility,
-        Ident,
-        Path,
-        Option<Path>,
-        Vec<GuestMember>,
-    ) {
+    pub fn into_parts(
+        self,
+    ) -> (Vec<Attribute>, Visibility, Ident, Path, Option<Path>, Vec<GuestMember>) {
         (
             self.attributes,
             self.visibility,
@@ -193,26 +167,29 @@ impl GuestFacadeSyntax {
 mod tests {
     use quote::quote;
 
-    use crate::guest::facade::{
-        GuestFacadeKind,
-        GuestFacadeSyntax,
-    };
+    use crate::guest::facade::{GuestFacadeKind, GuestFacadeSyntax};
 
     #[test]
     fn rejects_trailing_tokens_and_accessor_collisions() {
-        assert!(GuestFacadeSyntax::new(
-            quote!(
-                #[guestjs(crate_path = crate)]
-                pub class Client {} extra
-            ),
-            GuestFacadeKind::Class,
-        ).is_err());
-        assert!(GuestFacadeSyntax::new(
-            quote!(
-                #[guestjs(crate_path = crate)]
-                pub class Client { fn instance() -> String; }
-            ),
-            GuestFacadeKind::Class,
-        ).is_err());
+        assert!(
+            GuestFacadeSyntax::new(
+                quote!(
+                    #[guestjs(crate_path = crate)]
+                    pub class Client {} extra
+                ),
+                GuestFacadeKind::Class,
+            )
+            .is_err()
+        );
+        assert!(
+            GuestFacadeSyntax::new(
+                quote!(
+                    #[guestjs(crate_path = crate)]
+                    pub class Client { fn instance() -> String; }
+                ),
+                GuestFacadeKind::Class,
+            )
+            .is_err()
+        );
     }
 }

@@ -1,7 +1,4 @@
-use crate::{
-    bundle::name::ModuleName,
-    errors::Error,
-};
+use crate::{bundle::name::ModuleName, errors::Error};
 
 pub struct Resolver;
 
@@ -10,16 +7,9 @@ impl Resolver {
         Self
     }
 
-    fn join(
-        &self,
-        referrer: &str,
-        specifier: &str,
-    ) -> Result<String, Error> {
+    fn join(&self, referrer: &str, specifier: &str) -> Result<String, Error> {
         if referrer.is_empty() {
-            return Err(Error::import(
-                specifier,
-                "a relative specifier needs a referring module",
-            ));
+            return Err(Error::import(specifier, "a relative specifier needs a referring module"));
         }
 
         let joined = specifier
@@ -27,9 +17,7 @@ impl Resolver {
             .try_fold(
                 referrer
                     .rsplit_once('/')
-                    .map(|(directory, _)| {
-                        directory.split('/').collect::<Vec<_>>()
-                    })
+                    .map(|(directory, _)| directory.split('/').collect::<Vec<_>>())
                     .unwrap_or_default(),
                 |mut segments, segment| match segment {
                     "." => Ok(segments),
@@ -42,15 +30,12 @@ impl Resolver {
                                 "the specifier leaves the root of its module tree",
                             )
                         }),
-                    "" => Err(Error::import(
-                        specifier,
-                        "the specifier has an empty path segment",
-                    )),
+                    "" => Err(Error::import(specifier, "the specifier has an empty path segment")),
                     segment => {
                         segments.push(segment);
 
                         Ok(segments)
-                    },
+                    }
                 },
             )?
             .join("/");
@@ -61,27 +46,15 @@ impl Resolver {
             .to_owned())
     }
 
-    pub fn resolve(
-        &self,
-        referrer: &str,
-        specifier: &str,
-    ) -> Result<String, Error> {
+    pub fn resolve(&self, referrer: &str, specifier: &str) -> Result<String, Error> {
         match specifier {
-            "" => Err(Error::import(
-                specifier,
-                "an empty specifier names no module",
-            )),
+            "" => Err(Error::import(specifier, "an empty specifier names no module")),
             _ if specifier.starts_with('/') => {
-                Err(Error::import(
-                    specifier,
-                    "absolute specifiers are not supported",
-                ))
-            },
-            _ if specifier.starts_with("./")
-                || specifier.starts_with("../") =>
-            {
+                Err(Error::import(specifier, "absolute specifiers are not supported"))
+            }
+            _ if specifier.starts_with("./") || specifier.starts_with("../") => {
                 self.join(referrer, specifier)
-            },
+            }
             _ => Ok(specifier.to_owned()),
         }
     }
@@ -150,23 +123,29 @@ mod tests {
             "plugin/util",
         );
         assert_eq!(
-            Resolver::new().resolve("plugin/index", "./table.json").unwrap(),
+            Resolver::new()
+                .resolve("plugin/index", "./table.json")
+                .unwrap(),
             "plugin/table.json",
         );
     }
 
     #[test]
     fn leaving_the_root_is_rejected() {
-        assert!(Resolver::new()
-            .resolve("main", "../x")
-            .is_err_and(|error| error.is_import()));
+        assert!(
+            Resolver::new()
+                .resolve("main", "../x")
+                .is_err_and(|error| error.is_import())
+        );
     }
 
     #[test]
     fn a_relative_specifier_needs_a_referrer() {
-        assert!(Resolver::new()
-            .resolve("", "./x")
-            .is_err_and(|error| error.is_import()));
+        assert!(
+            Resolver::new()
+                .resolve("", "./x")
+                .is_err_and(|error| error.is_import())
+        );
     }
 
     #[test]

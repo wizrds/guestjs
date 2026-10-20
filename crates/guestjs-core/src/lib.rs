@@ -9,9 +9,13 @@ pub mod driver;
 pub mod enter;
 pub mod errors;
 pub mod extensions;
+
+#[doc(hidden)]
+pub mod fixtures;
+
+pub mod eval;
 pub mod guest;
 pub mod handle;
-pub mod eval;
 pub mod host;
 pub mod imports;
 pub mod marshal;
@@ -20,18 +24,10 @@ pub mod runtime;
 
 #[cfg(feature = "embedded")]
 pub mod embed {
-    pub use include_dir::{
-        Dir,
-        DirEntry,
-        File,
-    };
+    pub use include_dir::{Dir, DirEntry, File};
 
     pub mod __include_dir {
-        pub use include_dir::{
-            Dir,
-            DirEntry,
-            File,
-        };
+        pub use include_dir::{Dir, DirEntry, File};
     }
 
     pub use include_dir::include_dir as __include_dir_macro;

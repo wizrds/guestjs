@@ -1,8 +1,5 @@
 use crate::{
-    backend::{
-        Backend,
-        Val,
-    },
+    backend::{Backend, Val},
     enter::Enter,
     errors::Error,
     guest::Guest,
@@ -14,10 +11,7 @@ pub struct Handle<B: Backend> {
 }
 
 impl<B: Backend> Handle<B> {
-    pub fn from_value<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Self {
+    pub fn from_value<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Self {
         Self {
             owned: B::detach(enter.token(), value),
             guest: enter.guest().clone(),
@@ -29,23 +23,16 @@ impl<B: Backend> Handle<B> {
     }
 
     pub fn same(&self, other: &Self) -> bool {
-        self.guest.id() == other.guest.id()
-            && B::owned_ptr_eq(&self.owned, &other.owned)
+        self.guest.id() == other.guest.id() && B::owned_ptr_eq(&self.owned, &other.owned)
     }
 
-    pub fn attach<'js>(
-        &self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    pub fn attach<'js>(&self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         B::attach(enter.token(), &self.owned)
     }
 
     pub fn with_enter<F, R>(&self, f: F) -> Result<R, Error>
     where
-        F: for<'js> FnOnce(
-            &Enter<'js, B>,
-            &Val<'js, B>,
-        ) -> Result<R, Error>,
+        F: for<'js> FnOnce(&Enter<'js, B>, &Val<'js, B>) -> Result<R, Error>,
     {
         self.guest
             .enter(|enter| f(enter, &self.attach(enter)?))
@@ -66,10 +53,7 @@ mod tests {
     use std::cell::Cell;
 
     use crate::{
-        backend::{
-            tests::Stub,
-            Backend,
-        },
+        backend::{Backend, tests::Stub},
         errors::Error,
         guest::Guest,
         handle::base::Handle,
@@ -116,12 +100,14 @@ mod tests {
             .enter(|enter| Ok(Handle::from_value(enter, ())))
             .unwrap();
 
-        assert!(!first.same(
-            &Guest::new(&runtime)
-                .unwrap()
-                .enter(|enter| Ok(Handle::from_value(enter, ())))
-                .unwrap(),
-        ));
+        assert!(
+            !first.same(
+                &Guest::new(&runtime)
+                    .unwrap()
+                    .enter(|enter| Ok(Handle::from_value(enter, ())))
+                    .unwrap(),
+            )
+        );
     }
 
     #[test]
@@ -134,25 +120,27 @@ mod tests {
 
         handle.guest().close();
 
-        assert!(handle
-            .with_enter(|_, _| {
-                called.set(true);
+        assert!(
+            handle
+                .with_enter(|_, _| {
+                    called.set(true);
 
-                Ok(())
-            })
-            .is_err_and(|error| error.is_closed()));
+                    Ok(())
+                })
+                .is_err_and(|error| error.is_closed())
+        );
         assert!(!called.get());
     }
 
     #[test]
     fn operation_errors_are_preserved() {
-        assert!(Guest::new(&Runtime::<Stub>::new(()).unwrap())
-            .unwrap()
-            .enter(|enter| Ok(Handle::from_value(enter, ())))
-            .unwrap()
-            .with_enter(|_, _| {
-                Err::<(), _>(Error::conversion("number", "string"))
-            })
-            .is_err_and(|error| error.is_conversion()));
+        assert!(
+            Guest::new(&Runtime::<Stub>::new(()).unwrap())
+                .unwrap()
+                .enter(|enter| Ok(Handle::from_value(enter, ())))
+                .unwrap()
+                .with_enter(|_, _| { Err::<(), _>(Error::conversion("number", "string")) })
+                .is_err_and(|error| error.is_conversion())
+        );
     }
 }

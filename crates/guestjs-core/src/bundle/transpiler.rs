@@ -7,10 +7,7 @@ use oxc::{
     parser::Parser,
     semantic::SemanticBuilder,
     span::SourceType,
-    transformer::{
-        TransformOptions,
-        Transformer,
-    },
+    transformer::{TransformOptions, Transformer},
 };
 
 use crate::errors::Error;
@@ -33,11 +30,7 @@ impl Transpiler {
         ))
     }
 
-    pub fn transpile(
-        &self,
-        path: &str,
-        source: &str,
-    ) -> Result<String, Error> {
+    pub fn transpile(&self, path: &str, source: &str) -> Result<String, Error> {
         let source_type = SourceType::from_path(path).unwrap_or_default();
 
         if !source_type.is_typescript() {
@@ -60,15 +53,9 @@ impl Transpiler {
             return Err(Self::failure(path, &semantic.diagnostics));
         }
 
-        let transformed = Transformer::new(
-            &allocator,
-            Path::new(path),
-            &TransformOptions::default(),
-        )
-        .build_with_scoping(
-            semantic.semantic.into_scoping(),
-            &mut parsed.program,
-        );
+        let transformed =
+            Transformer::new(&allocator, Path::new(path), &TransformOptions::default())
+                .build_with_scoping(semantic.semantic.into_scoping(), &mut parsed.program);
 
         if transformed.diagnostics.has_errors() {
             return Err(Self::failure(path, &transformed.diagnostics));
@@ -102,38 +89,39 @@ mod tests {
 
     #[test]
     fn typescript_types_are_erased() {
-        assert!(Transpiler::new()
-            .transpile("main.ts", "export const x: number = 1;")
-            .unwrap()
-            .contains("export const x = 1"));
+        assert!(
+            Transpiler::new()
+                .transpile("main.ts", "export const x: number = 1;")
+                .unwrap()
+                .contains("export const x = 1")
+        );
     }
 
     #[test]
     fn typescript_enums_are_compiled() {
-        assert!(!Transpiler::new()
-            .transpile(
-                "main.ts",
-                "enum Side { Left } export const side = Side.Left;",
-            )
-            .unwrap()
-            .contains("enum Side"));
+        assert!(
+            !Transpiler::new()
+                .transpile("main.ts", "enum Side { Left } export const side = Side.Left;",)
+                .unwrap()
+                .contains("enum Side")
+        );
     }
 
     #[test]
     fn invalid_typescript_is_a_bundle_error_naming_the_path() {
-        assert!(Transpiler::new()
-            .transpile("main.ts", "export const = ;")
-            .is_err_and(|error| {
-                error.is_bundle() && error.to_string().contains("main.ts")
-            }));
+        assert!(
+            Transpiler::new()
+                .transpile("main.ts", "export const = ;")
+                .is_err_and(|error| { error.is_bundle() && error.to_string().contains("main.ts") })
+        );
     }
 
     #[test]
     fn semantic_syntax_errors_are_bundle_errors() {
-        assert!(Transpiler::new()
-            .transpile("main.ts", "let value; let value;")
-            .is_err_and(|error| {
-                error.is_bundle() && error.to_string().contains("main.ts")
-            }));
+        assert!(
+            Transpiler::new()
+                .transpile("main.ts", "let value; let value;")
+                .is_err_and(|error| { error.is_bundle() && error.to_string().contains("main.ts") })
+        );
     }
 }

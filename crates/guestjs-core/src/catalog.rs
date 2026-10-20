@@ -1,29 +1,16 @@
 use std::{
-    collections::{
-        BTreeMap,
-        BTreeSet,
-    },
+    collections::{BTreeMap, BTreeSet},
     rc::Rc,
 };
 
 use crate::{
     backend::modules::BackendModules,
-    bundle::{
-        name::ModuleName,
-        Bundle,
-    },
+    bundle::{Bundle, name::ModuleName},
     errors::Error,
     host::{
-        library::{
-            HostInitializer,
-            HostLibrary,
-        },
+        library::{HostInitializer, HostLibrary},
         module::ModuleDeclaration,
-        native::{
-            NativeInitializer,
-            NativeLibrary,
-            NativeModule,
-        },
+        native::{NativeInitializer, NativeLibrary, NativeModule},
     },
     runtime::Runtime,
 };
@@ -35,9 +22,7 @@ pub struct DeniedNames {
 
 impl DeniedNames {
     pub fn new() -> Self {
-        Self {
-            names: BTreeSet::new(),
-        }
+        Self { names: BTreeSet::new() }
     }
 
     pub fn insert<N>(&mut self, name: N)
@@ -100,7 +85,9 @@ impl<B: BackendModules> Sources<B> {
     fn claim(&self, name: &str) -> Result<(), Error> {
         match self.modules.contains_key(name)
             || self.aliases.contains_key(name)
-            || self.bundles.contains_key(ModuleName::new(name).root())
+            || self
+                .bundles
+                .contains_key(ModuleName::new(name).root())
         {
             true => Err(Error::import(name, "the name is already in use")),
             false => Ok(()),
@@ -113,24 +100,16 @@ impl<B: BackendModules> Sources<B> {
             .filter(|bundle| bundle.contains(name))
     }
 
-    pub fn insert_host(
-        &mut self,
-        module: Rc<ModuleDeclaration<B>>,
-    ) -> Result<(), Error> {
+    pub fn insert_host(&mut self, module: Rc<ModuleDeclaration<B>>) -> Result<(), Error> {
         self.claim(module.name())?;
 
-        self.modules.insert(
-            module.name().to_owned(),
-            ModuleSource::Host(module),
-        );
+        self.modules
+            .insert(module.name().to_owned(), ModuleSource::Host(module));
 
         Ok(())
     }
 
-    pub fn insert_native(
-        &mut self,
-        module: NativeModule<B>,
-    ) -> Result<(), Error> {
+    pub fn insert_native(&mut self, module: NativeModule<B>) -> Result<(), Error> {
         self.claim(module.name())?;
 
         module
@@ -144,10 +123,8 @@ impl<B: BackendModules> Sources<B> {
                 .iter()
                 .map(|alias| (alias.clone(), module.name().to_owned())),
         );
-        self.modules.insert(
-            module.name().to_owned(),
-            ModuleSource::Native(module),
-        );
+        self.modules
+            .insert(module.name().to_owned(), ModuleSource::Native(module));
 
         Ok(())
     }
@@ -158,10 +135,7 @@ impl<B: BackendModules> Sources<B> {
             .into_iter()
             .try_for_each(|root| match self.bundles.get(root) {
                 Some(owner) if owner.id() == bundle.id() => Ok(()),
-                Some(_) => Err(Error::import(
-                    root,
-                    "a different bundle already owns this root",
-                )),
+                Some(_) => Err(Error::import(root, "a different bundle already owns this root")),
                 None if self
                     .modules
                     .keys()
@@ -169,7 +143,7 @@ impl<B: BackendModules> Sources<B> {
                     .any(|name| ModuleName::new(name).is_within(root)) =>
                 {
                     Err(Error::import(root, "the root is already in use"))
-                },
+                }
                 None => Ok(()),
             })
     }
@@ -267,7 +241,10 @@ impl<B: BackendModules> Catalog<B> {
         library
             .modules()
             .iter()
-            .try_for_each(|module| self.sources.insert_native(module.clone()))?;
+            .try_for_each(|module| {
+                self.sources
+                    .insert_native(module.clone())
+            })?;
 
         self.native_initializers
             .extend_from_slice(library.initializers());

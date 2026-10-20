@@ -2,22 +2,13 @@ use std::rc::Rc;
 
 use crate::{
     backend::{
+        Backend, Val,
         callables::BackendCallables,
-        values::{
-            BackendValues,
-            Property,
-            WellKnown,
-        },
-        Backend,
-        Val,
+        values::{BackendValues, Property, WellKnown},
     },
     enter::Enter,
     errors::Error,
-    host::{
-        declaration::Declaration,
-        function::FunctionDeclaration,
-        state::HostState,
-    },
+    host::{declaration::Declaration, function::FunctionDeclaration, state::HostState},
     marshal::ToGuest,
 };
 
@@ -64,10 +55,7 @@ impl From<WellKnown> for PropertyKey {
 }
 
 impl<B: BackendValues> ToGuest<B> for &PropertyKey {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         match self {
             PropertyKey::Name(name) => name.as_str().to_guest(enter),
             PropertyKey::Symbol(symbol) => Ok(B::well_known(enter.token(), *symbol)),
@@ -173,12 +161,7 @@ impl<B: BackendCallables> PropertyDeclaration<B> {
                 enumerable: *enumerable,
                 configurable: *configurable,
             }),
-            Self::Accessor {
-                get,
-                set,
-                enumerable,
-                configurable,
-            } => Ok(Property::Accessor {
+            Self::Accessor { get, set, enumerable, configurable } => Ok(Property::Accessor {
                 get: Self::realise_accessor(
                     enter,
                     state,
@@ -223,12 +206,7 @@ impl<B: Backend> Clone for PropertyDeclaration<B> {
                 enumerable: *enumerable,
                 configurable: *configurable,
             },
-            Self::Accessor {
-                get,
-                set,
-                enumerable,
-                configurable,
-            } => Self::Accessor {
+            Self::Accessor { get, set, enumerable, configurable } => Self::Accessor {
                 get: get.clone(),
                 set: set.clone(),
                 enumerable: *enumerable,
@@ -241,19 +219,12 @@ impl<B: Backend> Clone for PropertyDeclaration<B> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::{
-            tests::Stub,
-            values::WellKnown,
-            Val,
-        },
+        backend::{Val, tests::Stub, values::WellKnown},
         enter::Enter,
         errors::Error,
         host::{
             declaration::Declaration,
-            property::{
-                PropertyDeclaration,
-                PropertyKey,
-            },
+            property::{PropertyDeclaration, PropertyKey},
             state::HostState,
         },
     };
@@ -278,10 +249,7 @@ mod tests {
 
     #[test]
     fn a_symbol_is_named_like_javascript() {
-        assert_eq!(
-            PropertyKey::from(WellKnown::Iterator).function_name(),
-            "[Symbol.iterator]",
-        );
+        assert_eq!(PropertyKey::from(WellKnown::Iterator).function_name(), "[Symbol.iterator]",);
         assert_eq!(
             PropertyKey::from(WellKnown::AsyncIterator).function_name(),
             "[Symbol.asyncIterator]",
@@ -323,10 +291,7 @@ mod tests {
     fn a_later_value_replaces_an_earlier_one() {
         assert!(matches!(
             PropertyDeclaration::<Stub>::value(Unit).merge(PropertyDeclaration::constant(Unit)),
-            PropertyDeclaration::Value {
-                writable: false,
-                ..
-            },
+            PropertyDeclaration::Value { writable: false, .. },
         ));
     }
 

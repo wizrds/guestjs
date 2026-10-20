@@ -8,28 +8,19 @@ pub mod primitives;
 pub mod serde;
 
 use crate::{
-    backend::{
-        Backend,
-        Val,
-    },
+    backend::{Backend, Val},
     enter::Enter,
     errors::Error,
 };
 
 pub trait ToGuest<B: Backend> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error>;
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error>;
 }
 
 pub trait FromGuest<B: Backend> {
     type Owned: 'static;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error>;
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error>;
 }
 
 pub trait FromGuestRef<B: Backend> {
@@ -51,29 +42,16 @@ pub trait FromGuestMut<B: Backend> {
 }
 
 pub trait ToGuestArgs<B: Backend> {
-    fn to_guest_args<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Vec<Val<'js, B>>, Error>;
+    fn to_guest_args<'js>(self, enter: &Enter<'js, B>) -> Result<Vec<Val<'js, B>>, Error>;
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{
-        BTreeMap,
-        HashMap,
-    };
+    use std::collections::{BTreeMap, HashMap};
 
     use crate::{
-        backend::{
-            values::BackendValues,
-            Backend,
-        },
-        marshal::{
-            FromGuest,
-            ToGuest,
-            ToGuestArgs,
-        },
+        backend::{Backend, values::BackendValues},
+        marshal::{FromGuest, ToGuest, ToGuestArgs},
     };
 
     #[allow(dead_code)]

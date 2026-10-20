@@ -1,9 +1,6 @@
 use std::rc::Rc;
 
-use crate::{
-    errors::Error,
-    host::state::HostState,
-};
+use crate::{errors::Error, host::state::HostState};
 
 pub trait Requirement {
     fn check(&self, state: &HostState) -> Result<(), Error>;
@@ -16,9 +13,7 @@ pub struct Requirements {
 
 impl Requirements {
     pub fn new() -> Self {
-        Self {
-            entries: Vec::new(),
-        }
+        Self { entries: Vec::new() }
     }
 
     pub fn push<R>(&mut self, requirement: R)
@@ -37,18 +32,12 @@ impl Requirements {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        cell::RefCell,
-        rc::Rc,
-    };
+    use std::{cell::RefCell, rc::Rc};
 
     use crate::{
         errors::Error,
         host::{
-            requirements::{
-                Requirement,
-                Requirements,
-            },
+            requirements::{Requirement, Requirements},
             state::HostState,
         },
     };
@@ -61,11 +50,7 @@ mod tests {
 
     impl RecordingRequirement {
         fn new(order: Rc<RefCell<Vec<u8>>>, value: u8, fails: bool) -> Self {
-            Self {
-                order,
-                value,
-                fails,
-            }
+            Self { order, value, fails }
         }
     }
 
@@ -83,8 +68,16 @@ mod tests {
 
     #[test]
     fn empty_requirements_succeed() {
-        assert!(Requirements::new().check(&HostState::empty()).is_ok());
-        assert!(Requirements::default().check(&HostState::empty()).is_ok());
+        assert!(
+            Requirements::new()
+                .check(&HostState::empty())
+                .is_ok()
+        );
+        assert!(
+            Requirements::default()
+                .check(&HostState::empty())
+                .is_ok()
+        );
     }
 
     #[test]
@@ -95,7 +88,9 @@ mod tests {
         requirements.push(RecordingRequirement::new(order.clone(), 1, false));
         requirements.push(RecordingRequirement::new(order.clone(), 2, false));
 
-        requirements.check(&HostState::empty()).unwrap();
+        requirements
+            .check(&HostState::empty())
+            .unwrap();
 
         assert_eq!(*order.borrow(), [1, 2]);
     }
@@ -108,7 +103,11 @@ mod tests {
         requirements.push(RecordingRequirement::new(order.clone(), 1, true));
         requirements.push(RecordingRequirement::new(order.clone(), 2, false));
 
-        assert!(requirements.check(&HostState::empty()).is_err());
+        assert!(
+            requirements
+                .check(&HostState::empty())
+                .is_err()
+        );
         assert_eq!(*order.borrow(), [1]);
     }
 
@@ -123,13 +122,17 @@ mod tests {
 
         cloned.push(RecordingRequirement::new(order.clone(), 2, false));
 
-        requirements.check(&HostState::empty()).unwrap();
+        requirements
+            .check(&HostState::empty())
+            .unwrap();
 
         assert_eq!(*order.borrow(), [1]);
 
         order.borrow_mut().clear();
 
-        cloned.check(&HostState::empty()).unwrap();
+        cloned
+            .check(&HostState::empty())
+            .unwrap();
 
         assert_eq!(*order.borrow(), [1, 2]);
     }

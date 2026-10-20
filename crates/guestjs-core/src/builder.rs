@@ -1,26 +1,14 @@
 use std::time::Duration;
 
 use crate::{
-    backend::{
-        interrupt::BackendInterrupt,
-        modules::BackendModules,
-    },
+    backend::{interrupt::BackendInterrupt, modules::BackendModules},
     bundle::Bundle,
     catalog::Catalog,
     errors::Error,
     guest::Guest,
-    host::{
-        library::HostLibrary,
-        native::NativeLibrary,
-    },
-    imports::{
-        bindings::GuestBindings,
-        Imports,
-    },
-    policy::{
-        CancelSignal,
-        ExecutionPolicy,
-    },
+    host::{library::HostLibrary, native::NativeLibrary},
+    imports::{Imports, bindings::GuestBindings},
+    policy::{CancelSignal, ExecutionPolicy},
     runtime::Runtime,
 };
 
@@ -236,24 +224,29 @@ where
             let guest = Guest::with_policy(self.runtime, self.policy)?;
             let bindings = guest
                 .extensions()
-                .insert(GuestBindings::new(
-                    Catalog::of(self.runtime),
-                    catalog,
-                ));
+                .insert(GuestBindings::new(Catalog::of(self.runtime), catalog));
 
             guest.enter(|enter| {
                 bindings
                     .runtime_catalog()
                     .host_initializers()
                     .iter()
-                    .chain(bindings.guest_catalog().host_initializers())
+                    .chain(
+                        bindings
+                            .guest_catalog()
+                            .host_initializers(),
+                    )
                     .try_for_each(|initializer| initializer.run(enter))?;
 
                 bindings
                     .runtime_catalog()
                     .native_initializers()
                     .iter()
-                    .chain(bindings.guest_catalog().native_initializers())
+                    .chain(
+                        bindings
+                            .guest_catalog()
+                            .native_initializers(),
+                    )
                     .try_for_each(|initializer| initializer.run(enter))
             })?;
 

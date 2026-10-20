@@ -1,20 +1,13 @@
 use crate::{
     backend::{
-        values::{
-            BackendValues,
-            Kind,
-        },
         Val,
+        values::{BackendValues, Kind},
     },
     enter::Enter,
     errors::Error,
     marshal::{
-        describe::{
-            Describe,
-            Expected,
-        },
-        FromGuest,
-        ToGuest,
+        FromGuest, ToGuest,
+        describe::{Describe, Expected},
     },
 };
 
@@ -99,10 +92,7 @@ impl Describe for () {
 }
 
 impl<B: BackendValues> ToGuest<B> for () {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         Ok(B::new_undefined(enter.token()))
     }
 }
@@ -110,10 +100,7 @@ impl<B: BackendValues> ToGuest<B> for () {
 impl<B: BackendValues> FromGuest<B> for () {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
             Kind::Undefined => Ok(()),
             kind => Err(Expected::of::<Self>().mismatch(kind)),
@@ -128,10 +115,7 @@ impl Describe for bool {
 }
 
 impl<B: BackendValues> ToGuest<B> for bool {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         Ok(B::new_boolean(enter.token(), self))
     }
 }
@@ -139,10 +123,7 @@ impl<B: BackendValues> ToGuest<B> for bool {
 impl<B: BackendValues> FromGuest<B> for bool {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
             Kind::Boolean => B::as_bool(enter.token(), &value),
             kind => Err(Expected::of::<Self>().mismatch(kind)),
@@ -160,10 +141,7 @@ impl Describe for i64 {
 impl<B: BackendValues> FromGuest<B> for i64 {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
             Kind::Number | Kind::BigInt => B::as_i64(enter.token(), &value),
             kind => Err(Expected::of::<Self>().mismatch(kind)),
@@ -178,10 +156,7 @@ impl Describe for f64 {
 }
 
 impl<B: BackendValues> ToGuest<B> for f64 {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         Ok(B::new_number(enter.token(), self))
     }
 }
@@ -189,10 +164,7 @@ impl<B: BackendValues> ToGuest<B> for f64 {
 impl<B: BackendValues> FromGuest<B> for f64 {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
             Kind::Number => B::as_f64(enter.token(), &value),
             kind => Err(Expected::of::<Self>().mismatch(kind)),
@@ -209,10 +181,7 @@ impl Describe for f32 {
 impl<B: BackendValues> FromGuest<B> for f32 {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         f64::from_guest(enter, value).map(|number| number as f32)
     }
 }
@@ -224,19 +193,13 @@ impl Describe for String {
 }
 
 impl<B: BackendValues> ToGuest<B> for &str {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         B::new_string(enter.token(), self)
     }
 }
 
 impl<B: BackendValues> ToGuest<B> for String {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.as_str().to_guest(enter)
     }
 }
@@ -244,10 +207,7 @@ impl<B: BackendValues> ToGuest<B> for String {
 impl<B: BackendValues> FromGuest<B> for String {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
             Kind::String => B::as_string(enter.token(), &value),
             kind => Err(Expected::of::<Self>().mismatch(kind)),
@@ -262,28 +222,20 @@ impl Describe for char {
 }
 
 impl<B: BackendValues> ToGuest<B> for char {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
-        self.encode_utf8(&mut [0; 4]).to_guest(enter)
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        self.encode_utf8(&mut [0; 4])
+            .to_guest(enter)
     }
 }
 
 impl<B: BackendValues> FromGuest<B> for char {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         String::from_guest(enter, value).and_then(|string| {
-            string.parse().map_err(|_| {
-                Error::conversion(
-                    "single-character string",
-                    format!("{string:?}"),
-                )
-            })
+            string
+                .parse()
+                .map_err(|_| Error::conversion("single-character string", format!("{string:?}")))
         })
     }
 }

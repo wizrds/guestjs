@@ -1,16 +1,9 @@
-use std::{
-    cell::RefCell,
-    rc::Rc,
-};
+use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     backend::modules::BackendModules,
     bundle::Bundle,
-    catalog::{
-        Catalog,
-        ModuleSource,
-        Sources,
-    },
+    catalog::{Catalog, ModuleSource, Sources},
     errors::Error,
     guest::Guest,
 };
@@ -64,23 +57,11 @@ impl<B: BackendModules> GuestBindings<B> {
     pub fn locate(&self, name: &str) -> Result<String, Error> {
         [name.to_owned(), format!("{name}/index")]
             .into_iter()
-            .find_map(|candidate| {
-                self.first(|sources| sources.canonical(&candidate))
-            })
-            .ok_or_else(|| {
-                Error::import(
-                    name,
-                    "no module of that name is bound to this guest",
-                )
-            })
-            .and_then(|located| {
-                match self.is_denied(name) || self.is_denied(&located) {
-                    true => Err(Error::import(
-                        name,
-                        "the name is denied to this guest",
-                    )),
-                    false => Ok(located),
-                }
+            .find_map(|candidate| self.first(|sources| sources.canonical(&candidate)))
+            .ok_or_else(|| Error::import(name, "no module of that name is bound to this guest"))
+            .and_then(|located| match self.is_denied(name) || self.is_denied(&located) {
+                true => Err(Error::import(name, "the name is denied to this guest")),
+                false => Ok(located),
             })
     }
 
@@ -92,8 +73,12 @@ impl<B: BackendModules> GuestBindings<B> {
     }
 
     pub fn mount(&self, bundle: &Bundle) -> Result<(), Error> {
-        self.runtime.sources().check_bundle(bundle)?;
-        self.guest.sources().check_bundle(bundle)?;
+        self.runtime
+            .sources()
+            .check_bundle(bundle)?;
+        self.guest
+            .sources()
+            .check_bundle(bundle)?;
 
         self.mounted
             .borrow_mut()

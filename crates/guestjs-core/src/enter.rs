@@ -1,8 +1,5 @@
 use crate::{
-    backend::{
-        Backend,
-        Tok,
-    },
+    backend::{Backend, Tok},
     guest::Guest,
 };
 
@@ -12,14 +9,8 @@ pub struct Enter<'js, B: Backend> {
 }
 
 impl<'js, B: Backend> Enter<'js, B> {
-    pub(crate) fn new(
-        token: Tok<'js, B>,
-        guest: Guest<B>,
-    ) -> Self {
-        Self {
-            token,
-            guest,
-        }
+    pub(crate) fn new(token: Tok<'js, B>, guest: Guest<B>) -> Self {
+        Self { token, guest }
     }
 
     pub fn token(&self) -> Tok<'js, B> {

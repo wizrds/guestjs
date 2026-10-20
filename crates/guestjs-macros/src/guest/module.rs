@@ -2,12 +2,9 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use crate::{
-    diagnostics::MacroError,
-    guest::facade::{
-        GuestFacadeKind,
-        GuestFacadeSyntax,
-    },
     attributes::HelperAttributes,
+    diagnostics::MacroError,
+    guest::facade::{GuestFacadeKind, GuestFacadeSyntax},
 };
 
 pub struct GuestModuleMacro {
@@ -22,21 +19,16 @@ impl GuestModuleMacro {
     }
 
     pub fn expand(self) -> TokenStream {
-        let (attributes, visibility, name, krate, _, members) =
-            self.syntax.into_parts();
+        let (attributes, visibility, name, krate, _, members) = self.syntax.into_parts();
         let conditions = HelperAttributes::conditions(&attributes);
         let inner = quote!(#krate::handle::module::Module<B>);
         let conversion_bounds = quote!(
             B: #krate::backend::values::BackendValues,
         );
         let payload_bound = TokenStream::new();
-        let methods = members.iter().map(|member| {
-            member.render(
-                &krate,
-                &quote!(self.module()),
-                &GuestFacadeKind::Module,
-            )
-        });
+        let methods = members
+            .iter()
+            .map(|member| member.render(&krate, &quote!(self.module()), &GuestFacadeKind::Module));
 
         quote! {
             #(#attributes)*
@@ -131,10 +123,7 @@ impl GuestModuleMacro {
 #[cfg(test)]
 mod tests {
     use quote::quote;
-    use syn::{
-        parse2,
-        File,
-    };
+    use syn::{File, parse2};
 
     use crate::guest::module::GuestModuleMacro;
 
@@ -155,7 +144,8 @@ mod tests {
                 .expand(),
             )
             .unwrap()
-            .items.len(),
+            .items
+            .len(),
             8,
         );
     }

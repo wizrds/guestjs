@@ -1,22 +1,10 @@
-use std::{
-    cell::Cell,
-    num::NonZeroU64,
-    rc::Rc,
-};
+use std::{cell::Cell, num::NonZeroU64, rc::Rc};
 
 use crate::{
-    backend::{
-        interrupt::BackendInterrupt,
-        Backend,
-        Tok,
-    },
+    backend::{Backend, Tok, interrupt::BackendInterrupt},
     errors::Error,
     extensions::Extensions,
-    guest::{
-        registry::GuestRegistry,
-        Guest,
-        GuestId,
-    },
+    guest::{Guest, GuestId, registry::GuestRegistry},
 };
 
 struct RuntimeState<B: Backend> {
@@ -99,9 +87,7 @@ pub struct Runtime<B: Backend> {
 
 impl<B: Backend> Clone for Runtime<B> {
     fn clone(&self) -> Self {
-        Self {
-            state: self.state.clone(),
-        }
+        Self { state: self.state.clone() }
     }
 }
 
@@ -157,10 +143,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::{
-        backend::{
-            tests::Stub,
-            Backend,
-        },
+        backend::{Backend, tests::Stub},
         guest::Guest,
         runtime::Runtime,
     };
@@ -170,13 +153,7 @@ mod tests {
         let runtime = Runtime::<Stub>::new(()).unwrap();
 
         assert_eq!(runtime.next_id().get(), 1);
-        assert_eq!(
-            Guest::new(&runtime)
-                .unwrap()
-                .id()
-                .get(),
-            2,
-        );
+        assert_eq!(Guest::new(&runtime).unwrap().id().get(), 2,);
     }
 
     #[test]
@@ -199,11 +176,9 @@ mod tests {
 
         drop(second);
 
-        assert!(Stub::enter(
-            runtime.engine(),
-            &context_id,
-            |token| runtime.find_guest(token).is_none(),
-        ));
+        assert!(Stub::enter(runtime.engine(), &context_id, |token| runtime
+            .find_guest(token)
+            .is_none(),));
     }
 
     #[test]

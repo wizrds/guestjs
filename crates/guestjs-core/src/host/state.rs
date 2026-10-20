@@ -1,8 +1,5 @@
 use std::{
-    any::{
-        type_name,
-        Any,
-    },
+    any::{Any, type_name},
     marker::PhantomData,
     ops::Deref,
     rc::Rc,
@@ -12,14 +9,8 @@ use crate::{
     backend::Backend,
     errors::Error,
     host::{
-        context::{
-            CallContext,
-            FromContext,
-        },
-        requirements::{
-            Requirement,
-            Requirements,
-        },
+        context::{CallContext, FromContext},
+        requirements::{Requirement, Requirements},
     },
 };
 
@@ -38,22 +29,15 @@ pub struct HostState {
 
 impl HostState {
     pub fn empty() -> Self {
-        Self {
-            value: None,
-        }
+        Self { value: None }
     }
 
     pub fn new<S: 'static>(state: S) -> Self {
-        Self {
-            value: Some(Rc::new(state)),
-        }
+        Self { value: Some(Rc::new(state)) }
     }
 
     pub fn get<S: 'static>(&self) -> Option<Rc<S>> {
-        self.value
-            .clone()?
-            .downcast::<S>()
-            .ok()
+        self.value.clone()?.downcast::<S>().ok()
     }
 }
 
@@ -73,10 +57,7 @@ impl<S: 'static> ModuleState<S> {
             .get::<S>()
             .map(Self::new)
             .ok_or_else(|| {
-                Error::unexpected(format!(
-                    "host state does not contain {}",
-                    type_name::<S>(),
-                ))
+                Error::unexpected(format!("host state does not contain {}", type_name::<S>(),))
             })
     }
 }
@@ -100,9 +81,7 @@ where
     B: Backend,
     S: 'static,
 {
-    fn from_context<'e, 'js>(
-        context: &CallContext<'e, 'js, B>,
-    ) -> Result<Self, Error> {
+    fn from_context<'e, 'js>(context: &CallContext<'e, 'js, B>) -> Result<Self, Error> {
         Self::from_state(context.state())
     }
 
@@ -113,15 +92,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        ptr,
-        rc::Rc,
-    };
+    use std::{ptr, rc::Rc};
 
-    use crate::host::state::{
-        HostState,
-        ModuleState,
-    };
+    use crate::host::state::{HostState, ModuleState};
 
     #[test]
     fn empty_state_holds_nothing() {
@@ -130,22 +103,28 @@ mod tests {
 
     #[test]
     fn state_is_read_as_its_own_type() {
-        assert_eq!(*HostState::new(7_u8).get::<u8>().unwrap(), 7);
+        assert_eq!(
+            *HostState::new(7_u8)
+                .get::<u8>()
+                .unwrap(),
+            7
+        );
     }
 
     #[test]
     fn state_is_not_read_as_another_type() {
-        assert!(HostState::new(7_u8).get::<u16>().is_none());
+        assert!(
+            HostState::new(7_u8)
+                .get::<u16>()
+                .is_none()
+        );
     }
 
     #[test]
     fn clones_share_one_state() {
         let state = HostState::new(7_u8);
 
-        assert!(Rc::ptr_eq(
-            &state.get::<u8>().unwrap(),
-            &state.clone().get::<u8>().unwrap(),
-        ));
+        assert!(Rc::ptr_eq(&state.get::<u8>().unwrap(), &state.clone().get::<u8>().unwrap(),));
     }
 
     #[test]
@@ -154,10 +133,7 @@ mod tests {
         let resolved = ModuleState::<u8>::from_state(&state).unwrap();
 
         assert_eq!(*resolved, 7);
-        assert!(ptr::eq(
-            &*resolved,
-            state.get::<u8>().unwrap().as_ref(),
-        ));
+        assert!(ptr::eq(&*resolved, state.get::<u8>().unwrap().as_ref(),));
     }
 
     #[test]
@@ -166,10 +142,8 @@ mod tests {
             _value: u8,
         }
 
-        let resolved = ModuleState::<State>::from_state(
-            &HostState::new(State { _value: 7 }),
-        )
-        .unwrap();
+        let resolved =
+            ModuleState::<State>::from_state(&HostState::new(State { _value: 7 })).unwrap();
 
         assert!(ptr::eq(&*resolved, &*resolved.clone()));
     }

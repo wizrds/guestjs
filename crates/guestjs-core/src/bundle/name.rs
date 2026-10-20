@@ -7,9 +7,7 @@ impl<'a> ModuleName<'a> {
     const SCRIPT_EXTENSIONS: [&'static str; 4] = [".js", ".mjs", ".ts", ".mts"];
 
     pub fn new(name: &'a str) -> Self {
-        Self {
-            name,
-        }
+        Self { name }
     }
 
     pub fn from_path(path: &'a str) -> Option<Self> {
@@ -62,10 +60,7 @@ mod tests {
             ModuleName::from_path("plugin/util.ts").map(|name| name.as_str()),
             Some("plugin/util"),
         );
-        assert_eq!(
-            ModuleName::from_path("main.mjs").map(|name| name.as_str()),
-            Some("main"),
-        );
+        assert_eq!(ModuleName::from_path("main.mjs").map(|name| name.as_str()), Some("main"),);
     }
 
     #[test]

@@ -2,57 +2,29 @@ use std::{
     collections::HashSet,
     ffi::CString,
     rc::Rc,
-    sync::atomic::{
-        AtomicU64,
-        Ordering,
-    },
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use futures::FutureExt;
 use guestjs_core::{
     backend::{
+        Tok, Val,
         library::BackendLibrary,
-        modules::{
-            BackendModules,
-            ModuleDispatcher,
-        },
-        Tok,
-        Val,
+        modules::{BackendModules, ModuleDispatcher},
     },
-    errors::{
-        Error,
-        GuestErrorKind,
-    },
+    errors::{Error, GuestErrorKind},
 };
 use rquickjs::{
+    Ctx, JsLifetime, Module, Value,
     context::EvalOptions,
-    loader::{
-        ImportAttributes,
-        Loader,
-        Resolver,
-    },
-    module::{
-        Declarations,
-        Exports,
-        ModuleDef,
-    },
-    Ctx,
-    JsLifetime,
-    Module,
-    Value,
+    loader::{ImportAttributes, Loader, Resolver},
+    module::{Declarations, Exports, ModuleDef},
 };
 
 use crate::{
-    backend::{
-        library::NativeModule,
-        QuickJs,
-    },
+    backend::{QuickJs, library::NativeModule},
     context::Token,
-    error::{
-        Capture,
-        Create,
-        Raise,
-    },
+    error::{Capture, Create, Raise},
 };
 
 pub struct PendingExports<'js> {
@@ -74,20 +46,25 @@ impl ModuleDef for Synthetic {
             .ok_or(rquickjs::Error::Unknown)?
             .exports
             .iter()
-            .try_for_each(|(name, _)| declarations.declare_c_str(name).map(|_| ()))
+            .try_for_each(|(name, _)| {
+                declarations
+                    .declare_c_str(name)
+                    .map(|_| ())
+            })
     }
 
-    fn evaluate<'js>(
-        ctx: &Ctx<'js>,
-        exports: &Exports<'js>,
-    ) -> rquickjs::Result<()> {
+    fn evaluate<'js>(ctx: &Ctx<'js>, exports: &Exports<'js>) -> rquickjs::Result<()> {
         ctx.remove_userdata::<PendingExports>()
             .ok()
             .flatten()
             .ok_or(rquickjs::Error::Unknown)?
             .exports
             .into_iter()
-            .try_for_each(|(name, value)| exports.export_c_str(&name, value).map(|_| ()))
+            .try_for_each(|(name, value)| {
+                exports
+                    .export_c_str(&name, value)
+                    .map(|_| ())
+            })
     }
 }
 
@@ -106,10 +83,8 @@ impl Resolver for Dispatcher {
         let token = Token::from_ctx(ctx);
 
         match attributes.and_then(|attributes| attributes.keys().next()) {
-            Some(Ok(key)) => Err(GuestErrorKind::SyntaxError.throw(
-                token,
-                &format!("import attribute '{key}' is not supported"),
-            )),
+            Some(Ok(key)) => Err(GuestErrorKind::SyntaxError
+                .throw(token, &format!("import attribute '{key}' is not supported"))),
             Some(Err(error)) => Err(error),
             None => self
                 .dispatcher
@@ -148,11 +123,7 @@ impl Loader for Dispatcher {
 impl BackendModules for QuickJs {
     type Module<'js> = Module<'js>;
 
-    fn eval<'js>(
-        token: Tok<'js, Self>,
-        source: &str,
-        name: &str,
-    ) -> Result<Val<'js, Self>, Error> {
+    fn eval<'js>(token: Tok<'js, Self>, source: &str, name: &str) -> Result<Val<'js, Self>, Error> {
         let mut options = EvalOptions::default();
 
         options.strict = false;
@@ -214,7 +185,13 @@ impl BackendModules for QuickJs {
                     .map(|_| module)
                     .capture(token)
             })
-            .inspect_err(|_| drop(token.ctx().remove_userdata::<PendingExports>()))
+            .inspect_err(|_| {
+                drop(
+                    token
+                        .ctx()
+                        .remove_userdata::<PendingExports>(),
+                )
+            })
     }
 
     fn evaluate<'js>(
@@ -282,12 +259,7 @@ export {{ namespace }};
 
         engine
             .runtime()
-            .set_loader(
-                Dispatcher {
-                    dispatcher: dispatcher.clone(),
-                },
-                Dispatcher { dispatcher },
-            )
+            .set_loader(Dispatcher { dispatcher: dispatcher.clone() }, Dispatcher { dispatcher })
             .now_or_never()
             .expect("runtime lock is held elsewhere");
 
@@ -301,25 +273,15 @@ mod tests {
 
     use guestjs_core::{
         backend::{
-            modules::{
-                BackendModules,
-                ModuleDispatcher,
-            },
+            Backend, Tok,
+            modules::{BackendModules, ModuleDispatcher},
             values::BackendValues,
-            Backend,
-            Tok,
         },
         errors::Error,
     };
-    use rquickjs::{
-        promise::PromiseState,
-        Object,
-    };
+    use rquickjs::{Object, promise::PromiseState};
 
-    use crate::{
-        backend::QuickJs,
-        engine::Config,
-    };
+    use crate::{backend::QuickJs, engine::Config};
 
     pub struct Sources;
 
@@ -354,12 +316,12 @@ mod tests {
                     "#,
                 ),
                 "renamed" => QuickJs::declare(token, "other", "export {};"),
-                _ => Err(Error::unsupported(format!(
-                    "no module named '{name}'"
-                ))),
+                _ => Err(Error::unsupported(format!("no module named '{name}'"))),
             }
         }
     }
+
+    guestjs_core::fixtures::modules::tests!(QuickJs);
 
     #[test]
     fn eval_runs_sloppy_scripts() {

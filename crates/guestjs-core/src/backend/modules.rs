@@ -1,11 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    backend::{
-        values::BackendValues,
-        Tok,
-        Val,
-    },
+    backend::{Tok, Val, values::BackendValues},
     errors::Error,
 };
 
@@ -17,21 +13,13 @@ pub trait ModuleDispatcher<B: BackendModules> {
         specifier: &str,
     ) -> Result<String, Error>;
 
-    fn load<'js>(
-        &self,
-        token: Tok<'js, B>,
-        name: &str,
-    ) -> Result<B::Module<'js>, Error>;
+    fn load<'js>(&self, token: Tok<'js, B>, name: &str) -> Result<B::Module<'js>, Error>;
 }
 
 pub trait BackendModules: BackendValues {
     type Module<'js>;
 
-    fn eval<'js>(
-        token: Tok<'js, Self>,
-        source: &str,
-        name: &str,
-    ) -> Result<Val<'js, Self>, Error>;
+    fn eval<'js>(token: Tok<'js, Self>, source: &str, name: &str) -> Result<Val<'js, Self>, Error>;
 
     fn declare<'js>(
         token: Tok<'js, Self>,

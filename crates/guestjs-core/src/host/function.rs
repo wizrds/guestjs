@@ -1,44 +1,24 @@
-use std::{
-    future::Future,
-    rc::Rc,
-};
+use std::{future::Future, rc::Rc};
 
 use crate::{
     backend::{
-        callables::BackendCallables,
-        exceptions::BackendExceptions,
-        promises::BackendPromises,
-        values::BackendValues,
-        Backend,
-        Val,
+        Backend, Val, callables::BackendCallables, exceptions::BackendExceptions,
+        promises::BackendPromises, values::BackendValues,
     },
-    driver::host_futures::{
-        PendingHostFutures,
-        PendingResult,
-    },
+    driver::host_futures::{PendingHostFutures, PendingResult},
     enter::Enter,
     errors::Error,
     host::{
-        context::{
-            CallContext,
-            FromContext,
-        },
+        context::{CallContext, FromContext},
         declaration::Declaration,
         requirements::Requirements,
         state::HostState,
     },
-    marshal::{
-        args::Args,
-        ToGuest,
-    },
+    marshal::{ToGuest, args::Args},
 };
 
-pub type FunctionBody<B> = Rc<
-    dyn for<'e, 'js> Fn(
-        &CallContext<'e, 'js, B>,
-        &Args<'js, B>,
-    ) -> Result<Val<'js, B>, Error>,
->;
+pub type FunctionBody<B> =
+    Rc<dyn for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<Val<'js, B>, Error>>;
 
 pub struct FunctionDeclaration<B: Backend> {
     body: FunctionBody<B>,
@@ -59,18 +39,12 @@ impl<B: Backend> FunctionDeclaration<B> {
 impl<B: BackendValues> FunctionDeclaration<B> {
     pub fn new<F, R>(function: F) -> Self
     where
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<R, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<R, Error> + 'static,
         R: ToGuest<B>,
     {
         Self {
             requirements: Requirements::new(),
-            body: Rc::new(move |context, args| {
-                function(context, args)?.to_guest(context.enter())
-            }),
+            body: Rc::new(move |context, args| function(context, args)?.to_guest(context.enter())),
         }
     }
 }
@@ -81,11 +55,7 @@ where
 {
     pub fn new_async<F, Fut, R>(function: F) -> Self
     where
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<Fut, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<Fut, Error> + 'static,
         Fut: Future<Output = Result<R, Error>> + 'static,
         R: ToGuest<B> + 'static,
     {
@@ -94,12 +64,12 @@ where
             body: Rc::new(move |context, args| {
                 PendingHostFutures::of(context.enter().guest()).register(
                     context.enter(),
-                    Box::pin(function(context, args).map(|future| {
-                        async move {
-                            future.await.map::<PendingResult<B>, _>(|value| {
+                    Box::pin(function(context, args).map(|future| async move {
+                        future
+                            .await
+                            .map::<PendingResult<B>, _>(|value| {
                                 Box::new(move |enter| value.to_guest(enter))
                             })
-                        }
                     })?),
                 )
             }),
@@ -133,19 +103,14 @@ impl<B: BackendCallables> Declaration<B> for FunctionDeclaration<B> {
                 let body = self.body.clone();
                 let state = state.clone();
 
-                move |enter, call| {
-                    body(&CallContext::new(enter, &state), &Args::new(call))
-                }
+                move |enter, call| body(&CallContext::new(enter, &state), &Args::new(call))
             }),
         )
     }
 }
 
 impl<B: BackendCallables> ToGuest<B> for FunctionDeclaration<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.realise(enter, &HostState::empty(), "")
     }
 }
@@ -156,17 +121,13 @@ mod tests {
 
     use crate::{
         backend::{
-            callables::BackendCallables,
-            exceptions::BackendExceptions,
-            promises::BackendPromises,
+            callables::BackendCallables, exceptions::BackendExceptions, promises::BackendPromises,
             tests::Stub,
         },
         errors::Error,
         guest::Guest,
         host::{
-            context::CallContext,
-            declaration::Declaration,
-            function::FunctionDeclaration,
+            context::CallContext, declaration::Declaration, function::FunctionDeclaration,
             state::HostState,
         },
         marshal::ToGuest,

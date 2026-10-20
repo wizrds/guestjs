@@ -1,30 +1,15 @@
 use std::marker::PhantomData;
 
 use crate::{
-    backend::{
-        classes::BackendClasses,
-        exceptions::BackendExceptions,
-        values::Property,
-        Val,
-    },
+    backend::{Val, classes::BackendClasses, exceptions::BackendExceptions, values::Property},
     enter::Enter,
-    errors::{
-        Error,
-        GuestErrorKind,
-    },
+    errors::{Error, GuestErrorKind},
     host::{
-        class::{
-            ClassPrototype,
-            RealisedClass,
-            RealisedClasses,
-        },
+        class::{ClassPrototype, RealisedClass, RealisedClasses},
         declaration::Declaration,
         state::HostState,
     },
-    marshal::{
-        FromGuest,
-        ToGuest,
-    },
+    marshal::{FromGuest, ToGuest},
 };
 
 pub trait HostException: Sized + 'static {
@@ -57,9 +42,7 @@ pub struct ExceptionDeclaration<E: HostException> {
 
 impl<E: HostException> ExceptionDeclaration<E> {
     pub fn new() -> Self {
-        Self {
-            exception: PhantomData,
-        }
+        Self { exception: PhantomData }
     }
 
     pub fn realised<'js, B>(&self, enter: &Enter<'js, B>) -> Result<RealisedClass<B>, Error>
@@ -152,29 +135,19 @@ where
         _state: &HostState,
         _name: &str,
     ) -> Result<Val<'js, B>, Error> {
-        self.realised(enter)?
-            .constructor(enter)
+        self.realised(enter)?.constructor(enter)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::{
-            classes::BackendClasses,
-            exceptions::BackendExceptions,
-        },
+        backend::{classes::BackendClasses, exceptions::BackendExceptions},
         enter::Enter,
-        errors::{
-            Error,
-            GuestException,
-        },
+        errors::{Error, GuestException},
         host::{
             declaration::Declaration,
-            exception::{
-                ExceptionDeclaration,
-                HostException,
-            },
+            exception::{ExceptionDeclaration, HostException},
         },
     };
 

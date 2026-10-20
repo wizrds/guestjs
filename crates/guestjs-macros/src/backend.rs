@@ -1,29 +1,11 @@
 use darling::FromMeta;
-use proc_macro2::{
-    Span,
-    TokenStream,
-};
-use quote::{
-    quote,
-    ToTokens,
-};
+use proc_macro2::{Span, TokenStream};
+use quote::{ToTokens, quote};
 use syn::{
-    parse::{
-        ParseStream,
-        Parser,
-    },
-    parse2,
-    parse_quote,
-    GenericParam,
-    Generics,
-    Ident,
-    LifetimeParam,
-    Meta,
-    Path,
-    Token,
-    Type,
-    TypeParamBound,
+    GenericParam, Generics, Ident, LifetimeParam, Meta, Path, Token, Type, TypeParamBound,
     WherePredicate,
+    parse::{ParseStream, Parser},
+    parse_quote, parse2,
 };
 
 pub enum BackendOption {
@@ -115,36 +97,35 @@ impl BackendParameter {
         if let Some(parameter) = generics
             .type_params()
             .find(|parameter| {
-                parameter.bounds.iter().any(Self::is_backend)
+                parameter
+                    .bounds
+                    .iter()
+                    .any(Self::is_backend)
                     || generics
                         .where_clause
                         .iter()
                         .flat_map(|clause| &clause.predicates)
-                        .any(|predicate| {
-                            match predicate {
-                                WherePredicate::Type(predicate) => {
-                                    matches!(
-                                        &predicate.bounded_ty,
-                                        Type::Path(path)
-                                            if path.qself.is_none()
-                                                && path.path.is_ident(
-                                                    &parameter.ident,
-                                                )
-                                    ) && predicate.bounds.iter().any(
-                                        Self::is_backend,
-                                    )
-                                }
-                                _ => false,
+                        .any(|predicate| match predicate {
+                            WherePredicate::Type(predicate) => {
+                                matches!(
+                                    &predicate.bounded_ty,
+                                    Type::Path(path)
+                                        if path.qself.is_none()
+                                            && path.path.is_ident(
+                                                &parameter.ident,
+                                            )
+                                ) && predicate
+                                    .bounds
+                                    .iter()
+                                    .any(Self::is_backend)
                             }
+                            _ => false,
                         })
             })
         {
             return Err(syn::Error::new(
                 parameter.ident.span(),
-                format!(
-                    "select the backend explicitly with backend = {}",
-                    parameter.ident,
-                ),
+                format!("select the backend explicitly with backend = {}", parameter.ident,),
             ));
         }
 
@@ -173,15 +154,14 @@ impl BackendParameter {
     }
 
     fn occupied(generics: &Generics, ident: &Ident) -> bool {
-        generics.params.iter().any(|parameter| {
-            match parameter {
-                GenericParam::Lifetime(parameter) => {
-                    parameter.lifetime.ident == *ident
-                }
+        generics
+            .params
+            .iter()
+            .any(|parameter| match parameter {
+                GenericParam::Lifetime(parameter) => parameter.lifetime.ident == *ident,
                 GenericParam::Type(parameter) => parameter.ident == *ident,
                 GenericParam::Const(parameter) => parameter.ident == *ident,
-            }
-        })
+            })
     }
 
     fn is_backend(bound: &TypeParamBound) -> bool {
@@ -198,9 +178,9 @@ impl BackendParameter {
 
     pub fn ty(&self) -> Type {
         match self {
-            Self::Synthesized(ident)
-            | Self::Declared(ident)
-            | Self::Introduced(ident) => parse_quote!(#ident),
+            Self::Synthesized(ident) | Self::Declared(ident) | Self::Introduced(ident) => {
+                parse_quote!(#ident)
+            }
             Self::Concrete(ty) => ty.clone(),
         }
     }
@@ -218,7 +198,9 @@ impl BackendParameter {
                 .type_params()
                 .any(|parameter| parameter.ident == *ident)
             {
-                generics.params.push(parse_quote!(#ident));
+                generics
+                    .params
+                    .push(parse_quote!(#ident));
             }
 
             generics
@@ -237,15 +219,13 @@ impl BackendParameter {
         }
     }
 
-    pub fn definition_generics(
-        &self,
-        generics: &Generics,
-        bounds: &BackendBounds,
-    ) -> Generics {
+    pub fn definition_generics(&self, generics: &Generics, bounds: &BackendBounds) -> Generics {
         let mut definition = generics.clone();
 
         if let Self::Synthesized(ident) | Self::Introduced(ident) = self {
-            definition.params.push(parse_quote!(#ident));
+            definition
+                .params
+                .push(parse_quote!(#ident));
         }
 
         bounds.apply(&mut definition);
@@ -268,10 +248,7 @@ pub struct BackendBounds {
 }
 
 impl BackendBounds {
-    pub fn new(
-        backend: &BackendParameter,
-        bounds: Vec<TypeParamBound>,
-    ) -> Self {
+    pub fn new(backend: &BackendParameter, bounds: Vec<TypeParamBound>) -> Self {
         Self {
             backend: backend.ty(),
             bounds,
@@ -307,16 +284,20 @@ impl BackendBounds {
                     .get_or_insert_with(|| parse_quote!(for<>));
 
                 for parameter in generics.lifetimes() {
-                    lifetimes.lifetimes.push(GenericParam::Lifetime(
-                        LifetimeParam::new(parameter.lifetime.clone()),
-                    ));
+                    lifetimes
+                        .lifetimes
+                        .push(GenericParam::Lifetime(LifetimeParam::new(
+                            parameter.lifetime.clone(),
+                        )));
                 }
             }
 
-            if !self.predicates.contains(
-                &WherePredicate::Type(predicate.clone()),
-            ) {
-                self.predicates.push(WherePredicate::Type(predicate));
+            if !self
+                .predicates
+                .contains(&WherePredicate::Type(predicate.clone()))
+            {
+                self.predicates
+                    .push(WherePredicate::Type(predicate));
             }
         }
     }
@@ -326,9 +307,10 @@ impl BackendBounds {
             let backend = &self.backend;
             let bounds = &self.bounds;
 
-            generics.make_where_clause().predicates.push(
-                parse_quote!(#backend: #(#bounds)+*),
-            );
+            generics
+                .make_where_clause()
+                .predicates
+                .push(parse_quote!(#backend: #(#bounds)+*));
         }
 
         if !self.predicates.is_empty() {
@@ -344,19 +326,10 @@ impl BackendBounds {
 mod tests {
     use quote::quote;
     use syn::{
-        parse2,
-        parse_quote,
-        AngleBracketedGenericArguments,
-        Generics,
-        ItemImpl,
-        ItemStruct,
+        AngleBracketedGenericArguments, Generics, ItemImpl, ItemStruct, parse_quote, parse2,
     };
 
-    use crate::backend::{
-        BackendBounds,
-        BackendOption,
-        BackendParameter,
-    };
+    use crate::backend::{BackendBounds, BackendOption, BackendParameter};
 
     struct GenericsFixture;
 
@@ -377,10 +350,7 @@ mod tests {
         assert_eq!(
             backend.definition_generics(
                 &source,
-                &BackendBounds::new(
-                    &backend,
-                    vec![parse_quote!(crate::backend::Backend)],
-                ),
+                &BackendBounds::new(&backend, vec![parse_quote!(crate::backend::Backend)],),
             ),
             GenericsFixture::parse(quote!(
                 <T, B> where B: crate::backend::Backend
@@ -434,10 +404,7 @@ mod tests {
             )),
         );
         assert_eq!(
-            parse2::<AngleBracketedGenericArguments>(
-                backend.turbofish(),
-            )
-            .unwrap(),
+            parse2::<AngleBracketedGenericArguments>(backend.turbofish(),).unwrap(),
             parse_quote!(::<Engine>),
         );
     }
@@ -468,12 +435,7 @@ mod tests {
             ))
             .unwrap(),
         ] {
-            assert!(BackendParameter::resolve(
-                None,
-                &item.generics,
-                &[],
-            )
-            .is_err());
+            assert!(BackendParameter::resolve(None, &item.generics, &[],).is_err());
         }
     }
 
@@ -494,10 +456,7 @@ mod tests {
         bounds.absorb(&source);
         bounds.apply(&mut generated);
 
-        assert_eq!(
-            generated,
-            GenericsFixture::parse(quote!(where for<'a> B: Capability<'a>)),
-        );
+        assert_eq!(generated, GenericsFixture::parse(quote!(where for<'a> B: Capability<'a>)),);
         assert_eq!(
             source,
             GenericsFixture::parse(quote!(

@@ -1,8 +1,5 @@
 use darling::ast::NestedMeta;
-use syn::{
-    Attribute,
-    Meta,
-};
+use syn::{Attribute, Meta};
 
 pub struct HelperAttributes;
 
@@ -11,16 +8,13 @@ impl HelperAttributes {
         attributes
             .iter()
             .filter(|attribute| {
-                attribute.path().is_ident("cfg")
-                    || attribute.path().is_ident("cfg_attr")
+                attribute.path().is_ident("cfg") || attribute.path().is_ident("cfg_attr")
             })
             .cloned()
             .collect()
     }
 
-    pub fn take(
-        attributes: &mut Vec<Attribute>,
-    ) -> Result<Vec<NestedMeta>, darling::Error> {
+    pub fn take(attributes: &mut Vec<Attribute>) -> Result<Vec<NestedMeta>, darling::Error> {
         let mut helpers = Vec::new();
         let mut retained = Vec::with_capacity(attributes.len());
 
@@ -36,11 +30,7 @@ impl HelperAttributes {
                     helpers.extend(NestedMeta::parse_meta_list(list.tokens)?);
                 }
                 meta => {
-                    return Err(syn::Error::new_spanned(
-                        meta,
-                        "expected #[guestjs(...)]",
-                    )
-                    .into());
+                    return Err(syn::Error::new_spanned(meta, "expected #[guestjs(...)]").into());
                 }
             }
         }
@@ -53,10 +43,7 @@ impl HelperAttributes {
 
 #[cfg(test)]
 mod tests {
-    use syn::{
-        parse_quote,
-        Attribute,
-    };
+    use syn::{Attribute, parse_quote};
 
     use crate::attributes::HelperAttributes;
 
@@ -73,7 +60,12 @@ mod tests {
             parse_quote!(#[guestjs(name = "send")]),
         ];
 
-        assert_eq!(HelperAttributes::take(&mut attributes).unwrap().len(), 2);
+        assert_eq!(
+            HelperAttributes::take(&mut attributes)
+                .unwrap()
+                .len(),
+            2
+        );
         assert_eq!(attributes, retained);
     }
 
@@ -83,11 +75,7 @@ mod tests {
             parse_quote!(#[guestjs]),
             parse_quote!(#[guestjs = "method"]),
         ] {
-            assert!(HelperAttributes::take(
-                &mut vec![attribute],
-            )
-            .is_err());
+            assert!(HelperAttributes::take(&mut vec![attribute],).is_err());
         }
     }
-
 }

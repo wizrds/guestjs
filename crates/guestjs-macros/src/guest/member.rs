@@ -2,23 +2,13 @@ use darling::FromMeta;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
+    Attribute, Ident, Path, Token, Type,
     ext::IdentExt,
     parenthesized,
-    parse::{
-        Parse,
-        ParseStream,
-    },
-    Attribute,
-    Ident,
-    Path,
-    Token,
-    Type,
+    parse::{Parse, ParseStream},
 };
 
-use crate::{
-    attributes::HelperAttributes,
-    guest::facade::GuestFacadeKind,
-};
+use crate::{attributes::HelperAttributes, guest::facade::GuestFacadeKind};
 
 #[derive(Default, FromMeta)]
 #[darling(default)]
@@ -27,21 +17,12 @@ struct MemberOptions {
 }
 
 impl MemberOptions {
-    fn resolve(
-        attributes: &mut Vec<Attribute>,
-        ident: &Ident,
-    ) -> syn::Result<String> {
+    fn resolve(attributes: &mut Vec<Attribute>, ident: &Ident) -> syn::Result<String> {
         Ok(Self::from_list(
             &HelperAttributes::take(attributes)
-                .map_err(|error| syn::Error::new(
-                    ident.span(),
-                    error.to_string(),
-                ))?,
+                .map_err(|error| syn::Error::new(ident.span(), error.to_string()))?,
         )
-        .map_err(|error| syn::Error::new(
-            ident.span(),
-            error.to_string(),
-        ))?
+        .map_err(|error| syn::Error::new(ident.span(), error.to_string()))?
         .name
         .unwrap_or_else(|| ident.unraw().to_string()))
     }
@@ -68,10 +49,7 @@ impl Parse for GuestParameter {
 
         input.parse::<Token![:]>()?;
 
-        Ok(Self {
-            ident,
-            ty: input.parse()?,
-        })
+        Ok(Self { ident, ty: input.parse()? })
     }
 }
 
@@ -112,19 +90,28 @@ impl GuestMember {
                 parameters,
                 descriptor,
             } => {
-                let names = parameters.iter().map(GuestParameter::ident);
-                let types = parameters.iter().map(GuestParameter::ty);
-                let argument_types = parameters.iter().map(GuestParameter::ty);
+                let names = parameters
+                    .iter()
+                    .map(GuestParameter::ident);
+                let types = parameters
+                    .iter()
+                    .map(GuestParameter::ty);
+                let argument_types = parameters
+                    .iter()
+                    .map(GuestParameter::ty);
                 let invocation = kind.invocation(
                     krate,
                     receiver,
                     guest_name,
                     descriptor,
-                    &parameters.iter().map(|parameter| {
-                        let ident = parameter.ident();
+                    &parameters
+                        .iter()
+                        .map(|parameter| {
+                            let ident = parameter.ident();
 
-                        quote!(#ident)
-                    }).collect::<Vec<_>>(),
+                            quote!(#ident)
+                        })
+                        .collect::<Vec<_>>(),
                 );
 
                 quote! {
@@ -142,7 +129,12 @@ impl GuestMember {
                     }
                 }
             }
-            Self::Value { attributes, ident, guest_name, descriptor } => {
+            Self::Value {
+                attributes,
+                ident,
+                guest_name,
+                descriptor,
+            } => {
                 quote! {
                     #(#attributes)*
                     pub fn #ident(&self)
@@ -176,10 +168,10 @@ impl Parse for GuestMember {
 
             parenthesized!(parameters in input);
 
-            let parameters = parameters.parse_terminated(
-                GuestParameter::parse,
-                Token![,],
-            )?.into_iter().collect();
+            let parameters = parameters
+                .parse_terminated(GuestParameter::parse, Token![,])?
+                .into_iter()
+                .collect();
 
             input.parse::<Token![->]>()?;
 
@@ -198,10 +190,7 @@ impl Parse for GuestMember {
             let keyword = input.parse::<Ident>()?;
 
             if keyword != "value" {
-                return Err(syn::Error::new(
-                    keyword.span(),
-                    "expected fn or value",
-                ));
+                return Err(syn::Error::new(keyword.span(), "expected fn or value"));
             }
 
             let ident = input.parse()?;
@@ -225,16 +214,9 @@ impl Parse for GuestMember {
 #[cfg(test)]
 mod tests {
     use quote::quote;
-    use syn::{
-        parse2,
-        parse_quote,
-        ImplItemFn,
-    };
+    use syn::{ImplItemFn, parse_quote, parse2};
 
-    use crate::guest::{
-        facade::GuestFacadeKind,
-        member::GuestMember,
-    };
+    use crate::guest::{facade::GuestFacadeKind, member::GuestMember};
 
     #[test]
     fn emits_a_value_getter_through_the_public_protocol() {
@@ -247,13 +229,13 @@ mod tests {
                         &quote!(self.instance()),
                         &GuestFacadeKind::Class,
                     ),
-            ).unwrap(),
-            parse_quote!(
-                pub fn status(&self)
-                    -> ::core::result::Result<
-                        <String as crate::marshal::FromGuest<B>>::Owned,
-                        crate::errors::Error,
-                    >
+            )
+            .unwrap(),
+            parse_quote! {
+                pub fn status(&self) -> ::core::result::Result<
+                    <String as crate::marshal::FromGuest<B>>::Owned,
+                    crate::errors::Error,
+                >
                 where
                     String: crate::marshal::FromGuest<B>,
                 {
@@ -262,7 +244,7 @@ mod tests {
                         _,
                     >(self.instance(), "status")
                 }
-            ),
+            },
         );
     }
 }

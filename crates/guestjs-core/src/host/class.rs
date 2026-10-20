@@ -1,54 +1,27 @@
-use std::{
-    any::TypeId,
-    cell::RefCell,
-    collections::HashMap,
-    future::Future,
-    rc::Rc,
-};
+use std::{any::TypeId, cell::RefCell, collections::HashMap, future::Future, rc::Rc};
 
 use crate::{
     backend::{
+        Backend, Val,
         callables::BackendCallables,
         classes::BackendClasses,
         exceptions::BackendExceptions,
         promises::BackendPromises,
-        values::{
-            BackendValues,
-            Property,
-        },
-        Backend,
-        Val,
+        values::{BackendValues, Property},
     },
     enter::Enter,
-    errors::{
-        Error,
-        GuestErrorKind,
-    },
+    errors::{Error, GuestErrorKind},
     guest::Guest,
-    handle::class::{
-        Class,
-        Instance,
-        Payload,
-    },
+    handle::class::{Class, Instance, Payload},
     host::{
-        context::{
-            CallContext,
-            FromContext,
-        },
+        context::{CallContext, FromContext},
         declaration::Declaration,
         namespace::NamespaceDeclaration,
-        property::{
-            PropertyDeclaration,
-            PropertyKey,
-        },
+        property::{PropertyDeclaration, PropertyKey},
         requirements::Requirements,
         state::HostState,
     },
-    marshal::{
-        args::Args,
-        FromGuest,
-        ToGuest,
-    },
+    marshal::{FromGuest, ToGuest, args::Args},
 };
 
 pub struct ClassPrototype<B: Backend> {
@@ -74,18 +47,14 @@ impl<B: BackendValues> ClassPrototype<B> {
         new_target: Option<&Val<'js, B>>,
     ) -> Result<Val<'js, B>, Error> {
         match new_target {
-            Some(new_target) => B::get(
-                enter.token(),
-                new_target,
-                &"prototype".to_guest(enter)?,
-            )
-            .and_then(|prototype| {
-                if B::kind(enter.token(), &prototype).is_object() {
-                    Ok(prototype)
-                } else {
-                    self.get(enter)
-                }
-            }),
+            Some(new_target) => B::get(enter.token(), new_target, &"prototype".to_guest(enter)?)
+                .and_then(|prototype| {
+                    if B::kind(enter.token(), &prototype).is_object() {
+                        Ok(prototype)
+                    } else {
+                        self.get(enter)
+                    }
+                }),
             None => self.get(enter),
         }
     }
@@ -93,9 +62,7 @@ impl<B: BackendValues> ClassPrototype<B> {
 
 impl<B: Backend> Clone for ClassPrototype<B> {
     fn clone(&self) -> Self {
-        Self {
-            prototype: self.prototype.clone(),
-        }
+        Self { prototype: self.prototype.clone() }
     }
 }
 
@@ -148,11 +115,7 @@ impl<B: Backend> RealisedClass<B> {
             },
         )?;
 
-        Ok(Self::new(
-            enter,
-            constructor,
-            ClassPrototype::new(enter, prototype),
-        ))
+        Ok(Self::new(enter, constructor, ClassPrototype::new(enter, prototype)))
     }
 
     pub fn constructor<'js>(&self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
@@ -179,9 +142,7 @@ pub struct RealisedClasses<B: Backend> {
 
 impl<B: Backend> RealisedClasses<B> {
     pub fn new() -> Self {
-        Self {
-            classes: RefCell::new(HashMap::new()),
-        }
+        Self { classes: RefCell::new(HashMap::new()) }
     }
 
     pub fn of(guest: &Guest<B>) -> Rc<Self> {
@@ -226,9 +187,7 @@ impl<B: Backend> Default for RealisedClasses<B> {
 pub trait HostClass<B: Backend>: Payload + Sized {
     fn declaration() -> ClassDeclaration<B, Self>;
 
-    fn class<'js>(
-        enter: &Enter<'js, B>,
-    ) -> Result<Class<B, Instance<B, Self>>, Error>
+    fn class<'js>(enter: &Enter<'js, B>) -> Result<Class<B, Instance<B, Self>>, Error>
     where
         B: BackendClasses + BackendExceptions,
     {
@@ -246,10 +205,7 @@ where
     B: BackendClasses,
     C: Payload,
 {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         B::instantiate(
             enter.token(),
             &RealisedClasses::of(enter.guest())
@@ -269,12 +225,7 @@ where
 
 pub struct ClassDeclaration<B: Backend, C: Payload> {
     constructor: Option<
-        Rc<
-            dyn for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<C, Error>,
-        >,
+        Rc<dyn for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<C, Error>>,
     >,
     prototype: NamespaceDeclaration<B>,
     statics: NamespaceDeclaration<B>,
@@ -302,11 +253,7 @@ impl<B: Backend, C: Payload> ClassDeclaration<B, C> {
 
     pub fn constructor<F>(mut self, constructor: F) -> Self
     where
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<C, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<C, Error> + 'static,
     {
         self.constructor = Some(Rc::new(constructor));
 
@@ -353,11 +300,7 @@ impl<B: BackendCallables, C: Payload> ClassDeclaration<B, C> {
     pub fn method<K, F, R>(mut self, key: K, method: F) -> Self
     where
         K: Into<PropertyKey>,
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<R, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<R, Error> + 'static,
         R: ToGuest<B>,
     {
         self.prototype.function(key, method);
@@ -368,11 +311,7 @@ impl<B: BackendCallables, C: Payload> ClassDeclaration<B, C> {
     pub fn getter<K, F, R>(mut self, key: K, get: F) -> Self
     where
         K: Into<PropertyKey>,
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<R, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<R, Error> + 'static,
         R: ToGuest<B>,
     {
         self.prototype.getter(key, get);
@@ -383,11 +322,7 @@ impl<B: BackendCallables, C: Payload> ClassDeclaration<B, C> {
     pub fn setter<K, F, R>(mut self, key: K, set: F) -> Self
     where
         K: Into<PropertyKey>,
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<R, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<R, Error> + 'static,
         R: ToGuest<B>,
     {
         self.prototype.setter(key, set);
@@ -404,15 +339,12 @@ where
     pub fn method_async<K, F, Fut, R>(mut self, key: K, method: F) -> Self
     where
         K: Into<PropertyKey>,
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<Fut, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<Fut, Error> + 'static,
         Fut: Future<Output = Result<R, Error>> + 'static,
         R: ToGuest<B> + 'static,
     {
-        self.prototype.function_async(key, method);
+        self.prototype
+            .function_async(key, method);
 
         self
     }
@@ -433,7 +365,8 @@ where
         RealisedClasses::of(enter.guest()).get_or_realise::<C, _>(|| {
             let prototype = B::new_object(enter.token())?;
 
-            self.prototype.install(enter, state, &prototype)?;
+            self.prototype
+                .install(enter, state, &prototype)?;
 
             let constructor = B::constructor(
                 enter.token(),
@@ -468,7 +401,8 @@ where
                 }),
             )?;
 
-            self.statics.install(enter, state, &constructor)?;
+            self.statics
+                .install(enter, state, &constructor)?;
 
             RealisedClass::link(enter, constructor, prototype)
         })
@@ -503,32 +437,18 @@ mod tests {
 
     use crate::{
         backend::{
-            classes::BackendClasses,
-            exceptions::BackendExceptions,
-            promises::BackendPromises,
-            tests::Stub,
-            values::WellKnown,
-            Backend,
+            Backend, classes::BackendClasses, exceptions::BackendExceptions,
+            promises::BackendPromises, tests::Stub, values::WellKnown,
         },
         enter::Enter,
         errors::Error,
         guest::Guest,
         handle::{
-            class::{
-                Class,
-                Instance,
-                Payload,
-            },
+            class::{Class, Instance, Payload},
             value::Value,
         },
         host::{
-            class::{
-                ClassDeclaration,
-                ClassPrototype,
-                HostClass,
-                RealisedClass,
-                RealisedClasses,
-            },
+            class::{ClassDeclaration, ClassPrototype, HostClass, RealisedClass, RealisedClasses},
             declaration::Declaration,
             namespace::NamespaceDeclaration,
             property::PropertyDeclaration,
@@ -565,11 +485,13 @@ mod tests {
                     Ok(counter.count)
                 })
                 .getter("count", |context, args| {
-                    Ok(args.this_ref::<Counter>(context.enter())?.count)
+                    Ok(args
+                        .this_ref::<Counter>(context.enter())?
+                        .count)
                 })
                 .setter("count", |context, args| {
-                    args.this_mut::<Counter>(context.enter())?.count =
-                        args.next::<f64>(context.enter())?;
+                    args.this_mut::<Counter>(context.enter())?
+                        .count = args.next::<f64>(context.enter())?;
 
                     Ok(())
                 })
@@ -647,7 +569,11 @@ mod tests {
                     Ok(RealisedClass::new(enter, (), ClassPrototype::new(enter, ())))
                 })?;
 
-                assert!(RealisedClasses::of(enter.guest()).get::<Second>().is_none());
+                assert!(
+                    RealisedClasses::of(enter.guest())
+                        .get::<Second>()
+                        .is_none()
+                );
 
                 Ok(())
             })
@@ -672,7 +598,11 @@ mod tests {
         Guest::new(&runtime)
             .unwrap()
             .enter(|enter| {
-                assert!(RealisedClasses::of(enter.guest()).get::<First>().is_none());
+                assert!(
+                    RealisedClasses::of(enter.guest())
+                        .get::<First>()
+                        .is_none()
+                );
 
                 Ok(())
             })
@@ -686,9 +616,7 @@ mod tests {
     {
         fn declaration<B: BackendClasses + BackendExceptions, T: Declaration<B>>() {}
         fn to<B: BackendClasses, T: ToGuest<B>>() {}
-        fn class<B>(
-            enter: &Enter<'_, B>,
-        ) -> Result<Class<B, Instance<B, Counter>>, Error>
+        fn class<B>(enter: &Enter<'_, B>) -> Result<Class<B, Instance<B, Counter>>, Error>
         where
             B: BackendClasses + BackendExceptions,
         {
@@ -697,14 +625,9 @@ mod tests {
 
         let _ = ClassDeclaration::<B, Counter>::new()
             .method(WellKnown::Iterator, |_, _| Ok::<_, Error>(()))
-            .method_async("wait", |_, _| {
-                Ok::<_, Error>(async { Ok::<_, Error>(()) })
-            })
+            .method_async("wait", |_, _| Ok::<_, Error>(async { Ok::<_, Error>(()) }))
             .value("tag", "counter")
-            .property(
-                "raw",
-                PropertyDeclaration::constant(ValueDeclaration::new(1.0)),
-            );
+            .property("raw", PropertyDeclaration::constant(ValueDeclaration::new(1.0)));
 
         declaration::<B, ClassDeclaration<B, Counter>>();
         declaration::<B, ClassDeclaration<B, Labelled<B>>>();

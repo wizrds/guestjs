@@ -1,15 +1,6 @@
-use proc_macro_crate::{
-    crate_name,
-    FoundCrate,
-};
+use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::Span;
-use syn::{
-    parse_quote,
-    parse_str,
-    Error,
-    Path,
-    Result,
-};
+use syn::{Error, Path, Result, parse_quote, parse_str};
 
 pub struct CratePath {
     explicit: Option<Path>,
@@ -27,14 +18,10 @@ impl CratePath {
 
         match crate_name("guestjs") {
             Ok(FoundCrate::Itself) => Ok(parse_quote!(::guestjs)),
-            Ok(FoundCrate::Name(name)) => {
-                parse_str(&format!("::{}", name.replace('-', "_")))
-            },
+            Ok(FoundCrate::Name(name)) => parse_str(&format!("::{}", name.replace('-', "_"))),
             Err(error) => Err(Error::new(
                 Span::call_site(),
-                format!(
-                    "cannot resolve guestjs: {error}; supply crate_path explicitly",
-                ),
+                format!("cannot resolve guestjs: {error}; supply crate_path explicitly",),
             )),
         }
     }

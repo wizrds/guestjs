@@ -17,10 +17,7 @@ pub enum Error {
 
     /// A value that does not have the expected type.
     #[error("expected {expected}, found {found}")]
-    Conversion {
-        expected: String,
-        found: String,
-    },
+    Conversion { expected: String, found: String },
 
     /// A value used outside the guest it belongs to.
     #[error("a value was used outside the guest it belongs to")]
@@ -28,16 +25,11 @@ pub enum Error {
 
     /// A class payload that is already borrowed.
     #[error("{type_name} is already borrowed ({kind})")]
-    Borrow {
-        kind: BorrowKind,
-        type_name: String,
-    },
+    Borrow { kind: BorrowKind, type_name: String },
 
     /// An operation that is not supported.
     #[error("{message}")]
-    Unsupported {
-        message: String,
-    },
+    Unsupported { message: String },
 
     /// Execution stopped by the engine interrupt.
     #[error("execution was interrupted")]
@@ -57,20 +49,13 @@ pub enum Error {
 
     /// A failure reported by the engine.
     #[error("{message}")]
-    Engine {
-        message: String,
-    },
+    Engine { message: String },
 
     #[error("cannot import {name}: {message}")]
-    Import {
-        name: String,
-        message: String,
-    },
+    Import { name: String, message: String },
 
     #[error("invalid bundle: {message}")]
-    Bundle {
-        message: String,
-    },
+    Bundle { message: String },
 
     /// An error returned by host code.
     #[error(transparent)]
@@ -100,10 +85,7 @@ impl Error {
     }
 
     /// Creates an [`Error::Conversion`](crate::errors::Error::Conversion) with the expected and found type names.
-    pub fn conversion(
-        expected: impl Into<String>,
-        found: impl Into<String>,
-    ) -> Self {
+    pub fn conversion(expected: impl Into<String>, found: impl Into<String>) -> Self {
         Self::Conversion {
             expected: expected.into(),
             found: found.into(),
@@ -116,10 +98,7 @@ impl Error {
     }
 
     /// Creates an [`Error::Borrow`](crate::errors::Error::Borrow) for the given borrow kind and type name.
-    pub fn borrow(
-        kind: impl Into<BorrowKind>,
-        type_name: impl Into<String>,
-    ) -> Self {
+    pub fn borrow(kind: impl Into<BorrowKind>, type_name: impl Into<String>) -> Self {
         Self::Borrow {
             kind: kind.into(),
             type_name: type_name.into(),
@@ -128,9 +107,7 @@ impl Error {
 
     /// Creates an [`Error::Unsupported`](crate::errors::Error::Unsupported) with the given message.
     pub fn unsupported(message: impl Into<String>) -> Self {
-        Self::Unsupported {
-            message: message.into(),
-        }
+        Self::Unsupported { message: message.into() }
     }
 
     /// Creates an [`Error::Interrupted`](crate::errors::Error::Interrupted).
@@ -155,16 +132,11 @@ impl Error {
 
     /// Creates an [`Error::Engine`](crate::errors::Error::Engine) with the given message.
     pub fn engine(message: impl Into<String>) -> Self {
-        Self::Engine {
-            message: message.into(),
-        }
+        Self::Engine { message: message.into() }
     }
 
     /// Creates an [`Error::Import`](crate::errors::Error::Import) with the given name and message.
-    pub fn import(
-        name: impl Into<String>,
-        message: impl Into<String>,
-    ) -> Self {
+    pub fn import(name: impl Into<String>, message: impl Into<String>) -> Self {
         Self::Import {
             name: name.into(),
             message: message.into(),
@@ -173,9 +145,7 @@ impl Error {
 
     /// Creates an [`Error::Bundle`](crate::errors::Error::Bundle) with the given message.
     pub fn bundle(message: impl Into<String>) -> Self {
-        Self::Bundle {
-            message: message.into(),
-        }
+        Self::Bundle { message: message.into() }
     }
 
     /// Creates an [`Error::Host`](crate::errors::Error::Host) wrapping the given error.
@@ -342,10 +312,7 @@ impl GuestException {
 }
 
 impl std::fmt::Display for GuestException {
-    fn fmt(
-        &self,
-        formatter: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match (self.name.is_empty(), self.message.is_empty()) {
             (_, true) => write!(formatter, "{}", self.name),
             (true, false) => write!(formatter, "{}", self.message),
@@ -355,10 +322,7 @@ impl std::fmt::Display for GuestException {
 }
 
 impl std::fmt::Debug for GuestException {
-    fn fmt(
-        &self,
-        formatter: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("GuestException")
             .field("name", &self.name)
@@ -379,10 +343,7 @@ pub enum BorrowKind {
 }
 
 impl std::fmt::Display for BorrowKind {
-    fn fmt(
-        &self,
-        formatter: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
             BorrowKind::Shared => "shared",
             BorrowKind::Exclusive => "exclusive",
@@ -407,11 +368,7 @@ pub enum GuestErrorKind {
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::{
-        BorrowKind,
-        Error,
-        GuestErrorKind,
-    };
+    use crate::errors::{BorrowKind, Error, GuestErrorKind};
 
     #[test]
     fn borrow_error_names_the_held_borrow() {

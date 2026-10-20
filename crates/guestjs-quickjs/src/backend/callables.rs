@@ -1,32 +1,19 @@
 use guestjs_core::{
     backend::{
-        callables::{
-            BackendCallables,
-            RawBody,
-            RawCall,
-        },
-        Tok,
-        Val,
+        Tok, Val,
+        callables::{BackendCallables, RawBody, RawCall},
     },
     errors::Error,
 };
 use rquickjs::{
-    function::{
-        Params,
-        RustFunction,
-    },
-    Class,
-    Function,
-    Value,
+    Class, Function, Value,
+    function::{Params, RustFunction},
 };
 
 use crate::{
     backend::QuickJs,
     context::Token,
-    error::{
-        Capture,
-        Raise,
-    },
+    error::{Capture, Raise},
 };
 
 impl BackendCallables for QuickJs {
@@ -71,21 +58,17 @@ mod tests {
 
     use guestjs_core::{
         backend::{
-            callables::{
-                BackendCallables,
-                RawCall,
-            },
+            Backend,
+            callables::{BackendCallables, RawCall},
             exceptions::BackendExceptions,
             values::BackendValues,
-            Backend,
         },
         errors::Error,
     };
 
-    use crate::{
-        backend::QuickJs,
-        engine::Config,
-    };
+    use crate::{backend::QuickJs, engine::Config};
+
+    guestjs_core::fixtures::callables::tests!(QuickJs);
 
     #[test]
     fn function_receives_this_and_arguments() {
@@ -115,10 +98,11 @@ mod tests {
             )
             .unwrap();
 
-            assert!(token
-                .ctx()
-                .eval::<bool, _>(
-                    r#"
+            assert!(
+                token
+                    .ctx()
+                    .eval::<bool, _>(
+                        r#"
                     const receiver = { describe };
                     const [self, count] = receiver.describe(1, 2, 3);
                     self === receiver
@@ -128,12 +112,14 @@ mod tests {
                         && Object.getOwnPropertyNames(describe).join() === "length,name"
                         && Object.getPrototypeOf(describe) === Function.prototype
                     "#,
-                )
-                .unwrap());
-            assert!(token
-                .ctx()
-                .eval::<bool, _>(
-                    r#"
+                    )
+                    .unwrap()
+            );
+            assert!(
+                token
+                    .ctx()
+                    .eval::<bool, _>(
+                        r#"
                     try {
                         new describe();
                         false;
@@ -141,8 +127,9 @@ mod tests {
                         error instanceof TypeError;
                     }
                     "#,
-                )
-                .unwrap());
+                    )
+                    .unwrap()
+            );
         });
     }
 
@@ -160,9 +147,7 @@ mod tests {
                     token,
                     "fail",
                     0,
-                    Rc::new(|_: RawCall<'_, QuickJs>| {
-                        Err(Error::conversion("number", "string"))
-                    }),
+                    Rc::new(|_: RawCall<'_, QuickJs>| Err(Error::conversion("number", "string"))),
                 )
                 .unwrap(),
             )
@@ -196,10 +181,11 @@ mod tests {
                     "#,
                 )
                 .unwrap());
-            assert!(token
-                .ctx()
-                .eval::<bool, _>(
-                    r#"
+            assert!(
+                token
+                    .ctx()
+                    .eval::<bool, _>(
+                        r#"
                     const original = {};
                     try {
                         rethrow(original);
@@ -208,8 +194,9 @@ mod tests {
                         error === original;
                     }
                     "#,
-                )
-                .unwrap());
+                    )
+                    .unwrap()
+            );
         });
     }
 }

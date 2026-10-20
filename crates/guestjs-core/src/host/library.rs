@@ -1,11 +1,6 @@
 use std::rc::Rc;
 
-use crate::{
-    backend::Backend,
-    enter::Enter,
-    errors::Error,
-    host::module::ModuleDeclaration,
-};
+use crate::{backend::Backend, enter::Enter, errors::Error, host::module::ModuleDeclaration};
 
 pub struct HostInitializer<B: Backend> {
     initialize: Rc<dyn for<'js> Fn(&Enter<'js, B>) -> Result<(), Error>>,
@@ -16,9 +11,7 @@ impl<B: Backend> HostInitializer<B> {
     where
         F: for<'js> Fn(&Enter<'js, B>) -> Result<(), Error> + 'static,
     {
-        Self {
-            initialize: Rc::new(initialize),
-        }
+        Self { initialize: Rc::new(initialize) }
     }
 
     pub fn run<'js>(&self, enter: &Enter<'js, B>) -> Result<(), Error> {
@@ -28,9 +21,7 @@ impl<B: Backend> HostInitializer<B> {
 
 impl<B: Backend> Clone for HostInitializer<B> {
     fn clone(&self) -> Self {
-        Self {
-            initialize: self.initialize.clone(),
-        }
+        Self { initialize: self.initialize.clone() }
     }
 }
 
@@ -54,7 +45,8 @@ impl<B: Backend> HostLibrary<B> {
         let library = library.into();
 
         self.modules.extend(library.modules);
-        self.initializers.extend(library.initializers);
+        self.initializers
+            .extend(library.initializers);
 
         self
     }
@@ -103,19 +95,13 @@ impl<B: Backend> From<HostInitializer<B>> for HostLibrary<B> {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        cell::Cell,
-        rc::Rc,
-    };
+    use std::{cell::Cell, rc::Rc};
 
     use crate::{
         backend::tests::Stub,
         guest::Guest,
         host::{
-            library::{
-                HostInitializer,
-                HostLibrary,
-            },
+            library::{HostInitializer, HostLibrary},
             module::ModuleDeclaration,
         },
         runtime::Runtime,
@@ -155,10 +141,7 @@ mod tests {
     fn clones_share_their_modules() {
         let library = HostLibrary::<Stub>::from(ModuleDeclaration::new("fs"));
 
-        assert!(Rc::ptr_eq(
-            &library.modules()[0],
-            &library.clone().modules()[0],
-        ));
+        assert!(Rc::ptr_eq(&library.modules()[0], &library.clone().modules()[0],));
     }
 
     #[test]

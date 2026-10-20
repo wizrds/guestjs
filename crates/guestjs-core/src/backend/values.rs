@@ -1,9 +1,5 @@
 use crate::{
-    backend::{
-        Backend,
-        Tok,
-        Val,
-    },
+    backend::{Backend, Tok, Val},
     errors::Error,
 };
 
@@ -85,18 +81,9 @@ pub trait BackendValues: Backend {
     fn new_null<'js>(token: Tok<'js, Self>) -> Val<'js, Self>;
     fn new_boolean<'js>(token: Tok<'js, Self>, value: bool) -> Val<'js, Self>;
     fn new_number<'js>(token: Tok<'js, Self>, value: f64) -> Val<'js, Self>;
-    fn new_bigint<'js>(
-        token: Tok<'js, Self>,
-        value: i64,
-    ) -> Result<Val<'js, Self>, Error>;
-    fn new_string<'js>(
-        token: Tok<'js, Self>,
-        value: &str,
-    ) -> Result<Val<'js, Self>, Error>;
-    fn new_symbol<'js>(
-        token: Tok<'js, Self>,
-        description: &str,
-    ) -> Result<Val<'js, Self>, Error>;
+    fn new_bigint<'js>(token: Tok<'js, Self>, value: i64) -> Result<Val<'js, Self>, Error>;
+    fn new_string<'js>(token: Tok<'js, Self>, value: &str) -> Result<Val<'js, Self>, Error>;
+    fn new_symbol<'js>(token: Tok<'js, Self>, description: &str) -> Result<Val<'js, Self>, Error>;
     fn new_array<'js>(
         token: Tok<'js, Self>,
         items: Vec<Val<'js, Self>>,
@@ -106,41 +93,16 @@ pub trait BackendValues: Backend {
         token: Tok<'js, Self>,
         items: Vec<Val<'js, Self>>,
     ) -> Result<Val<'js, Self>, Error>;
-    fn well_known<'js>(
-        token: Tok<'js, Self>,
-        symbol: WellKnown,
-    ) -> Val<'js, Self>;
+    fn well_known<'js>(token: Tok<'js, Self>, symbol: WellKnown) -> Val<'js, Self>;
 
     fn kind<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Kind;
-    fn truthy<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<bool, Error>;
-    fn as_bool<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<bool, Error>;
-    fn as_f64<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<f64, Error>;
-    fn as_i64<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<i64, Error>;
-    fn as_string<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<String, Error>;
-    fn display<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Result<String, Error>;
-    fn same<'js>(
-        token: Tok<'js, Self>,
-        first: &Val<'js, Self>,
-        second: &Val<'js, Self>,
-    ) -> bool;
+    fn truthy<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<bool, Error>;
+    fn as_bool<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<bool, Error>;
+    fn as_f64<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<f64, Error>;
+    fn as_i64<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<i64, Error>;
+    fn as_string<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<String, Error>;
+    fn display<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<String, Error>;
+    fn same<'js>(token: Tok<'js, Self>, first: &Val<'js, Self>, second: &Val<'js, Self>) -> bool;
 
     fn get<'js>(
         token: Tok<'js, Self>,
@@ -205,10 +167,8 @@ pub trait BackendValues: Backend {
         iterable: &Val<'js, Self>,
         kind: IteratorKind,
     ) -> Result<Option<Val<'js, Self>>, Error>;
-    fn next<'js>(
-        token: Tok<'js, Self>,
-        iterator: &Val<'js, Self>,
-    ) -> Result<Val<'js, Self>, Error>;
+    fn next<'js>(token: Tok<'js, Self>, iterator: &Val<'js, Self>)
+    -> Result<Val<'js, Self>, Error>;
     fn step<'js>(
         token: Tok<'js, Self>,
         result: &Val<'js, Self>,
@@ -221,10 +181,7 @@ pub trait BackendValues: Backend {
 
 #[cfg(test)]
 mod tests {
-    use crate::backend::values::{
-        IteratorKind,
-        WellKnown,
-    };
+    use crate::backend::values::{IteratorKind, WellKnown};
 
     #[test]
     fn iterator_kinds_name_their_well_known_symbol() {

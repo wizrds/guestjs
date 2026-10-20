@@ -1,8 +1,5 @@
 use std::{
-    any::{
-        Any,
-        TypeId,
-    },
+    any::{Any, TypeId},
     cell::RefCell,
     collections::HashMap,
     rc::Rc,
@@ -50,10 +47,7 @@ impl Extensions {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::{
-        Rc,
-        Weak,
-    };
+    use std::rc::{Rc, Weak};
 
     use crate::extensions::Extensions;
 
@@ -85,10 +79,7 @@ mod tests {
         extensions.insert(2u32);
 
         assert_eq!(*extensions.get_or_insert_with(|| 3u32), 2);
-        assert_eq!(
-            *extensions.get_or_insert_with(|| "state".to_string()),
-            "state",
-        );
+        assert_eq!(*extensions.get_or_insert_with(|| "state".to_string()), "state",);
     }
 
     #[test]

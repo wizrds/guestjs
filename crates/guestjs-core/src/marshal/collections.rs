@@ -1,10 +1,5 @@
 use std::{
-    collections::{
-        BTreeMap,
-        BTreeSet,
-        HashMap,
-        HashSet,
-    },
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     hash::Hash,
     iter::from_fn,
     marker::PhantomData,
@@ -13,24 +8,14 @@ use std::{
 
 use crate::{
     backend::{
-        values::{
-            BackendValues,
-            IteratorKind,
-            Kind,
-        },
-        Backend,
-        Val,
+        Backend, Val,
+        values::{BackendValues, IteratorKind, Kind},
     },
     enter::Enter,
     errors::Error,
     marshal::{
-        describe::{
-            Describe,
-            Expected,
-        },
-        FromGuest,
-        ToGuest,
-        ToGuestArgs,
+        FromGuest, ToGuest, ToGuestArgs,
+        describe::{Describe, Expected},
     },
 };
 
@@ -39,19 +24,12 @@ pub struct Elements<'js, B: Backend> {
 }
 
 impl<'js, B: BackendValues> Elements<'js, B> {
-    pub fn read(
-        enter: &Enter<'js, B>,
-        array: &Val<'js, B>,
-    ) -> Result<Self, Error> {
+    pub fn read(enter: &Enter<'js, B>, array: &Val<'js, B>) -> Result<Self, Error> {
         match B::kind(enter.token(), array) {
             Kind::Array => Ok(Self {
                 values: (0..usize::from_guest(
                     enter,
-                    B::get(
-                        enter.token(),
-                        array,
-                        &"length".to_guest(enter)?,
-                    )?,
+                    B::get(enter.token(), array, &"length".to_guest(enter)?)?,
                 )?)
                     .map(|index| {
                         index
@@ -94,27 +72,19 @@ pub struct Entries<'js, B: Backend> {
 }
 
 impl<'js, B: BackendValues> Entries<'js, B> {
-    pub fn read(
-        enter: &Enter<'js, B>,
-        object: &Val<'js, B>,
-    ) -> Result<Self, Error> {
+    pub fn read(enter: &Enter<'js, B>, object: &Val<'js, B>) -> Result<Self, Error> {
         match B::kind(enter.token(), object) {
             Kind::Object => Ok(Self {
                 entries: B::keys(enter.token(), object)?
                     .into_iter()
-                    .map(|key| {
-                        B::get(enter.token(), object, &key)
-                            .map(|value| (key, value))
-                    })
+                    .map(|key| B::get(enter.token(), object, &key).map(|value| (key, value)))
                     .collect::<Result<_, _>>()?,
             }),
             kind => Err(Expected::of::<Self>().mismatch(kind)),
         }
     }
 
-    pub fn exact<const N: usize>(
-        self,
-    ) -> Result<[(Val<'js, B>, Val<'js, B>); N], Error> {
+    pub fn exact<const N: usize>(self) -> Result<[(Val<'js, B>, Val<'js, B>); N], Error> {
         <[_; N]>::try_from(self.entries).map_err(|entries| {
             Error::conversion(
                 format!("object with {N} properties"),
@@ -144,10 +114,7 @@ pub struct Members<'js, B: Backend> {
 }
 
 impl<'js, B: BackendValues> Members<'js, B> {
-    pub fn read(
-        enter: &Enter<'js, B>,
-        set: &Val<'js, B>,
-    ) -> Result<Self, Error> {
+    pub fn read(enter: &Enter<'js, B>, set: &Val<'js, B>) -> Result<Self, Error> {
         match B::kind(enter.token(), set) {
             Kind::Set => match B::iter(enter.token(), set, IteratorKind::Sync)? {
                 Some(iterator) => Ok(Self {
@@ -197,10 +164,7 @@ where
 {
     type Owned = Option<T::Owned>;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
             kind if kind.is_object() => B::step(enter.token(), &value)?
                 .map(|item| T::from_guest(enter, item))
@@ -387,10 +351,7 @@ where
     B: BackendValues,
     T: ToGuest<B>,
 {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         match self {
             Some(value) => value.to_guest(enter),
             None => Ok(B::new_null(enter.token())),
@@ -405,10 +366,7 @@ where
 {
     type Owned = Option<T::Owned>;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
             Kind::Undefined | Kind::Null => Ok(None),
             _ => T::from_guest(enter, value).map(Some),
@@ -427,10 +385,7 @@ where
     B: BackendValues,
     T: ToGuest<B>,
 {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         B::new_array(enter.token(), self.to_guest_args(enter)?)
     }
 }
@@ -442,10 +397,7 @@ where
 {
     type Owned = Vec<T::Owned>;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         Elements::read(enter, &value)?
             .into_iter()
             .map(|item| T::from_guest(enter, item))
@@ -464,10 +416,7 @@ where
     B: BackendValues,
     T: ToGuest<B>,
 {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         Vec::from(self).to_guest(enter)
     }
 }
@@ -479,10 +428,7 @@ where
 {
     type Owned = [T::Owned; N];
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         Vec::<T>::from_guest(enter, value)?
             .try_into()
             .map_err(|values: Vec<_>| {
@@ -496,23 +442,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{
-        BTreeSet,
-        HashMap,
-        HashSet,
-    };
+    use std::collections::{BTreeSet, HashMap, HashSet};
 
-    use crate::marshal::{
-        collections::IterItem,
-        describe::Expected,
-    };
+    use crate::marshal::{collections::IterItem, describe::Expected};
 
     #[test]
     fn option_adds_the_nullish_values() {
-        assert_eq!(
-            Expected::of::<Option<bool>>().to_string(),
-            "boolean, undefined or null",
-        );
+        assert_eq!(Expected::of::<Option<bool>>().to_string(), "boolean, undefined or null",);
         assert_eq!(
             Expected::of::<Option<Option<bool>>>().to_string(),
             "boolean, undefined or null",
@@ -536,20 +472,13 @@ mod tests {
         assert_eq!(Expected::of::<BTreeSet<i64>>().to_string(), "set");
     }
 
-
     #[test]
     fn item_description_names_an_iter_item() {
-        assert_eq!(
-            Expected::of::<IterItem<String>>().to_string(),
-            "iter item",
-        );
+        assert_eq!(Expected::of::<IterItem<String>>().to_string(), "iter item",);
     }
 
     #[test]
     fn maps_accept_objects() {
-        assert_eq!(
-            Expected::of::<HashMap<String, i64>>().to_string(),
-            "object",
-        );
+        assert_eq!(Expected::of::<HashMap<String, i64>>().to_string(), "object",);
     }
 }

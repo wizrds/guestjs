@@ -2,12 +2,9 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use crate::{
-    diagnostics::MacroError,
-    guest::facade::{
-        GuestFacadeKind,
-        GuestFacadeSyntax,
-    },
     attributes::HelperAttributes,
+    diagnostics::MacroError,
+    guest::facade::{GuestFacadeKind, GuestFacadeSyntax},
 };
 
 pub struct GuestClassMacro {
@@ -22,8 +19,7 @@ impl GuestClassMacro {
     }
 
     pub fn expand(self) -> TokenStream {
-        let (attributes, visibility, name, krate, payload, members) =
-            self.syntax.into_parts();
+        let (attributes, visibility, name, krate, payload, members) = self.syntax.into_parts();
         let conditions = HelperAttributes::conditions(&attributes);
         let inner = match &payload {
             Some(payload) => quote!(#krate::handle::class::Instance<B, #payload>),
@@ -34,16 +30,12 @@ impl GuestClassMacro {
         } else {
             quote!(B: #krate::backend::values::BackendValues,)
         };
-        let payload_bound = payload.as_ref().map(|payload| {
-            quote!(#payload: #krate::handle::class::Payload,)
-        });
-        let methods = members.iter().map(|member| {
-            member.render(
-                &krate,
-                &quote!(self.instance()),
-                &GuestFacadeKind::Class,
-            )
-        });
+        let payload_bound = payload
+            .as_ref()
+            .map(|payload| quote!(#payload: #krate::handle::class::Payload,));
+        let methods = members
+            .iter()
+            .map(|member| member.render(&krate, &quote!(self.instance()), &GuestFacadeKind::Class));
 
         quote! {
             #(#attributes)*
@@ -160,10 +152,7 @@ impl GuestClassMacro {
 #[cfg(test)]
 mod tests {
     use quote::quote;
-    use syn::{
-        parse2,
-        File,
-    };
+    use syn::{File, parse2};
 
     use crate::guest::class::GuestClassMacro;
 
@@ -184,7 +173,8 @@ mod tests {
                 .expand(),
             )
             .unwrap()
-            .items.len(),
+            .items
+            .len(),
             10,
         );
     }

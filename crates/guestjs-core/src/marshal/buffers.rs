@@ -3,23 +3,15 @@ use bytes::Bytes;
 
 use crate::{
     backend::{
-        buffers::{
-            BackendBuffers,
-            ElementType,
-        },
+        Backend, Val,
+        buffers::{BackendBuffers, ElementType},
         values::Kind,
-        Backend,
-        Val,
     },
     enter::Enter,
     errors::Error,
     marshal::{
-        describe::{
-            Describe,
-            Expected,
-        },
-        FromGuest,
-        ToGuest,
+        FromGuest, ToGuest,
+        describe::{Describe, Expected},
     },
 };
 
@@ -77,42 +69,29 @@ pub struct BufferSource<'js, B: Backend> {
 }
 
 impl<'js, B: BackendBuffers> BufferSource<'js, B> {
-    pub fn read(
-        enter: &Enter<'js, B>,
-        value: &Val<'js, B>,
-    ) -> Result<Self, Error> {
+    pub fn read(enter: &Enter<'js, B>, value: &Val<'js, B>) -> Result<Self, Error> {
         match B::kind(enter.token(), value) {
             Kind::ArrayBuffer => Ok(Self {
                 buffer: value.clone(),
                 byte_offset: 0,
                 byte_length: B::byte_length(enter.token(), value)?,
             }),
-            Kind::TypedArray | Kind::DataView => {
-                match B::buffer(enter.token(), value)? {
-                    buffer if B::kind(enter.token(), &buffer) == Kind::ArrayBuffer => {
-                        Ok(Self {
-                            buffer,
-                            byte_offset: B::byte_offset(enter.token(), value)?,
-                            byte_length: B::byte_length(enter.token(), value)?,
-                        })
-                    }
-                    _ => Err(Error::conversion(
-                        "view of an ArrayBuffer",
-                        "view of a SharedArrayBuffer",
-                    )),
+            Kind::TypedArray | Kind::DataView => match B::buffer(enter.token(), value)? {
+                buffer if B::kind(enter.token(), &buffer) == Kind::ArrayBuffer => Ok(Self {
+                    buffer,
+                    byte_offset: B::byte_offset(enter.token(), value)?,
+                    byte_length: B::byte_length(enter.token(), value)?,
+                }),
+                _ => {
+                    Err(Error::conversion("view of an ArrayBuffer", "view of a SharedArrayBuffer"))
                 }
-            }
+            },
             kind => Err(Expected::of::<Self>().mismatch(kind)),
         }
     }
 
     pub fn bytes(&self, enter: &Enter<'js, B>) -> Result<Vec<u8>, Error> {
-        B::read(
-            enter.token(),
-            &self.buffer,
-            self.byte_offset,
-            self.byte_length,
-        )
+        B::read(enter.token(), &self.buffer, self.byte_offset, self.byte_length)
     }
 
     pub fn write(
@@ -125,16 +104,12 @@ impl<'js, B: BackendBuffers> BufferSource<'js, B> {
             .checked_add(bytes.len())
             .is_some_and(|end| end <= self.byte_length)
         {
-            true => B::write(
-                enter.token(),
-                &self.buffer,
-                self.byte_offset + byte_offset,
-                bytes,
-            ),
+            true => B::write(enter.token(), &self.buffer, self.byte_offset + byte_offset, bytes),
             false => Err(Error::conversion(
                 format!(
                     "at most {} bytes at byte offset {byte_offset}",
-                    self.byte_length.saturating_sub(byte_offset),
+                    self.byte_length
+                        .saturating_sub(byte_offset),
                 ),
                 format!("{} bytes", bytes.len()),
             )),
@@ -155,10 +130,7 @@ where
     B: BackendBuffers,
     T: Element,
 {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         B::new_typed_array(
             enter.token(),
             T::TYPE,
@@ -180,20 +152,14 @@ impl Describe for Bytes {
 
 #[cfg(feature = "bytes")]
 impl<B: BackendBuffers> ToGuest<B> for Bytes {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.as_ref().to_guest(enter)
     }
 }
 
 #[cfg(feature = "bytes")]
 impl<B: BackendBuffers> ToGuest<B> for &Bytes {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.as_ref().to_guest(enter)
     }
 }
@@ -202,10 +168,7 @@ impl<B: BackendBuffers> ToGuest<B> for &Bytes {
 impl<B: BackendBuffers> FromGuest<B> for Bytes {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         BufferSource::read(enter, &value)?
             .bytes(enter)
             .map(Bytes::from)
@@ -219,20 +182,13 @@ mod tests {
 
     use crate::{
         backend::{
-            buffers::{
-                BackendBuffers,
-                ElementType,
-            },
+            buffers::{BackendBuffers, ElementType},
             tests::Stub,
         },
         marshal::{
-            buffers::{
-                BufferSource,
-                Element,
-            },
+            FromGuest, ToGuest,
+            buffers::{BufferSource, Element},
             describe::Expected,
-            FromGuest,
-            ToGuest,
         },
     };
 
@@ -294,9 +250,6 @@ mod tests {
     #[cfg(feature = "bytes")]
     #[test]
     fn bytes_accept_every_binary_kind() {
-        assert_eq!(
-            Expected::of::<Bytes>().to_string(),
-            "ArrayBuffer, typed array or DataView",
-        );
+        assert_eq!(Expected::of::<Bytes>().to_string(), "ArrayBuffer, typed array or DataView",);
     }
 }

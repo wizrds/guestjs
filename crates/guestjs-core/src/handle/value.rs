@@ -1,21 +1,11 @@
 use crate::{
-    backend::{
-        Backend,
-        Val,
-    },
+    backend::{Backend, Val},
     enter::Enter,
     errors::Error,
-    handle::{
-        base::Handle,
-        HasHandle,
-    },
+    handle::{HasHandle, base::Handle},
     marshal::{
-        describe::{
-            Describe,
-            Expected,
-        },
-        FromGuest,
-        ToGuest,
+        FromGuest, ToGuest,
+        describe::{Describe, Expected},
     },
 };
 
@@ -35,9 +25,7 @@ impl<B: Backend> Value<B> {
 
 impl<B: Backend> Clone for Value<B> {
     fn clone(&self) -> Self {
-        Self {
-            handle: self.handle.clone(),
-        }
+        Self { handle: self.handle.clone() }
     }
 }
 
@@ -56,30 +44,19 @@ impl<B: Backend> Describe for Value<B> {
 impl<B: Backend> FromGuest<B> for Value<B> {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
-        Ok(Self {
-            handle: Handle::from_value(enter, value),
-        })
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
+        Ok(Self { handle: Handle::from_value(enter, value) })
     }
 }
 
 impl<B: Backend> ToGuest<B> for Value<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
 
 impl<B: Backend> ToGuest<B> for &Value<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
@@ -87,24 +64,13 @@ impl<B: Backend> ToGuest<B> for &Value<B> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::{
-            tests::Stub,
-            values::BackendValues,
-        },
+        backend::{tests::Stub, values::BackendValues},
         guest::Guest,
         handle::{
-            class::Class,
-            iter::Iter,
-            object::Object,
-            protocol::ValueProtocol,
+            HasHandle, class::Class, iter::Iter, object::Object, protocol::ValueProtocol,
             value::Value,
-            HasHandle,
         },
-        marshal::{
-            describe::Expected,
-            FromGuest,
-            ToGuest,
-        },
+        marshal::{FromGuest, ToGuest, describe::Expected},
         runtime::Runtime,
     };
 

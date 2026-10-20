@@ -1,28 +1,11 @@
-use darling::{
-    util::Flag,
-    FromMeta,
-};
+use darling::{FromMeta, util::Flag};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{
-    parse_quote,
-    Data,
-    DeriveInput,
-    Fields,
-    Generics,
-    Ident,
-    Path,
-    Type,
-    Variant,
-};
+use syn::{Data, DeriveInput, Fields, Generics, Ident, Path, Type, Variant, parse_quote};
 
 use crate::{
     attributes::HelperAttributes,
-    backend::{
-        BackendBounds,
-        BackendOption,
-        BackendParameter,
-    },
+    backend::{BackendBounds, BackendOption, BackendParameter},
     diagnostics::MacroError,
     path::CratePath,
 };
@@ -73,11 +56,7 @@ impl UnionVariant {
         &self.ty
     }
 
-    fn render_to_guest(
-        &self,
-        krate: &Path,
-        backend: &Type,
-    ) -> TokenStream {
+    fn render_to_guest(&self, krate: &Path, backend: &Type) -> TokenStream {
         let Self { ident, ty } = self;
 
         quote! {
@@ -90,11 +69,7 @@ impl UnionVariant {
         }
     }
 
-    fn render_from_guest(
-        &self,
-        krate: &Path,
-        backend: &Type,
-    ) -> TokenStream {
+    fn render_from_guest(&self, krate: &Path, backend: &Type) -> TokenStream {
         let Self { ident, ty } = self;
 
         quote! {
@@ -133,36 +108,34 @@ impl UnionDerive {
         }
 
         Ok(Self {
-            variants: data.variants.iter()
+            variants: data
+                .variants
+                .iter()
                 .map(UnionVariant::new)
                 .collect::<Result<_, _>>()?,
         })
     }
 
     fn field_types(&self) -> impl Iterator<Item = &Type> {
-        self.variants.iter().map(UnionVariant::ty)
+        self.variants
+            .iter()
+            .map(UnionVariant::ty)
     }
 
-    fn render_to_guest(
-        &self,
-        krate: &Path,
-        backend: &Type,
-    ) -> TokenStream {
-        let arms = self.variants.iter().map(|variant| {
-            variant.render_to_guest(krate, backend)
-        });
+    fn render_to_guest(&self, krate: &Path, backend: &Type) -> TokenStream {
+        let arms = self
+            .variants
+            .iter()
+            .map(|variant| variant.render_to_guest(krate, backend));
 
         quote!(match self { #(#arms),* })
     }
 
-    fn render_from_guest(
-        &self,
-        krate: &Path,
-        backend: &Type,
-    ) -> TokenStream {
-        let attempts = self.variants.iter().map(|variant| {
-            variant.render_from_guest(krate, backend)
-        });
+    fn render_from_guest(&self, krate: &Path, backend: &Type) -> TokenStream {
+        let attempts = self
+            .variants
+            .iter()
+            .map(|variant| variant.render_from_guest(krate, backend));
 
         quote! {
             #(#attempts)*
@@ -179,18 +152,14 @@ impl UnionDerive {
         }
     }
 
-    fn render_describe(
-        &self,
-        krate: &Path,
-        name: &Ident,
-        source: &Generics,
-    ) -> TokenStream {
+    fn render_describe(&self, krate: &Path, name: &Ident, source: &Generics) -> TokenStream {
         let mut generics = source.clone();
 
         for ty in self.field_types() {
-            generics.make_where_clause().predicates.push(
-                parse_quote!(#ty: #krate::marshal::describe::Describe),
-            );
+            generics
+                .make_where_clause()
+                .predicates
+                .push(parse_quote!(#ty: #krate::marshal::describe::Describe));
         }
 
         let (implementation, target, clause) = generics.split_for_impl();
@@ -229,26 +198,19 @@ pub struct GuestDerive {
 
 impl GuestDerive {
     pub fn new(input: &DeriveInput) -> Result<Self, MacroError> {
-        let (path, backend, union) = DeriveOptions::from_list(
-            &HelperAttributes::take(&mut input.attrs.clone())?,
-        )?.into_parts();
+        let (path, backend, union) =
+            DeriveOptions::from_list(&HelperAttributes::take(&mut input.attrs.clone())?)?
+                .into_parts();
 
         if matches!(input.data, Data::Union(_)) {
-            return Err(syn::Error::new_spanned(
-                input,
-                "Rust unions are not supported",
-            ).into());
+            return Err(syn::Error::new_spanned(input, "Rust unions are not supported").into());
         }
 
         Ok(Self {
             name: input.ident.clone(),
             generics: input.generics.clone(),
             krate: CratePath::new(path).resolve()?,
-            backend: BackendParameter::resolve(
-                backend,
-                &input.generics,
-                &[],
-            )?,
+            backend: BackendParameter::resolve(backend, &input.generics, &[])?,
             shape: if union {
                 DeriveShape::Union(UnionDerive::new(input)?)
             } else {
@@ -265,29 +227,32 @@ impl GuestDerive {
         let target: Type = parse_quote!(#name #target_generics);
         let mut generics = self.backend.definition_generics(
             &self.generics,
-            &BackendBounds::new(&self.backend, vec![
-                parse_quote!(#krate::backend::values::BackendValues),
-            ]),
+            &BackendBounds::new(
+                &self.backend,
+                vec![parse_quote!(#krate::backend::values::BackendValues)],
+            ),
         );
 
         if from {
-            generics.make_where_clause().predicates.push(
-                parse_quote!(#target: 'static),
-            );
+            generics
+                .make_where_clause()
+                .predicates
+                .push(parse_quote!(#target: 'static));
         }
 
         let (body, description) = match &self.shape {
             DeriveShape::Serde => {
                 if from {
-                    generics.make_where_clause().predicates.push(
-                        parse_quote!(
+                    generics
+                        .make_where_clause()
+                        .predicates
+                        .push(parse_quote!(
                             #krate::marshal::serde::Serde<#target>:
                                 #krate::marshal::FromGuest<
                                     #backend,
                                     Owned = #target,
                                 >
-                        ),
-                    );
+                        ));
 
                     (
                         quote! {
@@ -300,12 +265,13 @@ impl GuestDerive {
                         TokenStream::new(),
                     )
                 } else {
-                    generics.make_where_clause().predicates.push(
-                        parse_quote!(
+                    generics
+                        .make_where_clause()
+                        .predicates
+                        .push(parse_quote!(
                             #krate::marshal::serde::Serde<#target>:
                                 #krate::marshal::ToGuest<#backend>
-                        ),
-                    );
+                        ));
 
                     (
                         quote! {
@@ -320,8 +286,10 @@ impl GuestDerive {
             }
             DeriveShape::Union(union) => {
                 for ty in union.field_types() {
-                    generics.make_where_clause().predicates.push(
-                        if from {
+                    generics
+                        .make_where_clause()
+                        .predicates
+                        .push(if from {
                             parse_quote!(
                                 #ty: #krate::marshal::FromGuest<
                                     #backend,
@@ -330,8 +298,7 @@ impl GuestDerive {
                             )
                         } else {
                             parse_quote!(#ty: #krate::marshal::ToGuest<#backend>)
-                        },
-                    );
+                        });
                 }
 
                 if from {
@@ -340,10 +307,7 @@ impl GuestDerive {
                         union.render_describe(krate, name, &self.generics),
                     )
                 } else {
-                    (
-                        union.render_to_guest(krate, &backend),
-                        TokenStream::new(),
-                    )
+                    (union.render_to_guest(krate, &backend), TokenStream::new())
                 }
             }
         };
@@ -399,17 +363,9 @@ impl GuestDerive {
 
 #[cfg(test)]
 mod tests {
-    use syn::{
-        parse2,
-        parse_quote,
-        Expr,
-        File,
-    };
+    use syn::{Expr, File, parse_quote, parse2};
 
-    use crate::derive::{
-        GuestDerive,
-        UnionVariant,
-    };
+    use crate::derive::{GuestDerive, UnionVariant};
 
     #[test]
     fn emits_describe_only_with_from_guest() {
@@ -423,11 +379,17 @@ mod tests {
         .unwrap_or_else(|error| panic!("{}", error.into_tokens()));
 
         assert_eq!(
-            parse2::<File>(derive.from_guest()).unwrap().items.len(),
+            parse2::<File>(derive.from_guest())
+                .unwrap()
+                .items
+                .len(),
             2,
         );
         assert_eq!(
-            parse2::<File>(derive.to_guest()).unwrap().items.len(),
+            parse2::<File>(derive.to_guest())
+                .unwrap()
+                .items
+                .len(),
             1,
         );
     }
@@ -441,11 +403,15 @@ mod tests {
             ),
             parse_quote!(
                 #[guestjs(union, crate_path = crate)]
-                enum Named { Value { value: String } }
+                enum Named {
+                    Value { value: String },
+                }
             ),
             parse_quote!(
                 #[guestjs(union, crate_path = crate)]
-                enum Many { Value(String, f64) }
+                enum Many {
+                    Value(String, f64),
+                }
             ),
         ] {
             assert!(GuestDerive::new(&input).is_err());
@@ -458,26 +424,21 @@ mod tests {
             parse2::<Expr>(
                 UnionVariant::new(&parse_quote!(Name(String)))
                     .unwrap()
-                    .render_from_guest(
-                        &parse_quote!(crate),
-                        &parse_quote!(B),
-                    ),
-            ).unwrap(),
-            parse_quote!(
-                match <String as crate::marshal::FromGuest<B>>::from_guest(
-                    enter,
-                    ::core::clone::Clone::clone(&value),
-                ) {
-                    ::core::result::Result::Ok(value) => {
-                        return ::core::result::Result::Ok(Self::Name(value));
-                    }
-                    ::core::result::Result::Err(error)
-                        if error.is_conversion() => {}
-                    ::core::result::Result::Err(error) => {
-                        return ::core::result::Result::Err(error);
-                    }
+                    .render_from_guest(&parse_quote!(crate), &parse_quote!(B),),
+            )
+            .unwrap(),
+            parse_quote!(match <String as crate::marshal::FromGuest<B>>::from_guest(
+                enter,
+                ::core::clone::Clone::clone(&value),
+            ) {
+                ::core::result::Result::Ok(value) => {
+                    return ::core::result::Result::Ok(Self::Name(value));
                 }
-            ),
+                ::core::result::Result::Err(error) if error.is_conversion() => {}
+                ::core::result::Result::Err(error) => {
+                    return ::core::result::Result::Err(error);
+                }
+            }),
         );
     }
 }

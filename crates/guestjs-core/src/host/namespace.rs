@@ -2,16 +2,12 @@ use std::future::Future;
 
 use crate::{
     backend::{
+        Backend, Val,
         callables::BackendCallables,
         classes::BackendClasses,
         exceptions::BackendExceptions,
         promises::BackendPromises,
-        values::{
-            Property,
-            WellKnown,
-        },
-        Backend,
-        Val,
+        values::{Property, WellKnown},
     },
     enter::Enter,
     errors::Error,
@@ -19,22 +15,13 @@ use crate::{
         class::HostClass,
         context::CallContext,
         declaration::Declaration,
-        exception::{
-            ExceptionDeclaration,
-            HostException,
-        },
+        exception::{ExceptionDeclaration, HostException},
         function::FunctionDeclaration,
-        property::{
-            PropertyDeclaration,
-            PropertyKey,
-        },
+        property::{PropertyDeclaration, PropertyKey},
         state::HostState,
         value::ValueDeclaration,
     },
-    marshal::{
-        args::Args,
-        ToGuest,
-    },
+    marshal::{ToGuest, args::Args},
 };
 
 pub struct NamespaceDeclaration<B: Backend> {
@@ -43,16 +30,10 @@ pub struct NamespaceDeclaration<B: Backend> {
 
 impl<B: Backend> NamespaceDeclaration<B> {
     pub fn new() -> Self {
-        Self {
-            properties: Vec::new(),
-        }
+        Self { properties: Vec::new() }
     }
 
-    pub fn property<K>(
-        &mut self,
-        key: K,
-        property: PropertyDeclaration<B>,
-    ) -> &mut Self
+    pub fn property<K>(&mut self, key: K, property: PropertyDeclaration<B>) -> &mut Self
     where
         K: Into<PropertyKey>,
     {
@@ -91,56 +72,31 @@ impl<B: BackendCallables> NamespaceDeclaration<B> {
     pub fn function<K, F, R>(&mut self, key: K, function: F) -> &mut Self
     where
         K: Into<PropertyKey>,
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<R, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<R, Error> + 'static,
         R: ToGuest<B>,
     {
-        self.property(
-            key,
-            PropertyDeclaration::value(FunctionDeclaration::new(function)),
-        )
+        self.property(key, PropertyDeclaration::value(FunctionDeclaration::new(function)))
     }
 
     pub fn getter<K, F, R>(&mut self, key: K, get: F) -> &mut Self
     where
         K: Into<PropertyKey>,
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<R, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<R, Error> + 'static,
         R: ToGuest<B>,
     {
-        self.property(
-            key,
-            PropertyDeclaration::getter(FunctionDeclaration::new(get)),
-        )
+        self.property(key, PropertyDeclaration::getter(FunctionDeclaration::new(get)))
     }
 
     pub fn setter<K, F, R>(&mut self, key: K, set: F) -> &mut Self
     where
         K: Into<PropertyKey>,
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<R, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<R, Error> + 'static,
         R: ToGuest<B>,
     {
-        self.property(
-            key,
-            PropertyDeclaration::setter(FunctionDeclaration::new(set)),
-        )
+        self.property(key, PropertyDeclaration::setter(FunctionDeclaration::new(set)))
     }
 
-    pub fn namespace<K>(
-        &mut self,
-        key: K,
-        namespace: NamespaceDeclaration<B>,
-    ) -> &mut Self
+    pub fn namespace<K>(&mut self, key: K, namespace: NamespaceDeclaration<B>) -> &mut Self
     where
         K: Into<PropertyKey>,
     {
@@ -155,14 +111,10 @@ impl<B: BackendCallables> NamespaceDeclaration<B> {
     ) -> Result<(), Error> {
         self.properties
             .iter()
-            .map(|(key, property)| {
-                Ok((key.to_guest(enter)?, property.realise(enter, state, key)?))
-            })
+            .map(|(key, property)| Ok((key.to_guest(enter)?, property.realise(enter, state, key)?)))
             .collect::<Result<Vec<_>, Error>>()?
             .into_iter()
-            .try_for_each(|(key, property)| {
-                B::define(enter.token(), target, &key, property)
-            })
+            .try_for_each(|(key, property)| B::define(enter.token(), target, &key, property))
     }
 }
 
@@ -173,18 +125,11 @@ where
     pub fn function_async<K, F, Fut, R>(&mut self, key: K, function: F) -> &mut Self
     where
         K: Into<PropertyKey>,
-        F: for<'e, 'js> Fn(
-                &CallContext<'e, 'js, B>,
-                &Args<'js, B>,
-            ) -> Result<Fut, Error>
-            + 'static,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<Fut, Error> + 'static,
         Fut: Future<Output = Result<R, Error>> + 'static,
         R: ToGuest<B> + 'static,
     {
-        self.property(
-            key,
-            PropertyDeclaration::value(FunctionDeclaration::new_async(function)),
-        )
+        self.property(key, PropertyDeclaration::value(FunctionDeclaration::new_async(function)))
     }
 }
 
@@ -203,10 +148,7 @@ where
     where
         E: HostException,
     {
-        self.property(
-            E::NAME,
-            PropertyDeclaration::value(ExceptionDeclaration::<E>::new()),
-        )
+        self.property(E::NAME, PropertyDeclaration::value(ExceptionDeclaration::<E>::new()))
     }
 }
 
@@ -218,9 +160,7 @@ impl<B: Backend> Default for NamespaceDeclaration<B> {
 
 impl<B: Backend> Clone for NamespaceDeclaration<B> {
     fn clone(&self) -> Self {
-        Self {
-            properties: self.properties.clone(),
-        }
+        Self { properties: self.properties.clone() }
     }
 }
 
@@ -257,19 +197,13 @@ mod tests {
 
     use crate::{
         backend::{
-            callables::BackendCallables,
-            classes::BackendClasses,
-            exceptions::BackendExceptions,
-            promises::BackendPromises,
-            values::WellKnown,
+            callables::BackendCallables, classes::BackendClasses, exceptions::BackendExceptions,
+            promises::BackendPromises, values::WellKnown,
         },
         errors::Error,
         handle::class::Payload,
         host::{
-            class::{
-                ClassDeclaration,
-                HostClass,
-            },
+            class::{ClassDeclaration, HostClass},
             declaration::Declaration,
             exception::HostException,
             namespace::NamespaceDeclaration,
@@ -312,9 +246,7 @@ mod tests {
             .constant("MAX", 10.0)
             .function("add", |_, _| Ok::<_, Error>(1.0))
             .function(WellKnown::Iterator, |_, _| Ok::<_, Error>(()))
-            .function_async("fetch", |_, _| {
-                Ok::<_, Error>(async { Ok::<_, Error>(1.0) })
-            })
+            .function_async("fetch", |_, _| Ok::<_, Error>(async { Ok::<_, Error>(1.0) }))
             .getter("now", |_, _| Ok::<_, Error>(1.0))
             .setter("now", |_, _| Ok::<_, Error>(()))
             .class::<Counter>()

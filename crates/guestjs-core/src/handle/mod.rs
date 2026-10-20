@@ -10,10 +10,7 @@ pub mod promise;
 pub mod protocol;
 pub mod value;
 
-use crate::{
-    backend::Backend,
-    handle::base::Handle,
-};
+use crate::{backend::Backend, handle::base::Handle};
 
 pub trait HasHandle<B: Backend> {
     fn handle(&self) -> &Handle<B>;

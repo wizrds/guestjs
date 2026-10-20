@@ -1,19 +1,12 @@
 use std::{
     any::TypeId,
-    ops::{
-        Deref,
-        DerefMut,
-    },
+    ops::{Deref, DerefMut},
 };
 
 use crate::{
     backend::{
-        callables::{
-            BackendCallables,
-            RawBody,
-        },
-        Tok,
-        Val,
+        Tok, Val,
+        callables::{BackendCallables, RawBody},
     },
     errors::Error,
 };
@@ -35,10 +28,7 @@ pub trait BackendClasses: BackendCallables {
         payload: C,
     ) -> Result<Val<'js, Self>, Error>;
 
-    fn payload_type<'js>(
-        token: Tok<'js, Self>,
-        value: &Val<'js, Self>,
-    ) -> Option<TypeId>;
+    fn payload_type<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Option<TypeId>;
 
     fn borrow<'js, 'a, C: 'static>(
         token: Tok<'js, Self>,

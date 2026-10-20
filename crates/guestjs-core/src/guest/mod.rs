@@ -4,22 +4,14 @@ pub mod registry;
 use std::{
     cell::Cell,
     num::NonZeroU64,
-    rc::{
-        Rc,
-        Weak,
-    },
+    rc::{Rc, Weak},
 };
 
 use crate::{
     backend::{
-        callables::{
-            RawBody,
-            RawCall,
-        },
+        Backend, Tok, Val,
+        callables::{RawBody, RawCall},
         interrupt::BackendInterrupt,
-        Backend,
-        Tok,
-        Val,
     },
     enter::Enter,
     errors::Error,
@@ -40,19 +32,12 @@ struct GuestState<B: Backend> {
 }
 
 impl<B: Backend> GuestState<B> {
-    pub fn new(
-        runtime: &Runtime<B>,
-        policy: ExecutionPolicy,
-    ) -> Result<Self, Error> {
+    pub fn new(runtime: &Runtime<B>, policy: ExecutionPolicy) -> Result<Self, Error> {
         let context = B::new_context(runtime.engine())?;
 
         Ok(Self {
             id: runtime.next_id(),
-            context_id: B::enter(
-                runtime.engine(),
-                &context,
-                B::context_id,
-            ),
+            context_id: B::enter(runtime.engine(), &context, B::context_id),
             closed: Cell::default(),
             activity: GuestActivity::new(policy),
             extensions: Extensions::default(),
@@ -114,28 +99,15 @@ impl<B: Backend> GuestState<B> {
     {
         match self.is_closed() {
             true => Err(Error::closed()),
-            false => self.activate(|| {
-                B::enter(
-                    self.runtime.engine(),
-                    &self.context,
-                    f,
-                )
-            }),
+            false => self.activate(|| B::enter(self.runtime.engine(), &self.context, f)),
         }
     }
 
-    pub fn reenter<'js, F, R>(
-        &self,
-        token: Tok<'js, B>,
-        f: F,
-    ) -> Result<R, Error>
+    pub fn reenter<'js, F, R>(&self, token: Tok<'js, B>, f: F) -> Result<R, Error>
     where
         F: FnOnce(Tok<'js, B>) -> Result<R, Error>,
     {
-        match (
-            self.is_closed(),
-            B::context_id(token) == self.context_id,
-        ) {
+        match (self.is_closed(), B::context_id(token) == self.context_id) {
             (true, _) => Err(Error::closed()),
             (false, false) => Err(Error::foreign_context()),
             (false, true) => self.activate(|| f(token)),
@@ -168,9 +140,7 @@ pub struct Guest<B: Backend> {
 
 impl<B: Backend> Clone for Guest<B> {
     fn clone(&self) -> Self {
-        Self {
-            state: self.state.clone(),
-        }
+        Self { state: self.state.clone() }
     }
 }
 
@@ -179,10 +149,7 @@ impl<B: Backend> Guest<B> {
         Self::from_policy(runtime, ExecutionPolicy::default())
     }
 
-    pub fn with_policy(
-        runtime: &Runtime<B>,
-        policy: ExecutionPolicy,
-    ) -> Result<Self, Error>
+    pub fn with_policy(runtime: &Runtime<B>, policy: ExecutionPolicy) -> Result<Self, Error>
     where
         B: BackendInterrupt,
     {
@@ -191,13 +158,8 @@ impl<B: Backend> Guest<B> {
         Self::from_policy(runtime, policy)
     }
 
-    fn from_policy(
-        runtime: &Runtime<B>,
-        policy: ExecutionPolicy,
-    ) -> Result<Self, Error> {
-        let guest = Self::from_state(
-            Rc::new(GuestState::new(runtime, policy)?),
-        );
+    fn from_policy(runtime: &Runtime<B>, policy: ExecutionPolicy) -> Result<Self, Error> {
+        let guest = Self::from_state(Rc::new(GuestState::new(runtime, policy)?));
 
         runtime.register(&guest);
 
@@ -205,9 +167,7 @@ impl<B: Backend> Guest<B> {
     }
 
     fn from_state(state: Rc<GuestState<B>>) -> Self {
-        Self {
-            state,
-        }
+        Self { state }
     }
 
     pub fn id(&self) -> GuestId {
@@ -257,30 +217,21 @@ impl<B: Backend> Guest<B> {
     where
         F: for<'js> FnOnce(&Enter<'js, B>) -> Result<R, Error>,
     {
-        self.state.enter(|token| f(&Enter::new(token, self.clone())))
+        self.state
+            .enter(|token| f(&Enter::new(token, self.clone())))
     }
 
-    pub fn reenter<'js, F, R>(
-        &self,
-        token: Tok<'js, B>,
-        f: F,
-    ) -> Result<R, Error>
+    pub fn reenter<'js, F, R>(&self, token: Tok<'js, B>, f: F) -> Result<R, Error>
     where
         F: FnOnce(&Enter<'js, B>) -> Result<R, Error>,
     {
-        self.state.reenter(
-            token,
-            |token| f(&Enter::new(token, self.clone())),
-        )
+        self.state
+            .reenter(token, |token| f(&Enter::new(token, self.clone())))
     }
 
     pub fn raw_body<F>(&self, body: F) -> RawBody<B>
     where
-        F: for<'js> Fn(
-                &Enter<'js, B>,
-                RawCall<'js, B>,
-            ) -> Result<Val<'js, B>, Error>
-            + 'static,
+        F: for<'js> Fn(&Enter<'js, B>, RawCall<'js, B>) -> Result<Val<'js, B>, Error> + 'static,
     {
         let guest = self.downgrade();
 
@@ -299,17 +250,13 @@ pub struct WeakGuest<B: Backend> {
 
 impl<B: Backend> Clone for WeakGuest<B> {
     fn clone(&self) -> Self {
-        Self {
-            state: self.state.clone(),
-        }
+        Self { state: self.state.clone() }
     }
 }
 
 impl<B: Backend> WeakGuest<B> {
     fn from_state(state: Weak<GuestState<B>>) -> Self {
-        Self {
-            state,
-        }
+        Self { state }
     }
 
     pub fn upgrade(&self) -> Option<Guest<B>> {
@@ -322,17 +269,10 @@ impl<B: Backend> WeakGuest<B> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::{
-            callables::RawCall,
-            tests::Stub,
-            Backend,
-        },
+        backend::{Backend, callables::RawCall, tests::Stub},
         errors::Error,
         guest::Guest,
-        policy::{
-            Cancellation,
-            ExecutionPolicy,
-        },
+        policy::{Cancellation, ExecutionPolicy},
         runtime::Runtime,
     };
 
@@ -341,12 +281,14 @@ mod tests {
         let runtime = Runtime::<Stub>::new(()).unwrap();
         let guest = Guest::new(&runtime).unwrap();
 
-        assert!(guest
-            .enter(|enter| {
-                Ok(enter.guest().id() == guest.id()
-                    && Stub::context_id(enter.token()) == guest.context_id())
-            })
-            .unwrap());
+        assert!(
+            guest
+                .enter(|enter| {
+                    Ok(enter.guest().id() == guest.id()
+                        && Stub::context_id(enter.token()) == guest.context_id())
+                })
+                .unwrap()
+        );
     }
 
     #[test]
@@ -358,13 +300,14 @@ mod tests {
         guest.close();
 
         assert!(guest.is_closed());
-        assert!(guest.enter(|_| Ok(())).is_err_and(|error| error.is_closed()));
         assert!(
-            Stub::enter(
-                runtime.engine(),
-                guest.context(),
-                |token| guest.reenter(token, |_| Ok(())),
-            )
+            guest
+                .enter(|_| Ok(()))
+                .is_err_and(|error| error.is_closed())
+        );
+        assert!(
+            Stub::enter(runtime.engine(), guest.context(), |token| guest
+                .reenter(token, |_| Ok(())),)
             .is_err_and(|error| error.is_closed()),
         );
     }
@@ -397,18 +340,14 @@ mod tests {
             }
         });
         let invoke = || {
-            Stub::enter(
-                runtime.engine(),
-                &context_id,
-                |token| {
-                    body(RawCall {
-                        token,
-                        this: (),
-                        args: Vec::new(),
-                        new_target: None,
-                    })
-                },
-            )
+            Stub::enter(runtime.engine(), &context_id, |token| {
+                body(RawCall {
+                    token,
+                    this: (),
+                    args: Vec::new(),
+                    new_target: None,
+                })
+            })
         };
 
         assert!(invoke().is_ok());
@@ -426,26 +365,25 @@ mod tests {
     fn interruption_is_named_by_the_guest_whose_policy_is_due() {
         let runtime = Runtime::<Stub>::new(()).unwrap();
         let cancellation = Cancellation::new();
-        let outer = Guest::with_policy(
-            &runtime,
-            ExecutionPolicy::new().cancellation(cancellation.clone()),
-        )
-        .unwrap();
+        let outer =
+            Guest::with_policy(&runtime, ExecutionPolicy::new().cancellation(cancellation.clone()))
+                .unwrap();
 
         assert!(
-            outer.enter(|_| {
-                cancellation.cancel();
+            outer
+                .enter(|_| {
+                    cancellation.cancel();
 
-                assert!(
-                    Guest::new(&runtime)
-                        .unwrap()
-                        .enter(|_| Err::<(), _>(Error::interrupted()))
-                        .is_err_and(|error| error.is_interrupted()),
-                );
+                    assert!(
+                        Guest::new(&runtime)
+                            .unwrap()
+                            .enter(|_| Err::<(), _>(Error::interrupted()))
+                            .is_err_and(|error| error.is_interrupted()),
+                    );
 
-                Err::<(), _>(Error::interrupted())
-            })
-            .is_err_and(|error| error.is_cancelled()),
+                    Err::<(), _>(Error::interrupted())
+                })
+                .is_err_and(|error| error.is_cancelled()),
         );
     }
 
@@ -453,11 +391,9 @@ mod tests {
     fn due_guest_refuses_entries_and_callbacks() {
         let runtime = Runtime::<Stub>::new(()).unwrap();
         let cancellation = Cancellation::new();
-        let guest = Guest::with_policy(
-            &runtime,
-            ExecutionPolicy::new().cancellation(cancellation.clone()),
-        )
-        .unwrap();
+        let guest =
+            Guest::with_policy(&runtime, ExecutionPolicy::new().cancellation(cancellation.clone()))
+                .unwrap();
 
         cancellation.cancel();
 
@@ -467,23 +403,23 @@ mod tests {
                 .is_err_and(|error| error.is_cancelled()),
         );
         assert!(
-            Stub::enter(
-                runtime.engine(),
-                guest.context(),
-                |token| {
-                    guest.raw_body(|_, _| Ok(()))(RawCall {
-                        token,
-                        this: (),
-                        args: Vec::new(),
-                        new_target: None,
-                    })
-                },
-            )
+            Stub::enter(runtime.engine(), guest.context(), |token| {
+                guest.raw_body(|_, _| Ok(()))(RawCall {
+                    token,
+                    this: (),
+                    args: Vec::new(),
+                    new_target: None,
+                })
+            },)
             .is_err_and(|error| error.is_cancelled()),
         );
 
         guest.close();
 
-        assert!(guest.enter(|_| Ok(())).is_err_and(|error| error.is_closed()));
+        assert!(
+            guest
+                .enter(|_| Ok(()))
+                .is_err_and(|error| error.is_closed())
+        );
     }
 }

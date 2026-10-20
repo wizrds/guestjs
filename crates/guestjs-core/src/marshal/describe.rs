@@ -1,9 +1,6 @@
 use std::borrow::Cow;
 
-use crate::{
-    backend::values::Kind,
-    errors::Error,
-};
+use crate::{backend::values::Kind, errors::Error};
 
 pub trait Describe {
     fn describe(expected: &mut Expected);
@@ -18,9 +15,7 @@ impl Expected {
     where
         T: Describe + ?Sized,
     {
-        let mut expected = Self {
-            names: Vec::new(),
-        };
+        let mut expected = Self { names: Vec::new() };
 
         T::describe(&mut expected);
 
@@ -63,10 +58,7 @@ impl Expected {
 }
 
 impl std::fmt::Display for Expected {
-    fn fmt(
-        &self,
-        formatter: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.names.split_last() {
             None => formatter.write_str("nothing"),
             Some((last, [])) => formatter.write_str(last),
@@ -81,10 +73,7 @@ impl std::fmt::Display for Expected {
 mod tests {
     use crate::{
         backend::values::Kind,
-        marshal::describe::{
-            Describe,
-            Expected,
-        },
+        marshal::describe::{Describe, Expected},
     };
 
     struct Empty;
@@ -111,17 +100,16 @@ mod tests {
 
     #[test]
     fn expected_preserves_order_and_removes_duplicate_names() {
-        assert_eq!(
-            Expected::of::<Names>().to_string(),
-            "first, second or third",
-        );
+        assert_eq!(Expected::of::<Names>().to_string(), "first, second or third",);
     }
 
     #[test]
     fn mismatch_is_a_conversion_naming_the_found_kind() {
-        assert!(Expected::of::<Names>()
-            .mismatch(Kind::TypedArray)
-            .is_conversion());
+        assert!(
+            Expected::of::<Names>()
+                .mismatch(Kind::TypedArray)
+                .is_conversion()
+        );
         assert_eq!(
             Expected::of::<Names>()
                 .mismatch(Kind::TypedArray)

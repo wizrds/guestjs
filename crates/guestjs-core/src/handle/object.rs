@@ -1,23 +1,11 @@
 use crate::{
-    backend::{
-        values::BackendValues,
-        Backend,
-        Val,
-    },
+    backend::{Backend, Val, values::BackendValues},
     enter::Enter,
     errors::Error,
-    handle::{
-        base::Handle,
-        protocol::ObjectProtocol,
-        HasHandle,
-    },
+    handle::{HasHandle, base::Handle, protocol::ObjectProtocol},
     marshal::{
-        describe::{
-            Describe,
-            Expected,
-        },
-        FromGuest,
-        ToGuest,
+        FromGuest, ToGuest,
+        describe::{Describe, Expected},
     },
 };
 
@@ -27,9 +15,7 @@ pub struct Object<B: Backend> {
 
 impl<B: Backend> Clone for Object<B> {
     fn clone(&self) -> Self {
-        Self {
-            handle: self.handle.clone(),
-        }
+        Self { handle: self.handle.clone() }
     }
 }
 
@@ -50,33 +36,22 @@ impl<B: Backend> Describe for Object<B> {
 impl<B: BackendValues> FromGuest<B> for Object<B> {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
-            kind if kind.is_object() => Ok(Self {
-                handle: Handle::from_value(enter, value),
-            }),
+            kind if kind.is_object() => Ok(Self { handle: Handle::from_value(enter, value) }),
             kind => Err(Expected::of::<Self>().mismatch(kind)),
         }
     }
 }
 
 impl<B: Backend> ToGuest<B> for Object<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
 
 impl<B: Backend> ToGuest<B> for &Object<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
@@ -84,19 +59,9 @@ impl<B: Backend> ToGuest<B> for &Object<B> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::{
-            tests::Stub,
-            values::BackendValues,
-        },
-        handle::{
-            object::Object,
-            protocol::ObjectProtocol,
-        },
-        marshal::{
-            describe::Expected,
-            FromGuest,
-            ToGuest,
-        },
+        backend::{tests::Stub, values::BackendValues},
+        handle::{object::Object, protocol::ObjectProtocol},
+        marshal::{FromGuest, ToGuest, describe::Expected},
     };
 
     #[allow(dead_code)]

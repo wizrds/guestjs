@@ -1,11 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{
-    Ident,
-    Path,
-    ReceiverKind,
-    Signature,
-};
+use syn::{Ident, Path, ReceiverKind, Signature};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Receiver {
@@ -18,18 +13,14 @@ impl Receiver {
     pub fn new(signature: &Signature) -> syn::Result<Self> {
         match signature.receiver() {
             None => Ok(Self::None),
-            Some(receiver) => {
-                match receiver.kind {
-                    ReceiverKind::Reference(_, _, Some(_)) => {
-                        Ok(Self::Exclusive)
-                    }
-                    ReceiverKind::Reference(_, _, None) => Ok(Self::Shared),
-                    _ => Err(syn::Error::new_spanned(
-                        receiver,
-                        "a host receiver requires &self or &mut self",
-                    )),
-                }
-            }
+            Some(receiver) => match receiver.kind {
+                ReceiverKind::Reference(_, _, Some(_)) => Ok(Self::Exclusive),
+                ReceiverKind::Reference(_, _, None) => Ok(Self::Shared),
+                _ => Err(syn::Error::new_spanned(
+                    receiver,
+                    "a host receiver requires &self or &mut self",
+                )),
+            },
         }
     }
 
@@ -75,15 +66,10 @@ impl ModuleReceiver {
     pub fn new(signature: &Signature) -> syn::Result<Self> {
         match signature.receiver() {
             None => Ok(Self::None),
-            Some(receiver) => {
-                match receiver.kind {
-                    ReceiverKind::Reference(_, _, None) => Ok(Self::Shared),
-                    _ => Err(syn::Error::new_spanned(
-                        receiver,
-                        "a module receiver requires &self",
-                    )),
-                }
-            }
+            Some(receiver) => match receiver.kind {
+                ReceiverKind::Reference(_, _, None) => Ok(Self::Shared),
+                _ => Err(syn::Error::new_spanned(receiver, "a module receiver requires &self")),
+            },
         }
     }
 
@@ -113,12 +99,7 @@ impl ModuleReceiver {
         }
     }
 
-    pub fn preparation(
-        &self,
-        krate: &Path,
-        context: &TokenStream,
-        state: &Ident,
-    ) -> TokenStream {
+    pub fn preparation(&self, krate: &Path, context: &TokenStream, state: &Ident) -> TokenStream {
         match self {
             Self::None => TokenStream::new(),
             Self::Shared => quote! {
@@ -149,16 +130,9 @@ impl ModuleReceiver {
 #[cfg(test)]
 mod tests {
     use quote::quote;
-    use syn::{
-        parse2,
-        parse_quote,
-        Expr,
-    };
+    use syn::{Expr, parse_quote, parse2};
 
-    use crate::host::receiver::{
-        ModuleReceiver,
-        Receiver,
-    };
+    use crate::host::receiver::{ModuleReceiver, Receiver};
 
     #[test]
     fn shared_payload_receiver_holds_a_checked_borrow() {
@@ -186,9 +160,7 @@ mod tests {
                 &[quote!(1)],
             ))
             .unwrap(),
-            parse_quote!(
-                (&mut *args.this_mut::<Self>(context.enter())?).write(1)
-            ),
+            parse_quote!((&mut *args.this_mut::<Self>(context.enter())?).write(1)),
         );
     }
 
@@ -224,9 +196,11 @@ mod tests {
 
     #[test]
     fn rejects_exclusive_module_receivers() {
-        assert!(ModuleReceiver::new(&parse_quote!(
-            fn update(&mut self) -> Result<(), Error>
-        ))
-        .is_err());
+        assert!(
+            ModuleReceiver::new(&parse_quote!(
+                fn update(&mut self) -> Result<(), Error>
+            ))
+            .is_err()
+        );
     }
 }

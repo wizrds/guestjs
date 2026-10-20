@@ -1,22 +1,12 @@
-use std::{
-    future::Future,
-    pin::Pin,
-};
+use std::{future::Future, pin::Pin};
 
 use crate::{
     backend::{
+        Backend, Val,
         exceptions::BackendExceptions,
-        promises::{
-            BackendPromises,
-            PromiseState,
-        },
-        Backend,
-        Val,
+        promises::{BackendPromises, PromiseState},
     },
-    driver::event_loop::{
-        EventLoop,
-        Progress,
-    },
+    driver::event_loop::{EventLoop, Progress},
     enter::Enter,
     errors::Error,
     policy::ArmedPolicy,
@@ -34,37 +24,22 @@ impl<B> PromiseFuture<B>
 where
     B: BackendPromises + BackendExceptions,
 {
-    pub fn new<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self, Error> {
+    pub fn new<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self, Error> {
         Ok(Self {
             event_loop: EventLoop::new(enter.guest()),
-            promise: B::detach(
-                enter.token(),
-                B::resolve(enter.token(), value)?,
-            ),
+            promise: B::detach(enter.token(), B::resolve(enter.token(), value)?),
             armed: None,
         })
     }
 
     pub fn settled(&self) -> Result<Option<B::Owned>, Error> {
-        self.event_loop
-            .guest()
-            .enter(|enter| {
-                match B::state(
-                    enter.token(),
-                    &B::attach(enter.token(), &self.promise)?,
-                )? {
-                    PromiseState::Pending => Ok(None),
-                    PromiseState::Fulfilled(value) => {
-                        Ok(Some(B::detach(enter.token(), value)))
-                    }
-                    PromiseState::Rejected(reason) => {
-                        Err(B::throw(enter.token(), reason))
-                    }
-                }
-            })
+        self.event_loop.guest().enter(|enter| {
+            match B::state(enter.token(), &B::attach(enter.token(), &self.promise)?)? {
+                PromiseState::Pending => Ok(None),
+                PromiseState::Fulfilled(value) => Ok(Some(B::detach(enter.token(), value))),
+                PromiseState::Rejected(reason) => Err(B::throw(enter.token(), reason)),
+            }
+        })
     }
 }
 

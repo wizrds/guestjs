@@ -11,27 +11,14 @@ pub mod values;
 use std::ptr::NonNull;
 
 use guestjs_core::{
-    backend::{
-        Backend,
-        Tok,
-        Val,
-    },
+    backend::{Backend, Tok, Val},
     errors::Error,
 };
-use rquickjs::{
-    qjs::JSContext,
-    Value,
-};
+use rquickjs::{Value, qjs::JSContext};
 
 use crate::{
-    context::{
-        Context,
-        Token,
-    },
-    engine::{
-        Config,
-        Engine,
-    },
+    context::{Context, Token},
+    engine::{Config, Engine},
     value::Owned,
 };
 
@@ -56,11 +43,7 @@ impl Backend for QuickJs {
         Context::new(engine)
     }
 
-    fn enter<F, R>(
-        engine: &Self::Engine,
-        context: &Self::Context,
-        f: F,
-    ) -> R
+    fn enter<F, R>(engine: &Self::Engine, context: &Self::Context, f: F) -> R
     where
         F: for<'js> FnOnce(Tok<'js, Self>) -> R,
     {
@@ -72,23 +55,14 @@ impl Backend for QuickJs {
     }
 
     fn globals<'js>(token: Tok<'js, Self>) -> Val<'js, Self> {
-        token
-            .ctx()
-            .globals()
-            .into_value()
+        token.ctx().globals().into_value()
     }
 
-    fn detach<'js>(
-        token: Tok<'js, Self>,
-        value: Val<'js, Self>,
-    ) -> Self::Owned {
+    fn detach<'js>(token: Tok<'js, Self>, value: Val<'js, Self>) -> Self::Owned {
         Owned::new(token, value)
     }
 
-    fn attach<'js>(
-        token: Tok<'js, Self>,
-        owned: &Self::Owned,
-    ) -> Result<Val<'js, Self>, Error> {
+    fn attach<'js>(token: Tok<'js, Self>, owned: &Self::Owned) -> Result<Val<'js, Self>, Error> {
         owned.restore(token)
     }
 
@@ -100,15 +74,11 @@ impl Backend for QuickJs {
 #[cfg(test)]
 mod tests {
     use guestjs_core::backend::Backend;
-    use rquickjs::{
-        Object,
-        Value,
-    };
+    use rquickjs::{Object, Value};
 
-    use crate::{
-        backend::QuickJs,
-        engine::Config,
-    };
+    use crate::{backend::QuickJs, engine::Config};
+
+    guestjs_core::fixtures::backend::tests!(QuickJs);
 
     #[test]
     fn nested_enter_reaches_another_context() {
@@ -132,10 +102,8 @@ mod tests {
         });
 
         assert!(
-            QuickJs::enter(&engine, &second, |token| {
-                QuickJs::attach(token, &owned).map(drop)
-            })
-            .is_err_and(|error| error.is_foreign_context()),
+            QuickJs::enter(&engine, &second, |token| { QuickJs::attach(token, &owned).map(drop) })
+                .is_err_and(|error| error.is_foreign_context()),
         );
     }
 

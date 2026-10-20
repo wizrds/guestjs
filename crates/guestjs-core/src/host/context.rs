@@ -2,16 +2,11 @@ use crate::{
     backend::Backend,
     enter::Enter,
     errors::Error,
-    host::{
-        requirements::Requirements,
-        state::HostState,
-    },
+    host::{requirements::Requirements, state::HostState},
 };
 
 pub trait FromContext<B: Backend>: Sized {
-    fn from_context<'e, 'js>(
-        context: &CallContext<'e, 'js, B>,
-    ) -> Result<Self, Error>;
+    fn from_context<'e, 'js>(context: &CallContext<'e, 'js, B>) -> Result<Self, Error>;
 
     fn declare(_requirements: &mut Requirements) {}
 }
@@ -23,10 +18,7 @@ pub struct CallContext<'e, 'js, B: Backend> {
 
 impl<'e, 'js, B: Backend> CallContext<'e, 'js, B> {
     pub fn new(enter: &'e Enter<'js, B>, state: &'e HostState) -> Self {
-        Self {
-            enter,
-            state,
-        }
+        Self { enter, state }
     }
 
     pub fn enter(&self) -> &'e Enter<'js, B> {

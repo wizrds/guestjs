@@ -1,14 +1,8 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-};
+use std::{cell::RefCell, collections::HashMap};
 
 use crate::{
     backend::Backend,
-    guest::{
-        Guest,
-        WeakGuest,
-    },
+    guest::{Guest, WeakGuest},
 };
 
 pub struct GuestRegistry<B: Backend> {
@@ -17,9 +11,7 @@ pub struct GuestRegistry<B: Backend> {
 
 impl<B: Backend> Default for GuestRegistry<B> {
     fn default() -> Self {
-        Self {
-            guests: RefCell::default(),
-        }
+        Self { guests: RefCell::default() }
     }
 }
 
@@ -56,10 +48,7 @@ impl<B: Backend> GuestRegistry<B> {
 mod tests {
     use crate::{
         backend::tests::Stub,
-        guest::{
-            registry::GuestRegistry,
-            Guest,
-        },
+        guest::{Guest, registry::GuestRegistry},
         runtime::Runtime,
     };
 

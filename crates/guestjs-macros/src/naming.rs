@@ -1,16 +1,8 @@
 use darling::FromMeta;
 use heck::{
-    ToKebabCase,
-    ToLowerCamelCase,
-    ToPascalCase,
-    ToShoutyKebabCase,
-    ToShoutySnakeCase,
-    ToSnakeCase,
+    ToKebabCase, ToLowerCamelCase, ToPascalCase, ToShoutyKebabCase, ToShoutySnakeCase, ToSnakeCase,
 };
-use syn::{
-    ext::IdentExt,
-    Ident,
-};
+use syn::{Ident, ext::IdentExt};
 
 #[derive(Clone, Copy)]
 pub enum RenameRule {
@@ -61,10 +53,7 @@ impl FromMeta for RenameRule {
             "SCREAMING_SNAKE_CASE" => Ok(Self::ScreamingSnakeCase),
             "kebab-case" => Ok(Self::KebabCase),
             "SCREAMING-KEBAB-CASE" => Ok(Self::ScreamingKebabCase),
-            _ => Err(darling::Error::unknown_value_with_alts(
-                value,
-                &Self::NAMES,
-            )),
+            _ => Err(darling::Error::unknown_value_with_alts(value, &Self::NAMES)),
         }
     }
 }
@@ -72,16 +61,10 @@ impl FromMeta for RenameRule {
 pub struct Naming;
 
 impl Naming {
-    pub fn member(
-        ident: &Ident,
-        name: Option<String>,
-        rename_all: Option<RenameRule>,
-    ) -> String {
-        name.unwrap_or_else(|| {
-            match rename_all {
-                Some(rule) => rule.apply(&ident.unraw().to_string()),
-                None => ident.unraw().to_string(),
-            }
+    pub fn member(ident: &Ident, name: Option<String>, rename_all: Option<RenameRule>) -> String {
+        name.unwrap_or_else(|| match rename_all {
+            Some(rule) => rule.apply(&ident.unraw().to_string()),
+            None => ident.unraw().to_string(),
         })
     }
 }
@@ -91,10 +74,7 @@ mod tests {
     use darling::FromMeta;
     use syn::parse_quote;
 
-    use crate::naming::{
-        Naming,
-        RenameRule,
-    };
+    use crate::naming::{Naming, RenameRule};
 
     #[test]
     fn supports_serde_rename_rules() {
@@ -136,17 +116,11 @@ mod tests {
 
     #[test]
     fn raw_names_have_no_rust_prefix() {
-        assert_eq!(
-            Naming::member(&parse_quote!(r#type), None, None),
-            "type",
-        );
+        assert_eq!(Naming::member(&parse_quote!(r#type), None, None), "type",);
     }
 
     #[test]
     fn names_are_unchanged_without_a_rename_rule() {
-        assert_eq!(
-            Naming::member(&parse_quote!(read_value), None, None),
-            "read_value",
-        );
+        assert_eq!(Naming::member(&parse_quote!(read_value), None, None), "read_value",);
     }
 }

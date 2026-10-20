@@ -1,39 +1,20 @@
 use std::{
-    cell::{
-        Cell,
-        RefCell,
-    },
+    cell::{Cell, RefCell},
     pin::pin,
     rc::Rc,
-    task::{
-        self,
-        Poll,
-    },
+    task::{self, Poll},
 };
 
 use futures::FutureExt;
-use guestjs_core::{
-    backend::interrupt::InterruptCondition,
-    errors::Error,
-};
+use guestjs_core::{backend::interrupt::InterruptCondition, errors::Error};
 use rquickjs::{
-    runtime::{
-        AsyncWeakRuntime,
-        InterruptHandler,
-    },
-    AsyncRuntime,
-    JsLifetime,
+    AsyncRuntime, JsLifetime,
+    runtime::{AsyncWeakRuntime, InterruptHandler},
 };
 
 use crate::{
-    context::{
-        Context,
-        Token,
-    },
-    error::{
-        Capture,
-        Thrown,
-    },
+    context::{Context, Token},
+    error::{Capture, Thrown},
 };
 
 #[derive(Clone, Default)]
@@ -92,9 +73,7 @@ unsafe impl<'js> JsLifetime<'js> for WeakRuntime {
 
 impl WeakRuntime {
     pub fn new(runtime: &AsyncRuntime) -> Self {
-        Self {
-            runtime: runtime.weak(),
-        }
+        Self { runtime: runtime.weak() }
     }
 
     pub fn upgrade(&self) -> Option<AsyncRuntime> {
@@ -138,7 +117,9 @@ impl Config {
         }
 
         if let Some(threshold) = self.gc_threshold {
-            runtime.set_gc_threshold(threshold).await;
+            runtime
+                .set_gc_threshold(threshold)
+                .await;
         }
     }
 }
@@ -183,11 +164,7 @@ impl Engine {
         self.depth.get() > 0
     }
 
-    pub fn enter<F, R>(
-        &self,
-        context: &Context,
-        f: F,
-    ) -> R
+    pub fn enter<F, R>(&self, context: &Context, f: F) -> R
     where
         F: for<'js> FnOnce(Token<'js>) -> R,
     {
@@ -205,10 +182,7 @@ impl Engine {
         }
     }
 
-    pub fn poll_jobs(
-        &self,
-        context: &mut task::Context<'_>,
-    ) -> Poll<Result<bool, Error>> {
+    pub fn poll_jobs(&self, context: &mut task::Context<'_>) -> Poll<Result<bool, Error>> {
         if self.is_entered() {
             return Poll::Ready(Ok(false));
         }
@@ -220,9 +194,7 @@ impl Engine {
             .map_err(|exception| {
                 exception
                     .0
-                    .with(|ctx| {
-                        Thrown(ctx.catch()).into_error(Token::from_ctx(&ctx))
-                    })
+                    .with(|ctx| Thrown(ctx.catch()).into_error(Token::from_ctx(&ctx)))
                     .now_or_never()
                     .expect("runtime lock is held elsewhere")
             })

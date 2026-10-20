@@ -1,17 +1,9 @@
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
-    parse::{
-        Parse,
-        ParseStream,
-    },
+    Error, Ident, LitStr, Path, Result, Token,
+    parse::{Parse, ParseStream},
     parse2,
-    Error,
-    Ident,
-    LitStr,
-    Path,
-    Result,
-    Token,
 };
 
 use crate::path::CratePath;
@@ -55,10 +47,7 @@ impl Parse for BundleMacro {
                 let option = input.parse::<Ident>()?;
 
                 if option != "crate_path" {
-                    return Err(Error::new(
-                        option.span(),
-                        "expected `crate_path`",
-                    ));
+                    return Err(Error::new(option.span(), "expected `crate_path`"));
                 }
 
                 input.parse::<Token![=]>()?;
@@ -84,10 +73,7 @@ impl Parse for BundleMacro {
 #[cfg(test)]
 mod tests {
     use quote::quote;
-    use syn::{
-        parse2,
-        Expr,
-    };
+    use syn::{Expr, parse2};
 
     use crate::bundle::BundleMacro;
 
@@ -95,10 +81,9 @@ mod tests {
     fn expansion_delegates_embedding_and_bundle_construction() {
         assert_eq!(
             parse2::<Expr>(
-                BundleMacro::new(quote!(
-                    "$CARGO_MANIFEST_DIR/guest",
-                    crate_path = custom::guestjs,
-                ))
+                BundleMacro::new(
+                    quote!("$CARGO_MANIFEST_DIR/guest", crate_path = custom::guestjs,)
+                )
                 .unwrap()
                 .expand(),
             )
@@ -123,20 +108,14 @@ mod tests {
     #[test]
     fn raw_literals_are_emitted_as_ordinary_literals() {
         assert_eq!(
-            BundleMacro::new(quote!(
-                r"$CARGO_MANIFEST_DIR/guest",
-                crate_path = custom::guestjs,
-            ))
-            .unwrap()
-            .expand()
-            .to_string(),
-            BundleMacro::new(quote!(
-                "$CARGO_MANIFEST_DIR/guest",
-                crate_path = custom::guestjs,
-            ))
-            .unwrap()
-            .expand()
-            .to_string(),
+            BundleMacro::new(quote!(r"$CARGO_MANIFEST_DIR/guest", crate_path = custom::guestjs,))
+                .unwrap()
+                .expand()
+                .to_string(),
+            BundleMacro::new(quote!("$CARGO_MANIFEST_DIR/guest", crate_path = custom::guestjs,))
+                .unwrap()
+                .expand()
+                .to_string(),
         );
     }
 
@@ -144,11 +123,7 @@ mod tests {
     fn invalid_options_and_extra_tokens_are_rejected() {
         [
             quote!("guest", root = "app"),
-            quote!(
-                "guest",
-                crate_path = first::guestjs,
-                crate_path = second::guestjs,
-            ),
+            quote!("guest", crate_path = first::guestjs, crate_path = second::guestjs,),
             quote!("guest", crate_path = custom::guestjs, extra),
             quote!(123),
         ]

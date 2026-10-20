@@ -1,24 +1,12 @@
-use darling::{
-    util::Flag,
-    FromMeta,
-};
+use darling::{FromMeta, util::Flag};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
-    Error as SyntaxError,
-    GenericArgument,
-    Ident,
-    Pat,
-    PatType,
-    PathArguments,
-    Result as SyntaxResult,
-    Type,
+    Error as SyntaxError, GenericArgument, Ident, Pat, PatType, PathArguments,
+    Result as SyntaxResult, Type,
 };
 
-use crate::{
-    attributes::HelperAttributes,
-    diagnostics::MacroError,
-};
+use crate::{attributes::HelperAttributes, diagnostics::MacroError};
 
 struct TypeShape;
 
@@ -54,9 +42,7 @@ impl TypeShape {
 
     fn reference(ty: &Type, mutable: bool) -> SyntaxResult<&Type> {
         match ty {
-            Type::Reference(reference)
-                if reference.mutability.is_some() == mutable =>
-            {
+            Type::Reference(reference) if reference.mutability.is_some() == mutable => {
                 Ok(reference.elem.as_ref())
             }
             _ => Err(SyntaxError::new_spanned(
@@ -120,9 +106,7 @@ impl ParameterOptions {
             return TypeShape::inner(ty, "Vec")
                 .cloned()
                 .map(ParameterRole::Rest)
-                .ok_or_else(|| {
-                    SyntaxError::new_spanned(ty, "rest requires Vec<T>")
-                });
+                .ok_or_else(|| SyntaxError::new_spanned(ty, "rest requires Vec<T>"));
         }
 
         if self.enter.is_present() || self.context.is_present() {
@@ -136,10 +120,7 @@ impl ParameterOptions {
 
         if self.state.is_present() {
             if TypeShape::inner(ty, "ModuleState").is_none() {
-                return Err(SyntaxError::new_spanned(
-                    ty,
-                    "state requires ModuleState<S>",
-                ));
+                return Err(SyntaxError::new_spanned(ty, "state requires ModuleState<S>"));
             }
 
             return Ok(ParameterRole::State(ty.clone()));
@@ -147,11 +128,9 @@ impl ParameterOptions {
 
         if self.this.is_present() {
             return match ty {
-                Type::Reference(_) => {
-                    TypeShape::reference(ty, false)
-                        .cloned()
-                        .map(ParameterRole::ThisRef)
-                }
+                Type::Reference(_) => TypeShape::reference(ty, false)
+                    .cloned()
+                    .map(ParameterRole::ThisRef),
                 _ => Ok(ParameterRole::This(ty.clone())),
             };
         }
@@ -173,11 +152,7 @@ pub enum ParameterRole {
 }
 
 impl ParameterRole {
-    pub fn expression(
-        &self,
-        context: &TokenStream,
-        args: &TokenStream,
-    ) -> TokenStream {
+    pub fn expression(&self, context: &TokenStream, args: &TokenStream) -> TokenStream {
         match self {
             Self::Value(descriptor) => {
                 quote!(#args.next::<#descriptor>(#context.enter())?)
@@ -223,13 +198,7 @@ impl ParameterRole {
     }
 
     pub fn consumes_argument(&self) -> bool {
-        matches!(
-            self,
-            Self::Value(_)
-                | Self::Borrow(_)
-                | Self::BorrowMut(_)
-                | Self::Rest(_),
-        )
+        matches!(self, Self::Value(_) | Self::Borrow(_) | Self::BorrowMut(_) | Self::Rest(_),)
     }
 
     pub fn is_rest(&self) -> bool {
@@ -239,11 +208,7 @@ impl ParameterRole {
     pub fn borrows_context_or_argument(&self) -> bool {
         matches!(
             self,
-            Self::Borrow(_)
-                | Self::BorrowMut(_)
-                | Self::Enter
-                | Self::Context
-                | Self::ThisRef(_),
+            Self::Borrow(_) | Self::BorrowMut(_) | Self::Enter | Self::Context | Self::ThisRef(_),
         )
     }
 }
@@ -262,11 +227,7 @@ impl Parameter {
         &self.ident
     }
 
-    pub fn expression(
-        &self,
-        context: &TokenStream,
-        args: &TokenStream,
-    ) -> TokenStream {
+    pub fn expression(&self, context: &TokenStream, args: &TokenStream) -> TokenStream {
         self.role.expression(context, args)
     }
 
@@ -321,10 +282,8 @@ impl ParameterSyntax {
 
         Ok(Parameter::new(
             pattern.ident.clone(),
-            ParameterOptions::from_list(
-                &HelperAttributes::take(&mut argument.attrs)?,
-            )?
-            .resolve(argument.ty.as_ref())?,
+            ParameterOptions::from_list(&HelperAttributes::take(&mut argument.attrs)?)?
+                .resolve(argument.ty.as_ref())?,
         ))
     }
 }
@@ -332,18 +291,9 @@ impl ParameterSyntax {
 #[cfg(test)]
 mod tests {
     use quote::quote;
-    use syn::{
-        parse2,
-        parse_quote,
-        Expr,
-        FnArg,
-        PatType,
-    };
+    use syn::{Expr, FnArg, PatType, parse_quote, parse2};
 
-    use crate::host::parameter::{
-        ParameterRole,
-        ParameterSyntax,
-    };
+    use crate::host::parameter::{ParameterRole, ParameterSyntax};
 
     struct ParameterFixture;
 
@@ -391,11 +341,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                parse2::<Expr>(role.expression(
-                    &quote!(context),
-                    &quote!(args),
-                ))
-                .unwrap(),
+                parse2::<Expr>(role.expression(&quote!(context), &quote!(args),)).unwrap(),
                 expected,
             );
         }
@@ -415,10 +361,12 @@ mod tests {
 
     #[test]
     fn rejects_conflicting_roles() {
-        assert!(ParameterSyntax::parse(&mut ParameterFixture::typed(parse_quote!(
-            #[guestjs(borrow, rest)] values: &Vec<Point>
-        )))
-        .is_err());
+        assert!(
+            ParameterSyntax::parse(&mut ParameterFixture::typed(parse_quote!(
+                #[guestjs(borrow, rest)] values: &Vec<Point>
+            )))
+            .is_err()
+        );
     }
 
     #[test]
@@ -434,7 +382,9 @@ mod tests {
             parse_quote!(#[guestjs(enter)] enter: Enter<'_, B>),
             parse_quote!(#[guestjs(context)] context: &mut CallContext<'_, '_, B>),
             parse_quote!(#[guestjs(this)] this: &mut Object<B>),
-        ].map(ParameterFixture::typed) {
+        ]
+        .map(ParameterFixture::typed)
+        {
             assert!(ParameterSyntax::parse(&mut parameter).is_err());
         }
     }
@@ -445,7 +395,9 @@ mod tests {
             parse_quote!((first, second): (u8, u8)),
             parse_quote!(ref value: String),
             parse_quote!(value @ _: String),
-        ].map(ParameterFixture::typed) {
+        ]
+        .map(ParameterFixture::typed)
+        {
             assert!(ParameterSyntax::parse(&mut parameter).is_err());
         }
     }

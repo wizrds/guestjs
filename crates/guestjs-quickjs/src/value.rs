@@ -1,17 +1,9 @@
 use std::ptr::NonNull;
 
 use guestjs_core::errors::Error;
-use rquickjs::{
-    AsyncRuntime,
-    Persistent,
-    Value,
-    qjs::JSContext,
-};
+use rquickjs::{AsyncRuntime, Persistent, Value, qjs::JSContext};
 
-use crate::{
-    context::Token,
-    error::Capture,
-};
+use crate::{context::Token, error::Capture};
 
 #[derive(Clone)]
 pub struct Owned {
@@ -21,10 +13,7 @@ pub struct Owned {
 }
 
 impl Owned {
-    pub fn new<'js>(
-        token: Token<'js>,
-        value: Value<'js>,
-    ) -> Self {
+    pub fn new<'js>(token: Token<'js>, value: Value<'js>) -> Self {
         Self {
             value: Persistent::save(&token.ctx(), value),
             context: token.pointer(),
@@ -32,10 +21,7 @@ impl Owned {
         }
     }
 
-    pub fn restore<'js>(
-        &self,
-        token: Token<'js>,
-    ) -> Result<Value<'js>, Error> {
+    pub fn restore<'js>(&self, token: Token<'js>) -> Result<Value<'js>, Error> {
         match self.context == token.pointer() {
             true => self
                 .value

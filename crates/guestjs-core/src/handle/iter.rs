@@ -2,30 +2,19 @@ use std::marker::PhantomData;
 
 use crate::{
     backend::{
+        Backend, Val,
         exceptions::BackendExceptions,
         promises::BackendPromises,
-        values::{
-            BackendValues,
-            IteratorKind,
-        },
-        Backend,
-        Val,
+        values::{BackendValues, IteratorKind},
     },
     driver::promise::PromiseFuture,
     enter::Enter,
     errors::Error,
-    handle::{
-        base::Handle,
-        HasHandle,
-    },
+    handle::{HasHandle, base::Handle},
     marshal::{
+        FromGuest, ToGuest,
         collections::IterItem,
-        describe::{
-            Describe,
-            Expected,
-        },
-        FromGuest,
-        ToGuest,
+        describe::{Describe, Expected},
     },
 };
 
@@ -39,9 +28,9 @@ impl<B: BackendValues, T> Iter<B, T> {
     pub fn close(self) -> Result<(), Error> {
         match self.done {
             true => Ok(()),
-            false => self.iterator.with_enter(|enter, iterator| {
-                B::close(enter.token(), iterator).map(|_| ())
-            }),
+            false => self
+                .iterator
+                .with_enter(|enter, iterator| B::close(enter.token(), iterator).map(|_| ())),
         }
     }
 }
@@ -57,12 +46,11 @@ where
         match self.done {
             true => None,
             false => {
-                let step = self.iterator.with_enter(|enter, iterator| {
-                    IterItem::<T>::from_guest(
-                        enter,
-                        B::next(enter.token(), iterator)?,
-                    )
-                });
+                let step = self
+                    .iterator
+                    .with_enter(|enter, iterator| {
+                        IterItem::<T>::from_guest(enter, B::next(enter.token(), iterator)?)
+                    });
 
                 self.done = !matches!(step, Ok(Some(_)));
 
@@ -91,36 +79,26 @@ where
 {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::iter(enter.token(), &value, IteratorKind::Sync)? {
             Some(iterator) => Ok(Self {
                 iterator: Handle::from_value(enter, iterator),
                 done: false,
                 target: PhantomData,
             }),
-            None => Err(Expected::of::<Self>()
-                .mismatch(B::kind(enter.token(), &value))),
+            None => Err(Expected::of::<Self>().mismatch(B::kind(enter.token(), &value))),
         }
     }
 }
 
 impl<B: Backend, T> ToGuest<B> for Iter<B, T> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.iterator.attach(enter)
     }
 }
 
 impl<B: Backend, T> ToGuest<B> for &Iter<B, T> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.iterator.attach(enter)
     }
 }
@@ -140,18 +118,14 @@ where
         match self.done {
             true => Ok(None),
             false => {
-                let step = match self.iterator.with_enter(|enter, iterator| {
-                    PromiseFuture::new(
-                        enter,
-                        B::next(enter.token(), iterator)?,
-                    )
-                }) {
+                let step = match self
+                    .iterator
+                    .with_enter(|enter, iterator| {
+                        PromiseFuture::new(enter, B::next(enter.token(), iterator)?)
+                    }) {
                     Ok(future) => future.await.and_then(|owned| {
                         self.iterator.guest().enter(|enter| {
-                            IterItem::<T>::from_guest(
-                                enter,
-                                B::attach(enter.token(), &owned)?,
-                            )
+                            IterItem::<T>::from_guest(enter, B::attach(enter.token(), &owned)?)
                         })
                     }),
                     Err(error) => Err(error),
@@ -197,36 +171,26 @@ where
 {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::iter(enter.token(), &value, IteratorKind::Async)? {
             Some(iterator) => Ok(Self {
                 iterator: Handle::from_value(enter, iterator),
                 done: false,
                 target: PhantomData,
             }),
-            None => Err(Expected::of::<Self>()
-                .mismatch(B::kind(enter.token(), &value))),
+            None => Err(Expected::of::<Self>().mismatch(B::kind(enter.token(), &value))),
         }
     }
 }
 
 impl<B: Backend, T> ToGuest<B> for AsyncIter<B, T> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.iterator.attach(enter)
     }
 }
 
 impl<B: Backend, T> ToGuest<B> for &AsyncIter<B, T> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.iterator.attach(enter)
     }
 }
@@ -234,19 +198,9 @@ impl<B: Backend, T> ToGuest<B> for &AsyncIter<B, T> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::{
-            tests::Stub,
-            values::BackendValues,
-        },
-        handle::iter::{
-            AsyncIter,
-            Iter,
-        },
-        marshal::{
-            describe::Expected,
-            FromGuest,
-            ToGuest,
-        },
+        backend::{tests::Stub, values::BackendValues},
+        handle::iter::{AsyncIter, Iter},
+        marshal::{FromGuest, ToGuest, describe::Expected},
     };
 
     #[allow(dead_code)]
@@ -273,17 +227,11 @@ mod tests {
 
     #[test]
     fn iter_description_names_an_iterable() {
-        assert_eq!(
-            Expected::of::<Iter<Stub, String>>().to_string(),
-            "iterable",
-        );
+        assert_eq!(Expected::of::<Iter<Stub, String>>().to_string(), "iterable",);
     }
 
     #[test]
     fn async_iter_description_names_an_async_iterable() {
-        assert_eq!(
-            Expected::of::<AsyncIter<Stub, String>>().to_string(),
-            "async iterable",
-        );
+        assert_eq!(Expected::of::<AsyncIter<Stub, String>>().to_string(), "async iterable",);
     }
 }

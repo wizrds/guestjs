@@ -2,33 +2,21 @@ use std::marker::PhantomData;
 
 use crate::{
     backend::{
+        Backend, Val,
         buffers::BackendBuffers,
-        values::{
-            BackendValues,
-            Kind,
-        },
-        Backend,
-        Val,
+        values::{BackendValues, Kind},
     },
     enter::Enter,
     errors::Error,
     handle::{
-        base::Handle,
-        protocol::{
-            BufferProtocol,
-            ObjectProtocol,
-            ViewProtocol,
-        },
         HasHandle,
+        base::Handle,
+        protocol::{BufferProtocol, ObjectProtocol, ViewProtocol},
     },
     marshal::{
+        FromGuest, ToGuest,
         buffers::Element,
-        describe::{
-            Describe,
-            Expected,
-        },
-        FromGuest,
-        ToGuest,
+        describe::{Describe, Expected},
     },
 };
 
@@ -38,9 +26,7 @@ pub struct ArrayBuffer<B: Backend> {
 
 impl<B: Backend> Clone for ArrayBuffer<B> {
     fn clone(&self) -> Self {
-        Self {
-            handle: self.handle.clone(),
-        }
+        Self { handle: self.handle.clone() }
     }
 }
 
@@ -63,33 +49,22 @@ impl<B: Backend> Describe for ArrayBuffer<B> {
 impl<B: BackendValues> FromGuest<B> for ArrayBuffer<B> {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
-            Kind::ArrayBuffer => Ok(Self {
-                handle: Handle::from_value(enter, value),
-            }),
+            Kind::ArrayBuffer => Ok(Self { handle: Handle::from_value(enter, value) }),
             kind => Err(Expected::of::<Self>().mismatch(kind)),
         }
     }
 }
 
 impl<B: Backend> ToGuest<B> for ArrayBuffer<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
 
 impl<B: Backend> ToGuest<B> for &ArrayBuffer<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
@@ -100,10 +75,7 @@ pub struct TypedArray<B: Backend, T> {
 }
 
 impl<B: BackendBuffers, T: Element> TypedArray<B, T> {
-    pub fn from_values<A>(
-        enter: &Enter<'_, B>,
-        values: A,
-    ) -> Result<Self, Error>
+    pub fn from_values<A>(enter: &Enter<'_, B>, values: A) -> Result<Self, Error>
     where
         A: AsRef<[T]>,
     {
@@ -125,10 +97,7 @@ impl<B: BackendBuffers, T: Element> TypedArray<B, T> {
     }
 
     pub fn write(&self, index: usize, values: &[T]) -> Result<(), Error> {
-        self.write_bytes(
-            index.saturating_mul(T::TYPE.size()),
-            &T::to_bytes(values),
-        )
+        self.write_bytes(index.saturating_mul(T::TYPE.size()), &T::to_bytes(values))
     }
 }
 
@@ -162,20 +131,16 @@ impl<B: Backend, T: Element> Describe for TypedArray<B, T> {
 impl<B: BackendBuffers, T: Element> FromGuest<B> for TypedArray<B, T> {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
             Kind::TypedArray => match B::element_type(enter.token(), &value)? {
                 element if element == T::TYPE => Ok(Self {
                     handle: Handle::from_value(enter, value),
                     element: PhantomData,
                 }),
-                element => Err(Error::conversion(
-                    Expected::of::<Self>().to_string(),
-                    element.name(),
-                )),
+                element => {
+                    Err(Error::conversion(Expected::of::<Self>().to_string(), element.name()))
+                }
             },
             kind => Err(Expected::of::<Self>().mismatch(kind)),
         }
@@ -183,19 +148,13 @@ impl<B: BackendBuffers, T: Element> FromGuest<B> for TypedArray<B, T> {
 }
 
 impl<B: Backend, T> ToGuest<B> for TypedArray<B, T> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
 
 impl<B: Backend, T> ToGuest<B> for &TypedArray<B, T> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
@@ -217,9 +176,7 @@ pub struct DataView<B: Backend> {
 
 impl<B: Backend> Clone for DataView<B> {
     fn clone(&self) -> Self {
-        Self {
-            handle: self.handle.clone(),
-        }
+        Self { handle: self.handle.clone() }
     }
 }
 
@@ -244,33 +201,22 @@ impl<B: Backend> Describe for DataView<B> {
 impl<B: BackendValues> FromGuest<B> for DataView<B> {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
-            Kind::DataView => Ok(Self {
-                handle: Handle::from_value(enter, value),
-            }),
+            Kind::DataView => Ok(Self { handle: Handle::from_value(enter, value) }),
             kind => Err(Expected::of::<Self>().mismatch(kind)),
         }
     }
 }
 
 impl<B: Backend> ToGuest<B> for DataView<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
 
 impl<B: Backend> ToGuest<B> for &DataView<B> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
@@ -278,29 +224,12 @@ impl<B: Backend> ToGuest<B> for &DataView<B> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::{
-            buffers::BackendBuffers,
-            tests::Stub,
-        },
+        backend::{buffers::BackendBuffers, tests::Stub},
         handle::{
-            buffer::{
-                ArrayBuffer,
-                DataView,
-                Float64Array,
-                TypedArray,
-                Uint8Array,
-            },
-            protocol::{
-                BufferProtocol,
-                ObjectProtocol,
-                ViewProtocol,
-            },
+            buffer::{ArrayBuffer, DataView, Float64Array, TypedArray, Uint8Array},
+            protocol::{BufferProtocol, ObjectProtocol, ViewProtocol},
         },
-        marshal::{
-            describe::Expected,
-            FromGuest,
-            ToGuest,
-        },
+        marshal::{FromGuest, ToGuest, describe::Expected},
     };
 
     #[allow(dead_code)]

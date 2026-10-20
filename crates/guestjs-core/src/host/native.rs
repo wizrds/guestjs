@@ -1,11 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    backend::{
-        library::BackendLibrary,
-        modules::BackendModules,
-        Backend,
-    },
+    backend::{Backend, library::BackendLibrary, modules::BackendModules},
     enter::Enter,
     errors::Error,
 };
@@ -13,12 +9,7 @@ use crate::{
 pub struct NativeModule<B: BackendModules> {
     name: String,
     aliases: Vec<String>,
-    declare: Rc<
-        dyn for<'js> Fn(
-            &Enter<'js, B>,
-            &str,
-        ) -> Result<B::Module<'js>, Error>,
-    >,
+    declare: Rc<dyn for<'js> Fn(&Enter<'js, B>, &str) -> Result<B::Module<'js>, Error>>,
 }
 
 impl<B: BackendModules> NativeModule<B> {
@@ -30,9 +21,7 @@ impl<B: BackendModules> NativeModule<B> {
         Self {
             name: name.into(),
             aliases: Vec::new(),
-            declare: Rc::new(move |enter, name| {
-                B::declare_native(enter.token(), &native, name)
-            }),
+            declare: Rc::new(move |enter, name| B::declare_native(enter.token(), &native, name)),
         }
     }
 
@@ -57,11 +46,7 @@ impl<B: BackendModules> NativeModule<B> {
         &self.aliases
     }
 
-    pub fn declare<'js>(
-        &self,
-        enter: &Enter<'js, B>,
-        name: &str,
-    ) -> Result<B::Module<'js>, Error> {
+    pub fn declare<'js>(&self, enter: &Enter<'js, B>, name: &str) -> Result<B::Module<'js>, Error> {
         (self.declare)(enter, name)
     }
 }
@@ -86,9 +71,7 @@ impl<B: Backend> NativeInitializer<B> {
         B: BackendLibrary,
         F: for<'js> Fn(&Enter<'js, B>) -> Result<(), Error> + 'static,
     {
-        Self {
-            initialize: Rc::new(initialize),
-        }
+        Self { initialize: Rc::new(initialize) }
     }
 
     pub fn run<'js>(&self, enter: &Enter<'js, B>) -> Result<(), Error> {
@@ -98,9 +81,7 @@ impl<B: Backend> NativeInitializer<B> {
 
 impl<B: Backend> Clone for NativeInitializer<B> {
     fn clone(&self) -> Self {
-        Self {
-            initialize: self.initialize.clone(),
-        }
+        Self { initialize: self.initialize.clone() }
     }
 }
 
@@ -124,7 +105,8 @@ impl<B: BackendModules> NativeLibrary<B> {
         let library = library.into();
 
         self.modules.extend(library.modules);
-        self.initializers.extend(library.initializers);
+        self.initializers
+            .extend(library.initializers);
 
         self
     }
@@ -175,11 +157,7 @@ impl<B: BackendModules> From<NativeInitializer<B>> for NativeLibrary<B> {
 mod tests {
     use crate::{
         backend::library::BackendLibrary,
-        host::native::{
-            NativeInitializer,
-            NativeLibrary,
-            NativeModule,
-        },
+        host::native::{NativeInitializer, NativeLibrary, NativeModule},
     };
 
     #[allow(dead_code)]

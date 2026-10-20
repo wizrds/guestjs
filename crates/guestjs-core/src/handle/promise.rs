@@ -1,38 +1,23 @@
 use std::{
-    future::{
-        Future,
-        IntoFuture,
-    },
+    future::{Future, IntoFuture},
     marker::PhantomData,
     pin::Pin,
 };
 
 use crate::{
     backend::{
+        Backend, Val,
         exceptions::BackendExceptions,
         promises::BackendPromises,
-        values::{
-            BackendValues,
-            Kind,
-        },
-        Backend,
-        Val,
+        values::{BackendValues, Kind},
     },
     driver::promise::PromiseFuture,
     enter::Enter,
     errors::Error,
-    handle::{
-        base::Handle,
-        protocol::ObjectProtocol,
-        HasHandle,
-    },
+    handle::{HasHandle, base::Handle, protocol::ObjectProtocol},
     marshal::{
-        describe::{
-            Describe,
-            Expected,
-        },
-        FromGuest,
-        ToGuest,
+        FromGuest, ToGuest,
+        describe::{Describe, Expected},
     },
 };
 
@@ -69,14 +54,12 @@ where
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
             self.handle
-                .with_enter(|enter, promise| {
-                    PromiseFuture::new(enter, promise.clone())
-                })?
+                .with_enter(|enter, promise| PromiseFuture::new(enter, promise.clone()))?
                 .await
                 .and_then(|owned| {
-                    self.handle.guest().enter(|enter| {
-                        T::from_guest(enter, B::attach(enter.token(), &owned)?)
-                    })
+                    self.handle
+                        .guest()
+                        .enter(|enter| T::from_guest(enter, B::attach(enter.token(), &owned)?))
                 })
         })
     }
@@ -95,10 +78,7 @@ where
 {
     type Owned = Self;
 
-    fn from_guest<'js>(
-        enter: &Enter<'js, B>,
-        value: Val<'js, B>,
-    ) -> Result<Self::Owned, Error> {
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
         match B::kind(enter.token(), &value) {
             Kind::Promise => Ok(Self {
                 handle: Handle::from_value(enter, value),
@@ -110,19 +90,13 @@ where
 }
 
 impl<B: Backend, T> ToGuest<B> for Promise<B, T> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
 
 impl<B: Backend, T> ToGuest<B> for &Promise<B, T> {
-    fn to_guest<'js>(
-        self,
-        enter: &Enter<'js, B>,
-    ) -> Result<Val<'js, B>, Error> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.handle.attach(enter)
     }
 }
@@ -132,20 +106,9 @@ mod tests {
     use std::future::IntoFuture;
 
     use crate::{
-        backend::{
-            exceptions::BackendExceptions,
-            promises::BackendPromises,
-            tests::Stub,
-        },
-        handle::{
-            promise::Promise,
-            protocol::ObjectProtocol,
-        },
-        marshal::{
-            describe::Expected,
-            FromGuest,
-            ToGuest,
-        },
+        backend::{exceptions::BackendExceptions, promises::BackendPromises, tests::Stub},
+        handle::{promise::Promise, protocol::ObjectProtocol},
+        marshal::{FromGuest, ToGuest, describe::Expected},
     };
 
     #[allow(dead_code)]
@@ -164,9 +127,6 @@ mod tests {
 
     #[test]
     fn description_names_a_promise() {
-        assert_eq!(
-            Expected::of::<Promise<Stub, String>>().to_string(),
-            "promise",
-        );
+        assert_eq!(Expected::of::<Promise<Stub, String>>().to_string(), "promise",);
     }
 }

@@ -1,23 +1,7 @@
-use guestjs_core::errors::{
-    Error,
-    GuestErrorKind,
-    GuestException,
-};
-use rquickjs::{
-    atom::PredefinedAtom,
-    object::Property,
-    qjs,
-    Coerced,
-    Object,
-    Symbol,
-    Type,
-    Value,
-};
+use guestjs_core::errors::{Error, GuestErrorKind, GuestException};
+use rquickjs::{Coerced, Object, Symbol, Type, Value, atom::PredefinedAtom, object::Property, qjs};
 
-use crate::{
-    context::Token,
-    value::Owned,
-};
+use crate::{context::Token, value::Owned};
 
 pub trait Capture<T> {
     fn convert(self) -> Result<T, Error>;
@@ -28,9 +12,7 @@ pub trait Capture<T> {
 impl<T> Capture<T> for rquickjs::Result<T> {
     fn convert(self) -> Result<T, Error> {
         self.map_err(|error| match error {
-            rquickjs::Error::FromJs { from, to, .. } => {
-                Error::conversion(to, from)
-            }
+            rquickjs::Error::FromJs { from, to, .. } => Error::conversion(to, from),
             error => Error::engine(error.to_string()),
         })
     }
@@ -121,7 +103,9 @@ impl<'js> Thrown<'js> {
                         token,
                         prototype
                             .get::<_, Object>(PredefinedAtom::Constructor)
-                            .and_then(|constructor| constructor.get::<_, String>(PredefinedAtom::Name)),
+                            .and_then(|constructor| {
+                                constructor.get::<_, String>(PredefinedAtom::Name)
+                            }),
                     )
                 })
                 .transpose()?
@@ -131,13 +115,7 @@ impl<'js> Thrown<'js> {
             }
         }
 
-        Ok(GuestException::new(
-            name,
-            message,
-            stack,
-            prototypes,
-            Owned::new(token, self.0),
-        ))
+        Ok(GuestException::new(name, message, stack, prototypes, Owned::new(token, self.0)))
     }
 
     pub fn type_of(&self) -> &'static str {
@@ -153,10 +131,7 @@ impl<'js> Thrown<'js> {
         }
     }
 
-    pub fn settle<V>(
-        token: Token<'js>,
-        result: rquickjs::Result<V>,
-    ) -> Result<Option<V>, Error> {
+    pub fn settle<V>(token: Token<'js>, result: rquickjs::Result<V>) -> Result<Option<V>, Error> {
         match result {
             Ok(value) => Ok(Some(value)),
             Err(rquickjs::Error::Exception) => {
@@ -171,55 +146,49 @@ impl<'js> Thrown<'js> {
 }
 
 pub trait Create {
-    fn create<'js>(
-        self,
-        token: Token<'js>,
-        message: &str,
-    ) -> rquickjs::Result<Object<'js>>;
+    fn create<'js>(self, token: Token<'js>, message: &str) -> rquickjs::Result<Object<'js>>;
 
-    fn throw(
-        self,
-        token: Token<'_>,
-        message: &str,
-    ) -> rquickjs::Error;
+    fn throw(self, token: Token<'_>, message: &str) -> rquickjs::Error;
 }
 
 impl Create for GuestErrorKind {
-    fn create<'js>(
-        self,
-        token: Token<'js>,
-        message: &str,
-    ) -> rquickjs::Result<Object<'js>> {
+    fn create<'js>(self, token: Token<'js>, message: &str) -> rquickjs::Result<Object<'js>> {
         match unsafe {
             match self {
-                GuestErrorKind::Error => qjs::JS_NewPlainError(token.pointer().as_ptr(), c"".as_ptr()),
-                GuestErrorKind::TypeError => qjs::JS_NewTypeError(token.pointer().as_ptr(), c"".as_ptr()),
-                GuestErrorKind::RangeError => qjs::JS_NewRangeError(token.pointer().as_ptr(), c"".as_ptr()),
+                GuestErrorKind::Error => {
+                    qjs::JS_NewPlainError(token.pointer().as_ptr(), c"".as_ptr())
+                }
+                GuestErrorKind::TypeError => {
+                    qjs::JS_NewTypeError(token.pointer().as_ptr(), c"".as_ptr())
+                }
+                GuestErrorKind::RangeError => {
+                    qjs::JS_NewRangeError(token.pointer().as_ptr(), c"".as_ptr())
+                }
                 GuestErrorKind::ReferenceError => {
                     qjs::JS_NewReferenceError(token.pointer().as_ptr(), c"".as_ptr())
                 }
-                GuestErrorKind::SyntaxError => qjs::JS_NewSyntaxError(token.pointer().as_ptr(), c"".as_ptr()),
+                GuestErrorKind::SyntaxError => {
+                    qjs::JS_NewSyntaxError(token.pointer().as_ptr(), c"".as_ptr())
+                }
             }
         } {
             raw if unsafe { qjs::JS_IsException(raw) } => Err(rquickjs::Error::Exception),
-            raw => Object::from_value(unsafe { Value::from_raw(token.ctx(), raw) }).and_then(|error| {
-                error.prop(
-                    PredefinedAtom::Message,
-                    Property::from(message)
-                        .writable()
-                        .configurable(),
-                )?;
+            raw => {
+                Object::from_value(unsafe { Value::from_raw(token.ctx(), raw) }).and_then(|error| {
+                    error.prop(
+                        PredefinedAtom::Message,
+                        Property::from(message)
+                            .writable()
+                            .configurable(),
+                    )?;
 
-                Ok(error)
-            }),
+                    Ok(error)
+                })
+            }
         }
     }
 
-    fn throw(
-        self,
-        token: Token<'_>,
-        message: &str,
-    ) -> rquickjs::Error {
+    fn throw(self, token: Token<'_>, message: &str) -> rquickjs::Error {
         self.create(token, message)
             .map(|error| token.ctx().throw(error.into_value()))
             .unwrap_or_else(|error| error)
@@ -267,7 +236,9 @@ impl Raise for Error {
                 .create(token, &error.to_string())
                 .map(|object| {
                     if error.is_interrupted() {
-                        unsafe { qjs::JS_SetUncatchableError(token.pointer().as_ptr(), object.as_raw()) };
+                        unsafe {
+                            qjs::JS_SetUncatchableError(token.pointer().as_ptr(), object.as_raw())
+                        };
                     }
 
                     object.into_value()
@@ -285,22 +256,12 @@ impl Raise for Error {
 #[cfg(test)]
 mod tests {
     use guestjs_core::errors::Error;
-    use rquickjs::{
-        qjs,
-        Object,
-        Value,
-    };
+    use rquickjs::{Object, Value, qjs};
 
     use crate::{
         context::Context,
-        engine::{
-            Config,
-            Engine,
-        },
-        error::{
-            Capture,
-            Raise,
-        },
+        engine::{Config, Engine},
+        error::{Capture, Raise},
         value::Owned,
     };
 
@@ -328,9 +289,7 @@ mod tests {
             assert_eq!(exception.message(), "again");
             assert!(exception.matches("Retryable"));
             assert!(exception.stack().is_some());
-            assert!(!token
-                .ctx()
-                .has_exception());
+            assert!(!token.ctx().has_exception());
             assert_eq!(
                 exception
                     .value::<Owned>()
@@ -413,9 +372,7 @@ mod tests {
                 .raise(token);
 
             assert_eq!(
-                token
-                    .ctx()
-                    .catch(),
+                token.ctx().catch(),
                 token
                     .ctx()
                     .globals()
@@ -442,15 +399,15 @@ mod tests {
         engine.enter(&second, |token| {
             error.raise(token);
 
-            let caught = Object::from_value(
-                token
-                    .ctx()
-                    .catch(),
-            )
-            .unwrap();
+            let caught = Object::from_value(token.ctx().catch()).unwrap();
 
             assert_eq!(caught.get::<_, String>("name").unwrap(), "RangeError");
-            assert_eq!(caught.get::<_, String>("message").unwrap(), "far");
+            assert_eq!(
+                caught
+                    .get::<_, String>("message")
+                    .unwrap(),
+                "far"
+            );
         });
     }
 
@@ -463,27 +420,16 @@ mod tests {
             Error::conversion("i64", "string").raise(token);
 
             assert_eq!(
-                Object::from_value(
-                    token
-                        .ctx()
-                        .catch(),
-                )
-                .unwrap()
-                .get::<_, String>("name")
-                .unwrap(),
+                Object::from_value(token.ctx().catch(),)
+                    .unwrap()
+                    .get::<_, String>("name")
+                    .unwrap(),
                 "TypeError",
             );
 
             Error::interrupted().raise(token);
 
-            assert!(unsafe {
-                qjs::JS_IsUncatchableError(
-                    token
-                        .ctx()
-                        .catch()
-                        .as_raw(),
-                )
-            });
+            assert!(unsafe { qjs::JS_IsUncatchableError(token.ctx().catch().as_raw(),) });
         });
     }
 }
