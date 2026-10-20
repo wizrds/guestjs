@@ -19,7 +19,12 @@ use crate::{
     enter::Enter,
     errors::Error,
     host::{
+        context::{
+            CallContext,
+            FromContext,
+        },
         declaration::Declaration,
+        requirements::Requirements,
         state::HostState,
     },
     marshal::{
@@ -27,28 +32,6 @@ use crate::{
         ToGuest,
     },
 };
-
-pub struct CallContext<'e, 'js, B: Backend> {
-    enter: &'e Enter<'js, B>,
-    state: &'e HostState,
-}
-
-impl<'e, 'js, B: Backend> CallContext<'e, 'js, B> {
-    pub fn new(enter: &'e Enter<'js, B>, state: &'e HostState) -> Self {
-        Self {
-            enter,
-            state,
-        }
-    }
-
-    pub fn enter(&self) -> &'e Enter<'js, B> {
-        self.enter
-    }
-
-    pub fn state(&self) -> &'e HostState {
-        self.state
-    }
-}
 
 pub type FunctionBody<B> = Rc<
     dyn for<'e, 'js> Fn(
@@ -59,6 +42,18 @@ pub type FunctionBody<B> = Rc<
 
 pub struct FunctionDeclaration<B: Backend> {
     body: FunctionBody<B>,
+    requirements: Requirements,
+}
+
+impl<B: Backend> FunctionDeclaration<B> {
+    pub fn require<T>(mut self) -> Self
+    where
+        T: FromContext<B>,
+    {
+        T::declare(&mut self.requirements);
+
+        self
+    }
 }
 
 impl<B: BackendValues> FunctionDeclaration<B> {
@@ -72,6 +67,7 @@ impl<B: BackendValues> FunctionDeclaration<B> {
         R: ToGuest<B>,
     {
         Self {
+            requirements: Requirements::new(),
             body: Rc::new(move |context, args| {
                 function(context, args)?.to_guest(context.enter())
             }),
@@ -94,6 +90,7 @@ where
         R: ToGuest<B> + 'static,
     {
         Self {
+            requirements: Requirements::new(),
             body: Rc::new(move |context, args| {
                 PendingHostFutures::of(context.enter().guest()).register(
                     context.enter(),
@@ -114,6 +111,7 @@ impl<B: Backend> Clone for FunctionDeclaration<B> {
     fn clone(&self) -> Self {
         Self {
             body: self.body.clone(),
+            requirements: self.requirements.clone(),
         }
     }
 }
@@ -125,6 +123,8 @@ impl<B: BackendCallables> Declaration<B> for FunctionDeclaration<B> {
         state: &HostState,
         name: &str,
     ) -> Result<Val<'js, B>, Error> {
+        self.requirements.check(state)?;
+
         B::function(
             enter.token(),
             name,
@@ -164,11 +164,9 @@ mod tests {
         errors::Error,
         guest::Guest,
         host::{
+            context::CallContext,
             declaration::Declaration,
-            function::{
-                CallContext,
-                FunctionDeclaration,
-            },
+            function::FunctionDeclaration,
             state::HostState,
         },
         marshal::ToGuest,

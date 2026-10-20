@@ -30,13 +30,17 @@ use crate::{
         Payload,
     },
     host::{
+        context::{
+            CallContext,
+            FromContext,
+        },
         declaration::Declaration,
-        function::CallContext,
         namespace::NamespaceDeclaration,
         property::{
             PropertyDeclaration,
             PropertyKey,
         },
+        requirements::Requirements,
         state::HostState,
     },
     marshal::{
@@ -271,6 +275,7 @@ pub struct ClassDeclaration<B: Backend, C: Payload> {
     >,
     prototype: NamespaceDeclaration<B>,
     statics: NamespaceDeclaration<B>,
+    requirements: Requirements,
 }
 
 impl<B: Backend, C: Payload> ClassDeclaration<B, C> {
@@ -279,7 +284,17 @@ impl<B: Backend, C: Payload> ClassDeclaration<B, C> {
             constructor: None,
             prototype: NamespaceDeclaration::new(),
             statics: NamespaceDeclaration::new(),
+            requirements: Requirements::new(),
         }
+    }
+
+    pub fn require<T>(mut self) -> Self
+    where
+        T: FromContext<B>,
+    {
+        T::declare(&mut self.requirements);
+
+        self
     }
 
     pub fn constructor<F>(mut self, constructor: F) -> Self
@@ -299,7 +314,7 @@ impl<B: Backend, C: Payload> ClassDeclaration<B, C> {
     where
         K: Into<PropertyKey>,
     {
-        self.prototype = self.prototype.property(key, property);
+        self.prototype.property(key, property);
 
         self
     }
@@ -309,7 +324,7 @@ impl<B: Backend, C: Payload> ClassDeclaration<B, C> {
         K: Into<PropertyKey>,
         T: ToGuest<B> + Clone + 'static,
     {
-        self.prototype = self.prototype.value(key, value);
+        self.prototype.value(key, value);
 
         self
     }
@@ -319,7 +334,7 @@ impl<B: Backend, C: Payload> ClassDeclaration<B, C> {
         K: Into<PropertyKey>,
         T: ToGuest<B> + Clone + 'static,
     {
-        self.prototype = self.prototype.constant(key, value);
+        self.prototype.constant(key, value);
 
         self
     }
@@ -342,7 +357,7 @@ impl<B: BackendCallables, C: Payload> ClassDeclaration<B, C> {
             + 'static,
         R: ToGuest<B>,
     {
-        self.prototype = self.prototype.function(key, method);
+        self.prototype.function(key, method);
 
         self
     }
@@ -357,7 +372,7 @@ impl<B: BackendCallables, C: Payload> ClassDeclaration<B, C> {
             + 'static,
         R: ToGuest<B>,
     {
-        self.prototype = self.prototype.getter(key, get);
+        self.prototype.getter(key, get);
 
         self
     }
@@ -372,7 +387,7 @@ impl<B: BackendCallables, C: Payload> ClassDeclaration<B, C> {
             + 'static,
         R: ToGuest<B>,
     {
-        self.prototype = self.prototype.setter(key, set);
+        self.prototype.setter(key, set);
 
         self
     }
@@ -394,7 +409,7 @@ where
         Fut: Future<Output = Result<R, Error>> + 'static,
         R: ToGuest<B> + 'static,
     {
-        self.prototype = self.prototype.function_async(key, method);
+        self.prototype.function_async(key, method);
 
         self
     }
@@ -410,6 +425,8 @@ where
         enter: &Enter<'js, B>,
         state: &HostState,
     ) -> Result<RealisedClass<B>, Error> {
+        self.requirements.check(state)?;
+
         RealisedClasses::of(enter.guest()).get_or_realise::<C, _>(|| {
             let prototype = B::object(enter.token())?;
 
@@ -553,7 +570,13 @@ mod tests {
                     Ok(())
                 })
                 .constant("step", 1.0)
-                .statics(NamespaceDeclaration::new().value("zero", 0.0))
+                .statics({
+                    let mut namespace = NamespaceDeclaration::new();
+
+                    namespace.value("zero", 0.0);
+
+                    namespace
+                })
         }
     }
 

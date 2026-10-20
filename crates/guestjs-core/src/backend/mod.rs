@@ -60,21 +60,51 @@ pub trait Backend: Sized + 'static {
 #[cfg(test)]
 pub mod tests {
     use std::{
+        any::TypeId,
         cell::Cell,
         marker::PhantomData,
+        rc::Rc,
+        task::{
+            self,
+            Poll,
+        },
     };
 
     use crate::{
         backend::{
+            callables::{
+                BackendCallables,
+                RawBody,
+            },
+            classes::BackendClasses,
+            exceptions::BackendExceptions,
             interrupt::{
                 BackendInterrupt,
                 InterruptCondition,
+            },
+            library::BackendLibrary,
+            modules::{
+                BackendModules,
+                ModuleDispatcher,
+            },
+            promises::{
+                BackendPromises,
+                PromiseState,
+            },
+            values::{
+                BackendValues,
+                Kind,
+                Property,
+                WellKnown,
             },
             Backend,
             Tok,
             Val,
         },
-        errors::Error,
+        errors::{
+            Error,
+            GuestErrorKind,
+        },
     };
 
     pub struct Stub;
@@ -140,6 +170,364 @@ pub mod tests {
 
         fn owned_ptr_eq(_first: &Self::Owned, _second: &Self::Owned) -> bool {
             true
+        }
+    }
+
+    impl BackendValues for Stub {
+        fn undefined<'js>(_token: Tok<'js, Self>) -> Val<'js, Self> {
+            unimplemented!()
+        }
+
+        fn null<'js>(_token: Tok<'js, Self>) -> Val<'js, Self> {
+            unimplemented!()
+        }
+
+        fn boolean<'js>(_token: Tok<'js, Self>, _value: bool) -> Val<'js, Self> {
+            unimplemented!()
+        }
+
+        fn number<'js>(_token: Tok<'js, Self>, _value: f64) -> Val<'js, Self> {
+            unimplemented!()
+        }
+
+        fn bigint<'js>(
+            _token: Tok<'js, Self>,
+            _value: i64,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn string<'js>(
+            _token: Tok<'js, Self>,
+            _value: &str,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn symbol<'js>(
+            _token: Tok<'js, Self>,
+            _description: &str,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn well_known<'js>(
+            _token: Tok<'js, Self>,
+            _symbol: WellKnown,
+        ) -> Val<'js, Self> {
+            unimplemented!()
+        }
+
+        fn array<'js>(
+            _token: Tok<'js, Self>,
+            _items: Vec<Val<'js, Self>>,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn object<'js>(_token: Tok<'js, Self>) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn kind<'js>(_token: Tok<'js, Self>, _value: &Val<'js, Self>) -> Kind {
+            unimplemented!()
+        }
+
+        fn as_bool<'js>(
+            _token: Tok<'js, Self>,
+            _value: &Val<'js, Self>,
+        ) -> Result<bool, Error> {
+            unimplemented!()
+        }
+
+        fn as_f64<'js>(
+            _token: Tok<'js, Self>,
+            _value: &Val<'js, Self>,
+        ) -> Result<f64, Error> {
+            unimplemented!()
+        }
+
+        fn as_i64<'js>(
+            _token: Tok<'js, Self>,
+            _value: &Val<'js, Self>,
+        ) -> Result<i64, Error> {
+            unimplemented!()
+        }
+
+        fn as_string<'js>(
+            _token: Tok<'js, Self>,
+            _value: &Val<'js, Self>,
+        ) -> Result<String, Error> {
+            unimplemented!()
+        }
+
+        fn display<'js>(
+            _token: Tok<'js, Self>,
+            _value: &Val<'js, Self>,
+        ) -> Result<String, Error> {
+            unimplemented!()
+        }
+
+        fn same<'js>(
+            _token: Tok<'js, Self>,
+            _first: &Val<'js, Self>,
+            _second: &Val<'js, Self>,
+        ) -> bool {
+            unimplemented!()
+        }
+
+        fn get<'js>(
+            _token: Tok<'js, Self>,
+            _object: &Val<'js, Self>,
+            _key: &Val<'js, Self>,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn set<'js>(
+            _token: Tok<'js, Self>,
+            _object: &Val<'js, Self>,
+            _key: &Val<'js, Self>,
+            _value: Val<'js, Self>,
+        ) -> Result<(), Error> {
+            unimplemented!()
+        }
+
+        fn define<'js>(
+            _token: Tok<'js, Self>,
+            _object: &Val<'js, Self>,
+            _key: &Val<'js, Self>,
+            _property: Property<'js, Self>,
+        ) -> Result<(), Error> {
+            unimplemented!()
+        }
+
+        fn delete<'js>(
+            _token: Tok<'js, Self>,
+            _object: &Val<'js, Self>,
+            _key: &Val<'js, Self>,
+        ) -> Result<(), Error> {
+            unimplemented!()
+        }
+
+        fn has<'js>(
+            _token: Tok<'js, Self>,
+            _object: &Val<'js, Self>,
+            _key: &Val<'js, Self>,
+        ) -> Result<bool, Error> {
+            unimplemented!()
+        }
+
+        fn keys<'js>(
+            _token: Tok<'js, Self>,
+            _object: &Val<'js, Self>,
+        ) -> Result<Vec<Val<'js, Self>>, Error> {
+            unimplemented!()
+        }
+
+        fn instance_of<'js>(
+            _token: Tok<'js, Self>,
+            _value: &Val<'js, Self>,
+            _constructor: &Val<'js, Self>,
+        ) -> Result<bool, Error> {
+            unimplemented!()
+        }
+
+        fn prototype_of<'js>(
+            _token: Tok<'js, Self>,
+            _object: &Val<'js, Self>,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn set_prototype<'js>(
+            _token: Tok<'js, Self>,
+            _object: &Val<'js, Self>,
+            _prototype: &Val<'js, Self>,
+        ) -> Result<(), Error> {
+            unimplemented!()
+        }
+
+        fn call<'js>(
+            _token: Tok<'js, Self>,
+            _function: &Val<'js, Self>,
+            _this: &Val<'js, Self>,
+            _args: &[Val<'js, Self>],
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn construct<'js>(
+            _token: Tok<'js, Self>,
+            _constructor: &Val<'js, Self>,
+            _args: &[Val<'js, Self>],
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+    }
+
+    impl BackendCallables for Stub {
+        fn function<'js>(
+            _token: Tok<'js, Self>,
+            _name: &str,
+            _length: u32,
+            _body: RawBody<Self>,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+    }
+
+    impl BackendClasses for Stub {
+        type Ref<'a, C: 'static> = &'a C;
+        type RefMut<'a, C: 'static> = &'a mut C;
+
+        fn constructor<'js>(
+            _token: Tok<'js, Self>,
+            _name: &str,
+            _length: u32,
+            _body: RawBody<Self>,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn instantiate<'js, C: 'static>(
+            _token: Tok<'js, Self>,
+            _prototype: &Val<'js, Self>,
+            _payload: C,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn payload_type<'js>(
+            _token: Tok<'js, Self>,
+            _value: &Val<'js, Self>,
+        ) -> Option<TypeId> {
+            unimplemented!()
+        }
+
+        fn borrow<'js, 'a, C: 'static>(
+            _token: Tok<'js, Self>,
+            _value: &'a Val<'js, Self>,
+        ) -> Result<Self::Ref<'a, C>, Error> {
+            unimplemented!()
+        }
+
+        fn borrow_mut<'js, 'a, C: 'static>(
+            _token: Tok<'js, Self>,
+            _value: &'a Val<'js, Self>,
+        ) -> Result<Self::RefMut<'a, C>, Error> {
+            unimplemented!()
+        }
+    }
+
+    impl BackendExceptions for Stub {
+        fn throw<'js>(_token: Tok<'js, Self>, _value: Val<'js, Self>) -> Error {
+            unimplemented!()
+        }
+
+        fn exception<'js>(
+            _token: Tok<'js, Self>,
+            _error: Error,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn error<'js>(
+            _token: Tok<'js, Self>,
+            _kind: GuestErrorKind,
+            _message: &str,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+    }
+
+    impl BackendPromises for Stub {
+        fn promise<'js>(
+            _token: Tok<'js, Self>,
+        ) -> Result<(Val<'js, Self>, Val<'js, Self>, Val<'js, Self>), Error> {
+            unimplemented!()
+        }
+
+        fn resolve<'js>(
+            _token: Tok<'js, Self>,
+            _value: Val<'js, Self>,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn state<'js>(
+            _token: Tok<'js, Self>,
+            _promise: &Val<'js, Self>,
+        ) -> Result<PromiseState<Val<'js, Self>>, Error> {
+            unimplemented!()
+        }
+
+        fn poll_jobs(
+            _engine: &Self::Engine,
+            _context: &mut task::Context<'_>,
+        ) -> Poll<Result<bool, Error>> {
+            unimplemented!()
+        }
+    }
+
+    impl BackendModules for Stub {
+        type Module<'js> = ();
+
+        fn eval<'js>(
+            _token: Tok<'js, Self>,
+            _source: &str,
+            _name: &str,
+        ) -> Result<Val<'js, Self>, Error> {
+            unimplemented!()
+        }
+
+        fn declare<'js>(
+            _token: Tok<'js, Self>,
+            _name: &str,
+            _source: &str,
+        ) -> Result<Self::Module<'js>, Error> {
+            unimplemented!()
+        }
+
+        fn synthetic<'js>(
+            _token: Tok<'js, Self>,
+            _name: &str,
+            _exports: Vec<(String, Val<'js, Self>)>,
+        ) -> Result<Self::Module<'js>, Error> {
+            unimplemented!()
+        }
+
+        fn evaluate<'js>(
+            _token: Tok<'js, Self>,
+            _module: Self::Module<'js>,
+        ) -> Result<(Val<'js, Self>, Val<'js, Self>), Error> {
+            unimplemented!()
+        }
+
+        fn import<'js>(
+            _token: Tok<'js, Self>,
+            _name: &str,
+        ) -> Result<(Val<'js, Self>, Val<'js, Self>), Error> {
+            unimplemented!()
+        }
+
+        fn install(
+            _engine: &Self::Engine,
+            _dispatcher: Rc<dyn ModuleDispatcher<Self>>,
+        ) -> Result<(), Error> {
+            unimplemented!()
+        }
+    }
+
+    impl BackendLibrary for Stub {
+        type NativeModule = ();
+
+        fn declare_native<'js>(
+            _token: Tok<'js, Self>,
+            _native: &Self::NativeModule,
+            _name: &str,
+        ) -> Result<Self::Module<'js>, Error> {
+            unimplemented!()
         }
     }
 

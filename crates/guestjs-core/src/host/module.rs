@@ -16,16 +16,18 @@ use crate::{
     errors::Error,
     host::{
         class::HostClass,
+        context::{
+            CallContext,
+            FromContext,
+        },
         declaration::Declaration,
         exception::{
             ExceptionDeclaration,
             HostException,
         },
-        function::{
-            CallContext,
-            FunctionDeclaration,
-        },
+        function::FunctionDeclaration,
         namespace::NamespaceDeclaration,
+        requirements::Requirements,
         state::HostState,
         value::ValueDeclaration,
     },
@@ -37,6 +39,7 @@ use crate::{
 
 pub struct ModuleDeclaration<B: Backend> {
     name: String,
+    requirements: Requirements,
     members: Vec<(String, Rc<dyn Declaration<B>>)>,
     state: Box<dyn for<'js> Fn(&Enter<'js, B>) -> Result<HostState, Error>>,
 }
@@ -48,9 +51,19 @@ impl<B: Backend> ModuleDeclaration<B> {
     {
         Self {
             name: name.into(),
+            requirements: Requirements::new(),
             members: Vec::new(),
             state: Box::new(|_| Ok(HostState::empty())),
         }
+    }
+
+    pub fn require<T>(mut self) -> Self
+    where
+        T: FromContext<B>,
+    {
+        T::declare(&mut self.requirements);
+
+        self
     }
 
     pub fn member<N, D>(mut self, name: N, declaration: D) -> Self
@@ -90,6 +103,8 @@ impl<B: Backend> ModuleDeclaration<B> {
         enter: &Enter<'js, B>,
     ) -> Result<Vec<(String, Val<'js, B>)>, Error> {
         let state = (self.state)(enter)?;
+
+        self.requirements.check(&state)?;
 
         self.members
             .iter()
@@ -335,6 +350,12 @@ mod tests {
             })
             .class::<Counter>()
             .exception::<NetworkError>()
-            .namespace("units", NamespaceDeclaration::new().constant("METRE", 1.0));
+            .namespace("units", {
+                let mut namespace = NamespaceDeclaration::new();
+
+                namespace.constant("METRE", 1.0);
+
+                namespace
+            });
     }
 }

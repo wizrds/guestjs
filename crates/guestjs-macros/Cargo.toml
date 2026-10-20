@@ -10,6 +10,10 @@ readme.workspace = true
 [lib]
 proc-macro = true
 
+[features]
+default = []
+serde = []
+
 [dependencies]
 syn = { version = "3", features = ["full", "extra-traits"] }
 quote = "1"

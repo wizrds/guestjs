@@ -17,15 +17,13 @@ use crate::{
     errors::Error,
     host::{
         class::HostClass,
+        context::CallContext,
         declaration::Declaration,
         exception::{
             ExceptionDeclaration,
             HostException,
         },
-        function::{
-            CallContext,
-            FunctionDeclaration,
-        },
+        function::FunctionDeclaration,
         property::{
             PropertyDeclaration,
             PropertyKey,
@@ -50,7 +48,11 @@ impl<B: Backend> NamespaceDeclaration<B> {
         }
     }
 
-    pub fn property<K>(mut self, key: K, property: PropertyDeclaration<B>) -> Self
+    pub fn property<K>(
+        &mut self,
+        key: K,
+        property: PropertyDeclaration<B>,
+    ) -> &mut Self
     where
         K: Into<PropertyKey>,
     {
@@ -68,7 +70,7 @@ impl<B: Backend> NamespaceDeclaration<B> {
         self
     }
 
-    pub fn value<K, T>(self, key: K, value: T) -> Self
+    pub fn value<K, T>(&mut self, key: K, value: T) -> &mut Self
     where
         K: Into<PropertyKey>,
         T: ToGuest<B> + Clone + 'static,
@@ -76,7 +78,7 @@ impl<B: Backend> NamespaceDeclaration<B> {
         self.property(key, PropertyDeclaration::value(ValueDeclaration::new(value)))
     }
 
-    pub fn constant<K, T>(self, key: K, value: T) -> Self
+    pub fn constant<K, T>(&mut self, key: K, value: T) -> &mut Self
     where
         K: Into<PropertyKey>,
         T: ToGuest<B> + Clone + 'static,
@@ -86,7 +88,7 @@ impl<B: Backend> NamespaceDeclaration<B> {
 }
 
 impl<B: BackendCallables> NamespaceDeclaration<B> {
-    pub fn function<K, F, R>(self, key: K, function: F) -> Self
+    pub fn function<K, F, R>(&mut self, key: K, function: F) -> &mut Self
     where
         K: Into<PropertyKey>,
         F: for<'e, 'js> Fn(
@@ -102,7 +104,7 @@ impl<B: BackendCallables> NamespaceDeclaration<B> {
         )
     }
 
-    pub fn getter<K, F, R>(self, key: K, get: F) -> Self
+    pub fn getter<K, F, R>(&mut self, key: K, get: F) -> &mut Self
     where
         K: Into<PropertyKey>,
         F: for<'e, 'js> Fn(
@@ -118,7 +120,7 @@ impl<B: BackendCallables> NamespaceDeclaration<B> {
         )
     }
 
-    pub fn setter<K, F, R>(self, key: K, set: F) -> Self
+    pub fn setter<K, F, R>(&mut self, key: K, set: F) -> &mut Self
     where
         K: Into<PropertyKey>,
         F: for<'e, 'js> Fn(
@@ -134,7 +136,11 @@ impl<B: BackendCallables> NamespaceDeclaration<B> {
         )
     }
 
-    pub fn namespace<K>(self, key: K, namespace: NamespaceDeclaration<B>) -> Self
+    pub fn namespace<K>(
+        &mut self,
+        key: K,
+        namespace: NamespaceDeclaration<B>,
+    ) -> &mut Self
     where
         K: Into<PropertyKey>,
     {
@@ -164,7 +170,7 @@ impl<B> NamespaceDeclaration<B>
 where
     B: BackendCallables + BackendPromises + BackendExceptions,
 {
-    pub fn function_async<K, F, Fut, R>(self, key: K, function: F) -> Self
+    pub fn function_async<K, F, Fut, R>(&mut self, key: K, function: F) -> &mut Self
     where
         K: Into<PropertyKey>,
         F: for<'e, 'js> Fn(
@@ -186,14 +192,14 @@ impl<B> NamespaceDeclaration<B>
 where
     B: BackendClasses + BackendExceptions,
 {
-    pub fn class<C>(self) -> Self
+    pub fn class<C>(&mut self) -> &mut Self
     where
         C: HostClass<B>,
     {
         self.property(C::NAME, PropertyDeclaration::value(C::declaration()))
     }
 
-    pub fn exception<E>(self) -> Self
+    pub fn exception<E>(&mut self) -> &mut Self
     where
         E: HostException,
     {
