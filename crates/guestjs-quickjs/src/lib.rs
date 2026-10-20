@@ -7,4 +7,7 @@ pub mod engine;
 pub mod error;
 pub mod value;
 
+#[cfg(feature = "llrt")]
+pub mod llrt;
+
 pub use crate::{backend::QuickJs, engine::Config};

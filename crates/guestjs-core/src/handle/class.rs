@@ -330,6 +330,23 @@ impl<B: Backend, T> ToGuest<B> for &Instance<B, T> {
     }
 }
 
+pub struct Detached<C> {
+    payload: PhantomData<fn() -> C>,
+}
+
+impl<B, C> FromGuest<B> for Detached<C>
+where
+    B: BackendClasses,
+    C: Payload + Clone,
+{
+    type Owned = C;
+
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
+        Instance::<B, C>::from_guest(enter, value)?
+            .borrow_with(Clone::clone)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{any::TypeId, ops::Deref};

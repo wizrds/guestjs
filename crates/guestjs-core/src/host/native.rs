@@ -135,6 +135,42 @@ impl<B: BackendModules> Clone for NativeLibrary<B> {
     }
 }
 
+impl<B: BackendModules> FromIterator<NativeModule<B>> for NativeLibrary<B> {
+    fn from_iter<T: IntoIterator<Item = NativeModule<B>>>(iter: T) -> Self {
+        let mut library = Self::new();
+
+        for module in iter {
+            library = library.extend(module);
+        }
+
+        library
+    }
+}
+
+impl<B: BackendModules> FromIterator<NativeInitializer<B>> for NativeLibrary<B> {
+    fn from_iter<T: IntoIterator<Item = NativeInitializer<B>>>(iter: T) -> Self {
+        let mut library = Self::new();
+
+        for initializer in iter {
+            library = library.extend(initializer);
+        }
+
+        library
+    }
+}
+
+impl<B: BackendModules> FromIterator<NativeLibrary<B>> for NativeLibrary<B> {
+    fn from_iter<T: IntoIterator<Item = NativeLibrary<B>>>(iter: T) -> Self {
+        let mut library = Self::new();
+
+        for lib in iter {
+            library = library.extend(lib);
+        }
+
+        library
+    }
+}
+
 impl<B: BackendModules> From<NativeModule<B>> for NativeLibrary<B> {
     fn from(module: NativeModule<B>) -> Self {
         Self {
