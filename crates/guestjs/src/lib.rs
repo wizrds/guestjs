@@ -31,27 +31,13 @@
 //!     .guest()
 //!     .build()?;
 //!
-//! let first_module = first.guest_module(
-//!     "identity.js",
-//!     r#"
-//! globalThis.name = "first";
+//! first.exec("name = 'first'")?;
 //!
-//! export const name = globalThis.name;
-//! "#,
-//! )?;
+//! second.exec("name = 'second'")?;
 //!
-//! let second_module = second.guest_module(
-//!     "identity.js",
-//!     r#"
-//! globalThis.name = "second";
+//! assert_eq!(first.globals()?.get::<String, _>("name")?, "first");
 //!
-//! export const name = globalThis.name;
-//! "#,
-//! )?;
-//!
-//! assert_eq!(first_module.get::<String, _>("name")?, "first");
-//!
-//! assert_eq!(second_module.get::<String, _>("name")?, "second");
+//! assert_eq!(second.globals()?.get::<String, _>("name")?, "second");
 //! ```
 //!
 //! Bind host libraries, native libraries, and bundles to a runtime when all its guests should
@@ -71,18 +57,15 @@
 //! use guestjs::prelude::*;
 //! use guestjs::quickjs::{Config, QuickJs};
 //!
-//! let cancellation = Cancellation::default();
+//! let cancellation = Cancellation::new();
 //!
 //! let runtime = Runtime::<QuickJs>::builder()
 //!     .config(
 //!         Config::default()
 //!             .memory_limit(32 * 1024 * 1024),
 //!     )
-//!     .policy(
-//!         ExecutionPolicy::new()
-//!             .timeout(Duration::from_millis(50))
-//!             .cancellation(cancellation.clone()),
-//!     )
+//!     .timeout(Duration::from_millis(50))
+//!     .cancellation(cancellation.clone())
 //!     .build()?;
 //!
 //! let guest = runtime
@@ -91,10 +74,7 @@
 //!
 //! assert!(
 //!     guest
-//!         .enter(|enter| {
-//!             QuickJs::eval(enter.token(), "while (true) {}", "loop.js")
-//!                 .map(drop)
-//!         })
+//!         .exec("while (true) {}")
 //!         .is_err_and(|error| error.is_timeout()),
 //! );
 //!
@@ -102,7 +82,7 @@
 //!
 //! assert!(
 //!     guest
-//!         .enter(|_| Ok(()))
+//!         .eval::<f64>("1 + 1")
 //!         .is_err_and(|error| error.is_cancelled()),
 //! );
 //! ```
@@ -139,16 +119,12 @@
 //! )?;
 //!
 //! assert_eq!(
-//!     module
-//!         .get::<Object<_>, _>("settings")?
-//!         .get::<String, _>("prefix")?,
+//!     module.object("settings")?.get::<String, _>("prefix")?,
 //!     "hello",
 //! );
 //!
 //! assert_eq!(
-//!     module
-//!         .get::<Function<_>, _>("greet")?
-//!         .call::<String, _, _>((), ("Ada",))?,
+//!     module.function("greet")?.call::<_, String>(("Ada",))?,
 //!     "hello Ada",
 //! );
 //! ```
@@ -191,12 +167,7 @@
 //!
 //! let module = guest.load(&bundle)?;
 //!
-//! assert_eq!(
-//!     module
-//!         .get::<Function<_>, _>("run")?
-//!         .call::<f64, _, _>((), ())?,
-//!     42.0,
-//! );
+//! assert_eq!(module.function("run")?.call::<_, f64>(())?, 42.0);
 //! ```
 //!
 //! [`guestjs_core::bundle::Bundle`](guestjs_core::bundle::Bundle) paths name files relative to
@@ -237,7 +208,7 @@
 //!     .guest()
 //!     .build()?;
 //!
-//! let math = Math::new(
+//! let math = Math::from(
 //!     guest.guest_module(
 //!         "math.js",
 //!         r#"
@@ -295,7 +266,7 @@
 //!     .guest()
 //!     .build()?;
 //!
-//! let plugin = Plugin::new(
+//! let plugin = Plugin::from(
 //!     guest.guest_module(
 //!         "plugin.js",
 //!         r#"
@@ -359,18 +330,18 @@
 //!     .guest()
 //!     .build()?;
 //!
-//! let module = guest.guest_module(
-//!     "async.js",
+//! guest.exec(
 //!     r#"
-//! export async function double(value) {
+//! async function double(value) {
 //!     return value * 2;
 //! }
 //! "#,
 //! )?;
 //!
-//! let doubled = module
-//!     .get::<Function<_>, _>("double")?
-//!     .call::<Promise<_, f64>, _, _>((), (21.0,))?
+//! let doubled = guest
+//!     .globals()?
+//!     .function("double")?
+//!     .call::<_, Promise<_, f64>>((21.0,))?
 //!     .await?;
 //!
 //! assert_eq!(doubled, 42.0);
@@ -622,31 +593,18 @@
 //! use guestjs::prelude::*;
 //! use guestjs::quickjs::QuickJs;
 //!
-//! struct CountReader;
+//! fn read_count(guest: &Guest<QuickJs>) -> Result<Option<f64>, Error> {
+//!     match guest.eval::<f64>("JSON.parse('invalid')") {
+//!         Ok(count) => Ok(Some(count)),
+//!         Err(Error::Guest(exception)) if exception.matches("SyntaxError") => {
+//!             eprintln!(
+//!                 "guest rejected the count: {}",
+//!                 exception.message(),
+//!             );
 //!
-//! impl CountReader {
-//!     fn read(guest: &Guest<QuickJs>) -> Result<Option<f64>, Error> {
-//!         match guest.enter(|enter| {
-//!             f64::from_guest(
-//!                 enter,
-//!                 QuickJs::eval(
-//!                     enter.token(),
-//!                     "JSON.parse('invalid')",
-//!                     "count.js",
-//!                 )?,
-//!             )
-//!         }) {
-//!             Ok(count) => Ok(Some(count)),
-//!             Err(Error::Guest(exception)) if exception.matches("SyntaxError") => {
-//!                 eprintln!(
-//!                     "guest rejected the count: {}",
-//!                     exception.message(),
-//!                 );
-//!
-//!                 Ok(None)
-//!             }
-//!             Err(error) => Err(error),
+//!             Ok(None)
 //!         }
+//!         Err(error) => Err(error),
 //!     }
 //! }
 //! ```
@@ -736,8 +694,8 @@
 //! ```ignore
 //! match guest
 //!     .host_module("host_validation")?
-//!     .get::<Function<_>, _>("check")?
-//!     .call::<(), _, _>((), ("",))
+//!     .function("check")?
+//!     .call::<_, ()>(("",))
 //! {
 //!     Ok(()) => {},
 //!     Err(error) if InvalidInput::caught(&error) => {

@@ -80,7 +80,7 @@ impl<B: BackendValues, R> Class<B, R> {
         A: ToGuestArgs<B>,
         O: FromGuest<B>,
     {
-        ConstructorProtocol::construct::<O, A>(self, args)
+        ConstructorProtocol::construct::<A, O>(self, args)
     }
 }
 

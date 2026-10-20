@@ -6,6 +6,8 @@ use crate::{
     errors::Error,
     handle::{
         class::Class,
+        function::Function,
+        object::Object,
         HasHandle,
     },
     marshal::{
@@ -36,6 +38,27 @@ pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
                 B::get(enter.token(), object, &key.to_guest(enter)?)?,
             )
         })
+    }
+
+    fn object<K>(&self, key: K) -> Result<Object<B>, Error>
+    where
+        K: ToGuest<B>,
+    {
+        self.get::<Object<B>, _>(key)
+    }
+
+    fn function<K>(&self, key: K) -> Result<Function<B>, Error>
+    where
+        K: ToGuest<B>,
+    {
+        self.get::<Function<B>, _>(key)
+    }
+
+    fn class<K>(&self, key: K) -> Result<Class<B>, Error>
+    where
+        K: ToGuest<B>,
+    {
+        self.get::<Class<B>, _>(key)
     }
 
     fn set<K, V>(&self, key: K, value: V) -> Result<(), Error>
@@ -89,15 +112,15 @@ pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
         })
     }
 
-    fn call_method<R, K, A>(
+    fn call_method<K, A, R>(
         &self,
         key: K,
         args: A,
     ) -> Result<R::Owned, Error>
     where
-        R: FromGuest<B>,
         K: ToGuest<B>,
         A: ToGuestArgs<B>,
+        R: FromGuest<B>,
     {
         self.handle().with_enter(|enter, object| {
             R::from_guest(
@@ -118,11 +141,11 @@ pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
 }
 
 pub trait CallableProtocol<B: BackendValues>: HasHandle<B> {
-    fn call<R, T, A>(&self, this: T, args: A) -> Result<R::Owned, Error>
+    fn call_this<T, A, R>(&self, this: T, args: A) -> Result<R::Owned, Error>
     where
-        R: FromGuest<B>,
         T: ToGuest<B>,
         A: ToGuestArgs<B>,
+        R: FromGuest<B>,
     {
         self.handle().with_enter(|enter, function| {
             R::from_guest(
@@ -136,13 +159,21 @@ pub trait CallableProtocol<B: BackendValues>: HasHandle<B> {
             )
         })
     }
+
+    fn call<A, R>(&self, args: A) -> Result<R::Owned, Error>
+    where
+        A: ToGuestArgs<B>,
+        R: FromGuest<B>,
+    {
+        self.call_this::<_, _, R>((), args)
+    }
 }
 
 pub trait ConstructorProtocol<B: BackendValues>: HasHandle<B> {
-    fn construct<R, A>(&self, args: A) -> Result<R::Owned, Error>
+    fn construct<A, R>(&self, args: A) -> Result<R::Owned, Error>
     where
-        R: FromGuest<B>,
         A: ToGuestArgs<B>,
+        R: FromGuest<B>,
     {
         self.handle().with_enter(|enter, constructor| {
             R::from_guest(

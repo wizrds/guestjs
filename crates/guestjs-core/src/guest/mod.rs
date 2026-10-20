@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn interruption_is_named_by_the_guest_whose_policy_is_due() {
         let runtime = Runtime::<Stub>::new(()).unwrap();
-        let cancellation = Cancellation::default();
+        let cancellation = Cancellation::new();
         let outer = Guest::with_policy(
             &runtime,
             ExecutionPolicy::new().cancellation(cancellation.clone()),
@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn due_guest_refuses_entries_and_callbacks() {
         let runtime = Runtime::<Stub>::new(()).unwrap();
-        let cancellation = Cancellation::default();
+        let cancellation = Cancellation::new();
         let guest = Guest::with_policy(
             &runtime,
             ExecutionPolicy::new().cancellation(cancellation.clone()),

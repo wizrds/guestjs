@@ -11,6 +11,7 @@ pub mod errors;
 pub mod extensions;
 pub mod guest;
 pub mod handle;
+pub mod eval;
 pub mod host;
 pub mod imports;
 pub mod marshal;

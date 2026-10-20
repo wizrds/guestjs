@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::{
     backend::{
         interrupt::BackendInterrupt,
@@ -15,7 +17,10 @@ use crate::{
         bindings::GuestBindings,
         Imports,
     },
-    policy::ExecutionPolicy,
+    policy::{
+        CancelSignal,
+        ExecutionPolicy,
+    },
     runtime::Runtime,
 };
 
@@ -100,6 +105,24 @@ where
 {
     pub fn policy(mut self, policy: ExecutionPolicy) -> Self {
         self.policy = policy;
+
+        self
+    }
+
+    pub fn timeout<T>(mut self, timeout: T) -> Self
+    where
+        T: Into<Duration>,
+    {
+        self.policy = self.policy.timeout(timeout);
+
+        self
+    }
+
+    pub fn cancellation<S>(mut self, signal: S) -> Self
+    where
+        S: CancelSignal,
+    {
+        self.policy = self.policy.cancellation(signal);
 
         self
     }
@@ -195,6 +218,15 @@ where
 {
     pub fn policy(mut self, policy: ExecutionPolicy) -> Self {
         self.policy = policy;
+
+        self
+    }
+
+    pub fn timeout<T>(mut self, timeout: T) -> Self
+    where
+        T: Into<Duration>,
+    {
+        self.policy = self.policy.timeout(timeout);
 
         self
     }

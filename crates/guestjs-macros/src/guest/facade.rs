@@ -75,7 +75,7 @@ impl GuestFacadeKind {
         match self {
             Self::Class => quote! {
                 #krate::handle::protocol::ObjectProtocol::call_method::<
-                    #descriptor, _, _,
+                    _, _, #descriptor,
                 >(
                     #receiver,
                     #guest_name,
@@ -84,12 +84,12 @@ impl GuestFacadeKind {
             },
             Self::Module => quote! {
                 #krate::handle::protocol::CallableProtocol::call::<
-                    #descriptor, _, _,
+                    _, #descriptor,
                 >(
-                    &#krate::handle::protocol::ObjectProtocol::get::<
-                        #krate::handle::function::Function<B>, _,
-                    >(#receiver, #guest_name)?,
-                    (),
+                    &#krate::handle::protocol::ObjectProtocol::function(
+                        #receiver,
+                        #guest_name,
+                    )?,
                     (#(#arguments,)*),
                 )
             },

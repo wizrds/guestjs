@@ -53,7 +53,7 @@ impl GuestClassMacro {
 
             #(#conditions)*
             impl<B: #krate::backend::Backend> #name<B> {
-                pub fn new(instance: #inner) -> Self {
+                fn new(instance: #inner) -> Self {
                     Self { instance }
                 }
 
@@ -69,6 +69,33 @@ impl GuestClassMacro {
             #(#conditions)*
             impl<B: #krate::backend::values::BackendValues> #name<B> {
                 #(#methods)*
+            }
+
+            #(#conditions)*
+            impl<B: #krate::backend::Backend> ::core::convert::AsRef<#inner>
+                for #name<B>
+            {
+                fn as_ref(&self) -> &#inner {
+                    self.instance()
+                }
+            }
+
+            #(#conditions)*
+            impl<B: #krate::backend::Backend> ::core::convert::From<#inner>
+                for #name<B>
+            {
+                fn from(instance: #inner) -> Self {
+                    Self::new(instance)
+                }
+            }
+
+            #(#conditions)*
+            impl<B: #krate::backend::Backend> ::core::convert::Into<#inner>
+                for #name<B>
+            {
+                fn into(self) -> #inner {
+                    self.into_instance()
+                }
             }
 
             #(#conditions)*
@@ -158,7 +185,7 @@ mod tests {
             )
             .unwrap()
             .items.len(),
-            7,
+            10,
         );
     }
 }

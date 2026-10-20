@@ -19,20 +19,43 @@ pub trait CancelSignal: 'static {
     fn is_cancelled(&self) -> bool;
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 pub struct Cancellation {
     cancelled: Arc<AtomicBool>,
 }
 
 impl Cancellation {
+    pub fn new() -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
+    }
+}
+
+impl Default for Cancellation {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl CancelSignal for Cancellation {
     fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Relaxed)
+        Cancellation::is_cancelled(self)
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl CancelSignal for tokio_util::sync::CancellationToken {
+    fn is_cancelled(&self) -> bool {
+        tokio_util::sync::CancellationToken::is_cancelled(self)
     }
 }
 
@@ -159,7 +182,7 @@ mod tests {
 
     #[test]
     fn cancellation_crosses_threads() {
-        let cancellation = Cancellation::default();
+        let cancellation = Cancellation::new();
         let armed = ExecutionPolicy::new()
             .cancellation(cancellation.clone())
             .arm();
@@ -175,7 +198,7 @@ mod tests {
 
     #[test]
     fn expired_deadline_takes_precedence_over_cancellation() {
-        let cancellation = Cancellation::default();
+        let cancellation = Cancellation::new();
 
         cancellation.cancel();
 

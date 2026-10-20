@@ -12,6 +12,7 @@ async-trait = { workspace = true }
 futures = { workspace = true }
 include_dir = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["fs"] }
+tokio-util = { workspace = true, optional = true }
 
 serde = { workspace = true, optional = true }
 
@@ -25,5 +26,5 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 [features]
 default = []
 embedded = ["dep:include_dir"]
-tokio = ["dep:tokio"]
+tokio = ["dep:tokio", "dep:tokio-util"]
 serde = ["dep:serde"]

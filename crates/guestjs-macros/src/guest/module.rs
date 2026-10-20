@@ -46,10 +46,6 @@ impl GuestModuleMacro {
 
             #(#conditions)*
             impl<B: #krate::backend::Backend> #name<B> {
-                pub fn new(module: #inner) -> Self {
-                    Self { module }
-                }
-
                 pub fn module(&self) -> &#inner {
                     &self.module
                 }
@@ -65,11 +61,20 @@ impl GuestModuleMacro {
             }
 
             #(#conditions)*
+            impl<B: #krate::backend::Backend> ::core::convert::From<#inner>
+                for #name<B>
+            {
+                fn from(module: #inner) -> Self {
+                    Self { module }
+                }
+            }
+
+            #(#conditions)*
             impl<B: #krate::backend::Backend> ::core::clone::Clone
                 for #name<B>
             {
                 fn clone(&self) -> Self {
-                    Self::new(self.module().clone())
+                    Self::from(self.module().clone())
                 }
             }
 
@@ -98,7 +103,7 @@ impl GuestModuleMacro {
                     <#inner as #krate::marshal::FromGuest<B>>::from_guest(
                         enter,
                         value,
-                    ).map(Self::new)
+                    ).map(Self::from)
                 }
             }
 
@@ -151,7 +156,7 @@ mod tests {
             )
             .unwrap()
             .items.len(),
-            7,
+            8,
         );
     }
 }

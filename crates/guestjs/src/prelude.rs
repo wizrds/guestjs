@@ -20,6 +20,7 @@ pub use crate::{
     },
     enter::*,
     errors::*,
+    eval::*,
     extensions::*,
     guest::{
         activity::*,

@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn outermost_activation_owns_the_armed_policy() {
-        let cancellation = Cancellation::default();
+        let cancellation = Cancellation::new();
         let activity = GuestActivity::new(
             ExecutionPolicy::new().cancellation(cancellation.clone()),
         );
