@@ -17,7 +17,7 @@ thiserror = { workspace = true }
 rquickjs = { version = "0.14.0", features = ["full-async"] }
 rquickjs-serde = { version = "0.8" }
 
-llrt_modules = { git = "https://github.com/awslabs/llrt", rev = "d2ae1d9", default-features = false, features = ["path", "timers"], optional = true }
+llrt_modules = { git = "https://github.com/awslabs/llrt", rev = "d2ae1d9", default-features = false, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
@@ -25,18 +25,22 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 [features]
 default = []
 llrt = ["dep:llrt_modules"]
+llrt-abort = ["llrt", "llrt_modules/abort"]
 llrt-buffer = ["llrt", "llrt_modules/buffer"]
 llrt-console = ["llrt", "llrt_modules/console"]
 llrt-fetch = [
     "llrt",
-    "llrt_modules/abort",
-    "llrt_modules/buffer",
+    "llrt-abort",
+    "llrt-buffer",
+    "llrt-stream-web",
+    "llrt-url",
     "llrt_modules/fetch",
-    "llrt_modules/stream-web",
     "llrt_modules/tls-ring",
-    "llrt_modules/url",
 ]
-llrt-fs = ["llrt", "llrt_modules/buffer", "llrt_modules/fs"]
+llrt-fs = ["llrt", "llrt-buffer", "llrt_modules/fs"]
 llrt-os = ["llrt", "llrt_modules/os"]
+llrt-path = ["llrt", "llrt_modules/path"]
+llrt-stream-web = ["llrt", "llrt_modules/stream-web"]
+llrt-timers = ["llrt", "llrt_modules/timers"]
 llrt-url = ["llrt", "llrt_modules/url"]
 

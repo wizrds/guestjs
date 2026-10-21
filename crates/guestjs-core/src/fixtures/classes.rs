@@ -2,16 +2,10 @@ use std::cell::Cell;
 
 use crate::{
     backend::{
-        Val,
-        classes::BackendClasses,
-        exceptions::BackendExceptions,
-        interrupt::BackendInterrupt,
-        modules::BackendModules,
-        promises::BackendPromises,
-        values::{BackendValues, WellKnown},
+        classes::BackendClasses, exceptions::BackendExceptions, interrupt::BackendInterrupt,
+        modules::BackendModules, promises::BackendPromises, values::WellKnown,
     },
     builder::{GuestBuilderExt, RuntimeBuilderExt},
-    enter::Enter,
     errors::Error,
     eval::{GuestEvalExt, GuestGlobalsExt},
     fixtures::guest_fixture,
@@ -30,7 +24,7 @@ use crate::{
         module::ModuleDeclaration,
     },
     imports::GuestModulesExt,
-    marshal::ToGuest,
+    marshal::{ToGuest, collections::IterItem},
     runtime::Runtime,
 };
 
@@ -205,32 +199,6 @@ where
     }
 }
 
-struct IterationResult {
-    value: Option<i64>,
-}
-
-impl IterationResult {
-    fn new(value: Option<i64>) -> Self {
-        Self { value }
-    }
-}
-
-impl<B: BackendValues> ToGuest<B> for IterationResult {
-    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
-        let result = B::new_object(enter.token())?;
-
-        B::set(enter.token(), &result, &"value".to_guest(enter)?, self.value.to_guest(enter)?)?;
-        B::set(
-            enter.token(),
-            &result,
-            &"done".to_guest(enter)?,
-            self.value.is_none().to_guest(enter)?,
-        )?;
-
-        Ok(result)
-    }
-}
-
 struct Sequence {
     value: Cell<i64>,
 }
@@ -240,12 +208,12 @@ impl Sequence {
         Self { value: Cell::new(0) }
     }
 
-    fn next_result(&self) -> IterationResult {
+    fn next_result(&self) -> IterItem<i64> {
         let next = self.value.get() + 1;
 
         self.value.set(next);
 
-        IterationResult::new((next <= 2).then_some(next))
+        IterItem::new((next <= 2).then_some(next))
     }
 }
 

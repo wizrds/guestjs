@@ -2,7 +2,6 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     hash::Hash,
     iter::from_fn,
-    marker::PhantomData,
     vec::IntoIter,
 };
 
@@ -148,7 +147,13 @@ impl<'js, B: Backend> IntoIterator for Members<'js, B> {
 }
 
 pub struct IterItem<T> {
-    target: PhantomData<fn() -> T>,
+    value: Option<T>,
+}
+
+impl<T> IterItem<T> {
+    pub fn new(value: Option<T>) -> Self {
+        Self { value }
+    }
 }
 
 impl<T> Describe for IterItem<T> {
@@ -171,6 +176,25 @@ where
                 .transpose(),
             kind => Err(Expected::of::<Self>().mismatch(kind)),
         }
+    }
+}
+
+impl<B, T> ToGuest<B> for IterItem<T>
+where
+    B: BackendValues,
+    T: ToGuest<B>,
+{
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        let item = B::new_object(enter.token())?;
+        let (value, done) = match self.value {
+            Some(value) => (value.to_guest(enter)?, false),
+            None => (B::new_undefined(enter.token()), true),
+        };
+
+        B::set(enter.token(), &item, &"value".to_guest(enter)?, value)?;
+        B::set(enter.token(), &item, &"done".to_guest(enter)?, done.to_guest(enter)?)?;
+
+        Ok(item)
     }
 }
 

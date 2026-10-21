@@ -30,6 +30,7 @@ The backend is reexported through guestjs, so ordinary embedding does not requir
 | Feature | Behavior |
 | --- | --- |
 | `quickjs` | Enables the `QuickJs` backend through `guestjs::quickjs`. |
+| `llrt-*` | Enables the matching LLRT library on the `QuickJs` backend. See "LLRT libraries". |
 | `embedded` | Enables embedded source/data bundles. |
 | `serde` | Enables serde-backed conversion and the `ToGuest`/`FromGuest` derives. |
 | `bytes` | Enables `Bytes` conversion for guest binary data. |
@@ -658,6 +659,71 @@ impl Buffers {
 }
 ```
 
+### Host iterators and streams
+
+A host function can give the guest a Rust iterator, `Stream` or `Sink` without collecting it first:
+
+| Return | Guest receives |
+| --- | --- |
+| `Iterable::new(iterator)` | a JavaScript iterator, for `for...of` and spread |
+| `AsyncIterable::new(stream)` | a JavaScript async iterator, for `for await...of` |
+| `StreamSource::new(stream)` | a `ReadableStream` that pulls from the `Stream` |
+| `StreamSink::<_, T>::new(sink)` | a `WritableStream` that reads each chunk as `T` and sends it into the `Sink` |
+
+```rust
+use futures::{SinkExt, StreamExt, sink, stream};
+use guestjs::prelude::*;
+
+let mut namespace = NamespaceDeclaration::new();
+
+namespace
+    .function("numbers", |_, _| Ok(Iterable::new(1..=3)))
+    .function("letters", |_, _| {
+        Ok(AsyncIterable::new(stream::iter(["a", "b"]).map(Ok::<_, Error>)))
+    })
+    .function("lines", |_, _| {
+        Ok(StreamSource::new(stream::iter(["a", "b"]).map(Ok::<_, Error>)))
+    })
+    .function("discard", |_, _| {
+        Ok(StreamSink::<_, String>::new(sink::drain().sink_map_err(|never| match never {})))
+    });
+```
+
+```javascript
+const counted = [...numbers()];
+const collected = [];
+
+for await (const letter of letters()) {
+    collected.push(letter);
+}
+
+await lines().pipeTo(discard());
+```
+
+Streams and async iterators yield `Result` items. An `Err` rejects the guest's pending read and
+ends the iteration or errors the stream. The guest pulls items only when it reads, so a slow guest
+holds back the Rust stream. Calls from the guest are served in the order they were made.
+
+`StreamSource` and `StreamSink` construct the guest's own `ReadableStream` and `WritableStream`,
+so the guest must define them. QuickJS does not define them by default. Enable the
+`llrt-stream-web` feature and bind the library:
+
+```toml
+[dependencies]
+guestjs = { git = "https://github.com/wizrds/guestjs", features = ["quickjs", "llrt-stream-web"] }
+```
+
+```rust
+use guestjs::prelude::*;
+use guestjs::quickjs::{QuickJs, llrt::Llrt};
+
+let runtime = Runtime::<QuickJs>::builder()
+    .bind_native(Llrt::builder().stream_web().build())
+    .build()?;
+```
+
+This also makes `stream/web` and `node:stream/web` importable.
+
 ## Native libraries
 
 Native libraries are the backend-specific escape hatch for integrations that cannot be expressed as host declarations. This advanced `QuickJs` example needs a compatible direct rquickjs dependency because it implements that dependency's `ModuleDef`:
@@ -702,6 +768,48 @@ let runtime = Runtime::<QuickJs>::builder()
 ```
 
 Use rquickjs 0.14 with full-async enabled to match this backend. Bind a native module directly, or combine native modules and initializers in `NativeLibrary`. Native code is not loaded from source bundles, and binding native modules does not grant complete Node.js compatibility.
+
+### LLRT libraries
+
+The `QuickJs` backend can install modules from [LLRT](https://github.com/awslabs/llrt). Each one
+has a `guestjs` feature and a matching `Llrt::builder()` method:
+
+| Feature | Method | Guest gets |
+| --- | --- | --- |
+| `llrt-abort` | `abort()` | `AbortController`, `AbortSignal` |
+| `llrt-buffer` | `buffer()` | `Buffer`, the `buffer` module |
+| `llrt-console` | `console()` | `console`, the `console` module |
+| `llrt-fetch` | `fetch()` | `fetch`, `Request`, `Response`, `Headers`, `FormData` |
+| `llrt-fs` | `fs()` | the `fs` and `fs/promises` modules |
+| `llrt-os` | `os()` | the `os` module |
+| `llrt-path` | `path()` | the `path` module |
+| `llrt-stream-web` | `stream_web()` | `ReadableStream`, `WritableStream`, `TransformStream` and their helpers, the `stream/web` module |
+| `llrt-timers` | `timers()` | `setTimeout`, `setInterval`, `setImmediate`, their `clear*` functions, `queueMicrotask`, the `timers` module |
+| `llrt-url` | `url()` | `URL`, `URLSearchParams`, the `url` module |
+
+Every module is also importable with a `node:` prefix. `llrt-fetch` also enables `llrt-abort`,
+`llrt-buffer`, `llrt-stream-web` and `llrt-url`, and `llrt-fs` also enables `llrt-buffer`.
+
+```toml
+[dependencies]
+guestjs = { git = "https://github.com/wizrds/guestjs", features = ["quickjs", "llrt-timers", "llrt-url"] }
+```
+
+```rust
+use guestjs::prelude::*;
+use guestjs::quickjs::{QuickJs, llrt::Llrt};
+
+let runtime = Runtime::<QuickJs>::builder()
+    .bind_native(
+        Llrt::builder()
+            .timers()
+            .url()
+            .build(),
+    )
+    .build()?;
+```
+
+`timers` and `fetch` run on Tokio, so a guest using them must be awaited inside a Tokio runtime.
 
 ## Direct guest entry
 

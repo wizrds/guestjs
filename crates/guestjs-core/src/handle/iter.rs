@@ -1,4 +1,11 @@
-use std::marker::PhantomData;
+use std::{
+    future::{IntoFuture, poll_fn},
+    marker::PhantomData,
+    pin::{Pin, pin},
+    task::{Context, Poll},
+};
+
+use futures::Stream;
 
 use crate::{
     backend::{
@@ -10,7 +17,7 @@ use crate::{
     driver::promise::PromiseFuture,
     enter::Enter,
     errors::Error,
-    handle::{HasHandle, base::Handle},
+    handle::{HasHandle, base::Handle, promise::Awaitable, stream::StreamFuture},
     marshal::{
         FromGuest, ToGuest,
         collections::IterItem,
@@ -103,39 +110,52 @@ impl<B: Backend, T> ToGuest<B> for &Iter<B, T> {
     }
 }
 
-pub struct AsyncIter<B: Backend, T> {
+pub struct AsyncIter<B: Backend, T: FromGuest<B>> {
     iterator: Handle<B>,
+    pending: Option<StreamFuture<Option<T::Owned>>>,
     done: bool,
-    target: PhantomData<fn() -> T>,
 }
+
+impl<B: Backend, T: FromGuest<B>> Unpin for AsyncIter<B, T> {}
 
 impl<B, T> AsyncIter<B, T>
 where
     B: BackendPromises + BackendExceptions,
-    T: FromGuest<B>,
+    T: FromGuest<B> + 'static,
 {
     pub async fn next(&mut self) -> Result<Option<T::Owned>, Error> {
-        match self.done {
-            true => Ok(None),
-            false => {
-                let step = match self
-                    .iterator
-                    .with_enter(|enter, iterator| {
-                        PromiseFuture::new(enter, B::next(enter.token(), iterator)?)
-                    }) {
-                    Ok(future) => future.await.and_then(|owned| {
-                        self.iterator.guest().enter(|enter| {
-                            IterItem::<T>::from_guest(enter, B::attach(enter.token(), &owned)?)
-                        })
-                    }),
-                    Err(error) => Err(error),
-                };
+        if self.done {
+            return Ok(None);
+        }
 
-                self.done = !matches!(step, Ok(Some(_)));
+        if self.pending.is_none() {
+            match self
+                .iterator
+                .with_enter(|enter, iterator| {
+                    Awaitable::<IterItem<T>>::from_guest(enter, B::next(enter.token(), iterator)?)
+                }) {
+                Ok(promise) => self.pending = Some(promise.into_future()),
+                Err(error) => {
+                    self.done = true;
 
-                step
+                    return Err(error);
+                }
             }
         }
+
+        let step = poll_fn(|context| {
+            self.pending
+                .as_mut()
+                .unwrap()
+                .as_mut()
+                .poll(context)
+        })
+        .await;
+
+        self.pending = None;
+        self.done = !matches!(&step, Ok(Some(_)));
+
+        step
     }
 
     pub async fn close(self) -> Result<(), Error> {
@@ -152,13 +172,27 @@ where
     }
 }
 
-impl<B: Backend, T> HasHandle<B> for AsyncIter<B, T> {
+impl<B, T> Stream for AsyncIter<B, T>
+where
+    B: BackendPromises + BackendExceptions,
+    T: FromGuest<B> + 'static,
+{
+    type Item = Result<T::Owned, Error>;
+
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        pin!(self.get_mut().next())
+            .poll(context)
+            .map(Result::transpose)
+    }
+}
+
+impl<B: Backend, T: FromGuest<B>> HasHandle<B> for AsyncIter<B, T> {
     fn handle(&self) -> &Handle<B> {
         &self.iterator
     }
 }
 
-impl<B: Backend, T> Describe for AsyncIter<B, T> {
+impl<B: Backend, T: FromGuest<B>> Describe for AsyncIter<B, T> {
     fn describe(expected: &mut Expected) {
         expected.push("async iterable");
     }
@@ -167,7 +201,7 @@ impl<B: Backend, T> Describe for AsyncIter<B, T> {
 impl<B, T> FromGuest<B> for AsyncIter<B, T>
 where
     B: BackendValues,
-    T: 'static,
+    T: FromGuest<B> + 'static,
 {
     type Owned = Self;
 
@@ -175,21 +209,21 @@ where
         match B::iter(enter.token(), &value, IteratorKind::Async)? {
             Some(iterator) => Ok(Self {
                 iterator: Handle::from_value(enter, iterator),
+                pending: None,
                 done: false,
-                target: PhantomData,
             }),
             None => Err(Expected::of::<Self>().mismatch(B::kind(enter.token(), &value))),
         }
     }
 }
 
-impl<B: Backend, T> ToGuest<B> for AsyncIter<B, T> {
+impl<B: Backend, T: FromGuest<B>> ToGuest<B> for AsyncIter<B, T> {
     fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.iterator.attach(enter)
     }
 }
 
-impl<B: Backend, T> ToGuest<B> for &AsyncIter<B, T> {
+impl<B: Backend, T: FromGuest<B>> ToGuest<B> for &AsyncIter<B, T> {
     fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
         self.iterator.attach(enter)
     }
@@ -197,8 +231,13 @@ impl<B: Backend, T> ToGuest<B> for &AsyncIter<B, T> {
 
 #[cfg(test)]
 mod tests {
+    use futures::Stream;
+
     use crate::{
-        backend::{tests::Stub, values::BackendValues},
+        backend::{
+            exceptions::BackendExceptions, promises::BackendPromises, tests::Stub,
+            values::BackendValues,
+        },
         handle::iter::{AsyncIter, Iter},
         marshal::{FromGuest, ToGuest, describe::Expected},
     };
@@ -216,10 +255,12 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    fn async_iter_capabilities<B: BackendValues>() {
+    fn async_iter_capabilities<B: BackendPromises + BackendExceptions>() {
+        fn stream<T: Stream + Unpin>() {}
         fn from<B: BackendValues, T: FromGuest<B>>() {}
         fn to<B: BackendValues, T: ToGuest<B>>() {}
 
+        stream::<AsyncIter<B, String>>();
         from::<B, AsyncIter<B, String>>();
         to::<B, AsyncIter<B, String>>();
         to::<B, &AsyncIter<B, String>>();

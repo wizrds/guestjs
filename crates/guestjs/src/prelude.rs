@@ -18,8 +18,9 @@ pub use crate::{
         object::*, promise::*, protocol::*, stream::*, value::*,
     },
     host::{
-        class::*, context::*, declaration::*, exception::*, function::*, library::*, module::*,
-        namespace::*, native::*, property::*, requirements::*, state::*, value::*,
+        class::*, context::*, declaration::*, exception::*, function::*, iter::*, library::*,
+        module::*, namespace::*, native::*, property::*, requirements::*, state::*, stream::*,
+        value::*,
     },
     imports::{GuestModules, GuestModulesExt, Imports, bindings::*, realise::*, resolver::*},
     marshal::{

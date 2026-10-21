@@ -1,11 +1,11 @@
 use std::{
     future::{IntoFuture, poll_fn},
     marker::PhantomData,
-    pin::Pin,
+    pin::{Pin, pin},
     task::{Context, Poll},
 };
 
-use futures::{Sink, SinkExt, Stream, StreamExt};
+use futures::{Sink, SinkExt, Stream};
 
 use crate::{
     backend::{
@@ -28,7 +28,7 @@ use crate::{
     },
 };
 
-type StreamFuture<T> = Pin<Box<dyn Future<Output = Result<T, Error>>>>;
+pub type StreamFuture<T> = Pin<Box<dyn Future<Output = Result<T, Error>>>>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum ReaderPhase {
@@ -287,7 +287,40 @@ where
             return Err(Error::unexpected("reader lock was released"));
         }
 
-        self.next().await.transpose()
+        if self.phase == ReaderPhase::Done {
+            return Ok(None);
+        }
+
+        if self.pending.is_none() {
+            match self
+                .object
+                .call_method::<_, _, Awaitable<IterItem<T>>>("read", ())
+            {
+                Ok(promise) => self.pending = Some(promise.into_future()),
+                Err(error) => {
+                    self.phase = ReaderPhase::Done;
+
+                    return Err(error);
+                }
+            }
+        }
+
+        let step = poll_fn(|context| {
+            self.pending
+                .as_mut()
+                .unwrap()
+                .as_mut()
+                .poll(context)
+        })
+        .await;
+
+        self.pending = None;
+
+        if !matches!(&step, Ok(Some(_))) {
+            self.phase = ReaderPhase::Done;
+        }
+
+        step
     }
 }
 
@@ -299,44 +332,9 @@ where
     type Item = Result<T::Owned, Error>;
 
     fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-
-        if this.phase != ReaderPhase::Open {
-            return Poll::Ready(None);
-        }
-
-        if this.pending.is_none() {
-            match this
-                .object
-                .call_method::<_, _, Awaitable<IterItem<T>>>("read", ())
-            {
-                Ok(promise) => this.pending = Some(promise.into_future()),
-                Err(error) => {
-                    this.phase = ReaderPhase::Done;
-
-                    return Poll::Ready(Some(Err(error)));
-                }
-            }
-        }
-
-        match this
-            .pending
-            .as_mut()
-            .unwrap()
-            .as_mut()
+        pin!(self.get_mut().read())
             .poll(context)
-        {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(result) => {
-                this.pending = None;
-
-                if !matches!(&result, Ok(Some(_))) {
-                    this.phase = ReaderPhase::Done;
-                }
-
-                Poll::Ready(result.transpose())
-            }
-        }
+            .map(Result::transpose)
     }
 }
 
