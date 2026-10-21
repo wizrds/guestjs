@@ -14,11 +14,11 @@ impl BackendExceptions for QuickJs {
         Thrown(value).into_error(token)
     }
 
-    fn exception<'js>(token: Tok<'js, Self>, error: Error) -> Result<Val<'js, Self>, Error> {
+    fn new_exception<'js>(token: Tok<'js, Self>, error: Error) -> Result<Val<'js, Self>, Error> {
         error.exception(token).capture(token)
     }
 
-    fn error<'js>(
+    fn new_error<'js>(
         token: Tok<'js, Self>,
         kind: GuestErrorKind,
         message: &str,
@@ -47,23 +47,24 @@ mod tests {
         let context = QuickJs::new_context(&engine).unwrap();
 
         QuickJs::enter(&engine, &context, |token| {
-            let thrown = QuickJs::error(token, GuestErrorKind::RangeError, "out").unwrap();
+            let thrown = QuickJs::new_error(token, GuestErrorKind::RangeError, "out").unwrap();
 
             assert!(QuickJs::same(
                 token,
-                &QuickJs::exception(token, QuickJs::throw(token, thrown.clone())).unwrap(),
+                &QuickJs::new_exception(token, QuickJs::throw(token, thrown.clone())).unwrap(),
                 &thrown,
             ));
             assert_eq!(
-                QuickJs::as_string(
+                QuickJs::borrow_str(
                     token,
                     &QuickJs::get(
                         token,
-                        &QuickJs::exception(token, Error::conversion("i64", "string")).unwrap(),
+                        &QuickJs::new_exception(token, Error::conversion("i64", "string")).unwrap(),
                         &QuickJs::new_string(token, "name").unwrap(),
                     )
                     .unwrap(),
                 )
+                .map(|text| text.to_owned())
                 .unwrap(),
                 "TypeError",
             );
@@ -87,15 +88,16 @@ mod tests {
                 )
                 .unwrap();
             let message = format!("{}\0end", "a".repeat(300));
-            let error = QuickJs::error(token, GuestErrorKind::TypeError, &message).unwrap();
+            let error = QuickJs::new_error(token, GuestErrorKind::TypeError, &message).unwrap();
 
             assert!(QuickJs::instance_of(token, &error, &intrinsic).unwrap());
             assert_eq!(
-                QuickJs::as_string(
+                QuickJs::borrow_str(
                     token,
                     &QuickJs::get(token, &error, &QuickJs::new_string(token, "message").unwrap(),)
                         .unwrap(),
                 )
+                .map(|text| text.to_owned())
                 .unwrap(),
                 message,
             );
@@ -108,7 +110,7 @@ mod tests {
         let context = QuickJs::new_context(&engine).unwrap();
 
         QuickJs::enter(&engine, &context, |token| {
-            let error = QuickJs::error(token, GuestErrorKind::RangeError, "out").unwrap();
+            let error = QuickJs::new_error(token, GuestErrorKind::RangeError, "out").unwrap();
 
             let Error::Guest(exception) = QuickJs::throw(token, error.clone()) else {
                 panic!("expected a guest exception");

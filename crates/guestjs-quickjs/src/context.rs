@@ -5,7 +5,7 @@ use guestjs_core::errors::Error;
 use rquickjs::{AsyncContext, AsyncRuntime, Ctx, markers::Invariant, qjs::JSContext};
 
 use crate::{
-    engine::{Engine, Interrupt, WeakRuntime},
+    engine::{Engine, Interrupt, Loans, WeakRuntime},
     error::Capture,
 };
 
@@ -48,6 +48,13 @@ impl<'js> Token<'js> {
             .map(|interrupt| interrupt.clone())
             .expect("context has no interrupt")
     }
+
+    pub fn loans(&self) -> Loans {
+        self.ctx()
+            .userdata::<Loans>()
+            .map(|loans| loans.clone())
+            .expect("context has no loans")
+    }
 }
 
 pub struct Context {
@@ -73,6 +80,10 @@ impl Context {
                             .map_err(|_| ())
                             .and_then(|_| {
                                 ctx.store_userdata(engine.interrupt().clone())
+                                    .map_err(|_| ())
+                            })
+                            .and_then(|_| {
+                                ctx.store_userdata(engine.loans().clone())
                                     .map_err(|_| ())
                             })
                             .map(|_| ctx.as_raw())

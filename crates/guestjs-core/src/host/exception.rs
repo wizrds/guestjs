@@ -55,7 +55,7 @@ impl<E: HostException> ExceptionDeclaration<E> {
             B::set_prototype(
                 enter.token(),
                 &prototype,
-                &B::prototype_of(enter.token(), &B::error(enter.token(), E::BASE, "")?)?,
+                &B::prototype_of(enter.token(), &B::new_error(enter.token(), E::BASE, "")?)?,
             )?;
 
             B::define(
@@ -72,7 +72,7 @@ impl<E: HostException> ExceptionDeclaration<E> {
 
             RealisedClass::link(
                 enter,
-                B::constructor(
+                B::new_constructor(
                     enter.token(),
                     E::NAME,
                     1,
@@ -110,7 +110,7 @@ impl<E: HostException> ExceptionDeclaration<E> {
     where
         B: BackendExceptions,
     {
-        let error = B::error(enter.token(), E::BASE, message)?;
+        let error = B::new_error(enter.token(), E::BASE, message)?;
 
         B::set_prototype(enter.token(), &error, prototype)?;
 

@@ -1,3 +1,5 @@
+use std::ops::{Deref, DerefMut};
+
 use crate::{
     backend::{Tok, Val, values::BackendValues},
     errors::Error,
@@ -63,6 +65,9 @@ impl ElementType {
 }
 
 pub trait BackendBuffers: BackendValues {
+    type Bytes<'a>: Deref<Target = [u8]> + 'a;
+    type BytesMut<'a>: DerefMut<Target = [u8]> + 'a;
+
     fn new_array_buffer<'js>(token: Tok<'js, Self>, bytes: &[u8]) -> Result<Val<'js, Self>, Error>;
     fn new_typed_array<'js>(
         token: Tok<'js, Self>,
@@ -80,18 +85,14 @@ pub trait BackendBuffers: BackendValues {
     fn byte_offset<'js>(token: Tok<'js, Self>, view: &Val<'js, Self>) -> Result<usize, Error>;
     fn byte_length<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<usize, Error>;
 
-    fn read<'js>(
+    fn borrow_bytes<'js, 'a>(
         token: Tok<'js, Self>,
-        buffer: &Val<'js, Self>,
-        byte_offset: usize,
-        byte_length: usize,
-    ) -> Result<Vec<u8>, Error>;
-    fn write<'js>(
+        source: &'a Val<'js, Self>,
+    ) -> Result<Self::Bytes<'a>, Error>;
+    fn borrow_bytes_mut<'js, 'a>(
         token: Tok<'js, Self>,
-        buffer: &Val<'js, Self>,
-        byte_offset: usize,
-        bytes: &[u8],
-    ) -> Result<(), Error>;
+        source: &'a Val<'js, Self>,
+    ) -> Result<Self::BytesMut<'a>, Error>;
 }
 
 #[cfg(test)]

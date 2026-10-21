@@ -11,7 +11,7 @@ use crate::{
     handle::{
         HasHandle,
         base::Handle,
-        protocol::{BufferProtocol, ObjectProtocol, ViewProtocol},
+        protocol::{BufferProtocol, ObjectProtocol, ValueProtocol, ViewProtocol},
     },
     marshal::{
         FromGuest, ToGuest,
@@ -91,13 +91,26 @@ impl<B: BackendBuffers, T: Element> TypedArray<B, T> {
         self.len().map(|len| len == 0)
     }
 
+    pub fn borrow_with<F, R>(&self, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&[T]) -> R,
+    {
+        self.borrow_as_with::<[T], F, R>(f)
+    }
+
+    pub fn borrow_with_mut<F, R>(&self, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&mut [T]) -> R,
+    {
+        self.borrow_as_with_mut::<[T], F, R>(f)
+    }
+
     pub fn to_vec(&self) -> Result<Vec<T>, Error> {
-        self.bytes()
-            .map(|bytes| T::from_bytes(&bytes))
+        self.borrow_with(<[T]>::to_vec)
     }
 
     pub fn write(&self, index: usize, values: &[T]) -> Result<(), Error> {
-        self.write_bytes(index.saturating_mul(T::TYPE.size()), &T::to_bytes(values))
+        self.write_bytes(index.saturating_mul(T::TYPE.size()), T::as_bytes(values))
     }
 }
 

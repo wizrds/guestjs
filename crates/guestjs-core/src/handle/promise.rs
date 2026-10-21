@@ -114,6 +114,22 @@ impl<B: Backend, T> ToGuest<B> for &Promise<B, T> {
     }
 }
 
+pub struct Awaitable<T>(PhantomData<fn() -> T>);
+
+impl<T> Describe for Awaitable<T> {
+    fn describe(expected: &mut Expected) {
+        expected.push("awaitable");
+    }
+}
+
+impl<B: BackendPromises, T: 'static> FromGuest<B> for Awaitable<T> {
+    type Owned = Promise<B, T>;
+
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
+        Promise::resolve_value(enter, value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::future::IntoFuture;

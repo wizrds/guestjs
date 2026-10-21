@@ -14,7 +14,13 @@ use crate::{
     },
     enter::Enter,
     errors::Error,
-    handle::{HasHandle, base::Handle, object::Object, promise::Promise, protocol::ObjectProtocol},
+    handle::{
+        HasHandle,
+        base::Handle,
+        object::Object,
+        promise::{Awaitable, Promise},
+        protocol::ObjectProtocol,
+    },
     marshal::{
         FromGuest, ToGuest,
         collections::IterItem,
@@ -23,16 +29,6 @@ use crate::{
 };
 
 type StreamFuture<T> = Pin<Box<dyn Future<Output = Result<T, Error>>>>;
-
-struct StreamPromise<T>(PhantomData<fn() -> T>);
-
-impl<B: BackendPromises, T: 'static> FromGuest<B> for StreamPromise<T> {
-    type Owned = Promise<B, T>;
-
-    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
-        Promise::resolve_value(enter, value)
-    }
-}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum ReaderPhase {
@@ -229,7 +225,7 @@ impl<B: BackendPromises, T: 'static> ReadableStream<B, T> {
         R: ToGuest<B>,
     {
         self.object
-            .call_method::<_, _, StreamPromise<()>>("cancel", (reason,))
+            .call_method::<_, _, Awaitable<()>>("cancel", (reason,))
     }
 
     pub fn pipe_to<I, P>(
@@ -242,7 +238,7 @@ impl<B: BackendPromises, T: 'static> ReadableStream<B, T> {
         P: ToGuest<B>,
     {
         self.object
-            .call_method::<_, _, StreamPromise<()>>("pipeTo", (destination, options))
+            .call_method::<_, _, Awaitable<()>>("pipeTo", (destination, options))
     }
 }
 
@@ -272,12 +268,12 @@ impl<B: BackendPromises, T: FromGuest<B>> Reader<B, T> {
         R: ToGuest<B>,
     {
         self.object
-            .call_method::<_, _, StreamPromise<()>>("cancel", (reason,))
+            .call_method::<_, _, Awaitable<()>>("cancel", (reason,))
     }
 
     pub fn closed(&self) -> Result<Promise<B, ()>, Error> {
         self.object
-            .get::<StreamPromise<()>, _>("closed")
+            .get::<Awaitable<()>, _>("closed")
     }
 }
 
@@ -312,7 +308,7 @@ where
         if this.pending.is_none() {
             match this
                 .object
-                .call_method::<_, _, StreamPromise<IterItem<T>>>("read", ())
+                .call_method::<_, _, Awaitable<IterItem<T>>>("read", ())
             {
                 Ok(promise) => this.pending = Some(promise.into_future()),
                 Err(error) => {
@@ -415,12 +411,12 @@ impl<B: BackendPromises, T: 'static> WritableStream<B, T> {
         R: ToGuest<B>,
     {
         self.object
-            .call_method::<_, _, StreamPromise<()>>("abort", (reason,))
+            .call_method::<_, _, Awaitable<()>>("abort", (reason,))
     }
 
     pub fn close(&self) -> Result<Promise<B, ()>, Error> {
         self.object
-            .call_method::<_, _, StreamPromise<()>>("close", ())
+            .call_method::<_, _, Awaitable<()>>("close", ())
     }
 }
 
@@ -452,7 +448,7 @@ where
 
         match self
             .object
-            .call_method::<_, _, StreamPromise<()>>("close", ())
+            .call_method::<_, _, Awaitable<()>>("close", ())
         {
             Ok(promise) => {
                 self.state
@@ -488,12 +484,12 @@ impl<B: BackendValues, T> Writer<B, T> {
 impl<B: BackendPromises, T> Writer<B, T> {
     pub fn ready(&self) -> Result<Promise<B, ()>, Error> {
         self.object
-            .get::<StreamPromise<()>, _>("ready")
+            .get::<Awaitable<()>, _>("ready")
     }
 
     pub fn closed(&self) -> Result<Promise<B, ()>, Error> {
         self.object
-            .get::<StreamPromise<()>, _>("closed")
+            .get::<Awaitable<()>, _>("closed")
     }
 }
 
@@ -511,7 +507,7 @@ where
     {
         let promise = self
             .object
-            .call_method::<_, _, StreamPromise<()>>("abort", (reason,))?;
+            .call_method::<_, _, Awaitable<()>>("abort", (reason,))?;
 
         self.state.reset(WriterPhase::Failed);
 
@@ -558,7 +554,7 @@ where
 
         match this
             .object
-            .call_method::<_, _, StreamPromise<()>>("write", (chunk,))
+            .call_method::<_, _, Awaitable<()>>("write", (chunk,))
         {
             Ok(promise) => {
                 this.state

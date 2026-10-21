@@ -124,6 +124,8 @@ impl BackendModules for QuickJs {
     type Module<'js> = Module<'js>;
 
     fn eval<'js>(token: Tok<'js, Self>, source: &str, name: &str) -> Result<Val<'js, Self>, Error> {
+        token.loans().settled()?;
+
         let mut options = EvalOptions::default();
 
         options.strict = false;
@@ -198,6 +200,8 @@ impl BackendModules for QuickJs {
         token: Tok<'js, Self>,
         module: Self::Module<'js>,
     ) -> Result<(Val<'js, Self>, Val<'js, Self>), Error> {
+        token.loans().settled()?;
+
         module
             .eval()
             .and_then(|(module, promise)| {
@@ -212,6 +216,8 @@ impl BackendModules for QuickJs {
         token: Tok<'js, Self>,
         name: &str,
     ) -> Result<(Val<'js, Self>, Val<'js, Self>), Error> {
+        token.loans().settled()?;
+
         static NEXT: AtomicU64 = AtomicU64::new(1);
 
         Self::evaluate(

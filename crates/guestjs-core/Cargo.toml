@@ -9,6 +9,7 @@ readme.workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
+bytemuck = { workspace = true }
 futures = { workspace = true }
 bytes = { workspace = true, optional = true }
 include_dir = { workspace = true, optional = true }

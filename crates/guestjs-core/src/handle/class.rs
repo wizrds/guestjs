@@ -16,7 +16,7 @@ use crate::{
         HasHandle,
         base::Handle,
         object::Object,
-        protocol::{ConstructorProtocol, ObjectProtocol},
+        protocol::{ConstructorProtocol, ObjectProtocol, ValueProtocol},
     },
     marshal::{
         FromGuest, FromGuestMut, FromGuestRef, ToGuest, ToGuestArgs,
@@ -66,7 +66,7 @@ impl<B: BackendClasses, C: Payload> Class<B, Instance<B, C>> {
         self.handle.with_enter(|enter, class| {
             Instance::<B, C>::from_guest(
                 enter,
-                B::instantiate(
+                B::new_instance(
                     enter.token(),
                     &B::get(enter.token(), class, &"prototype".to_guest(enter)?)?,
                     payload,
@@ -139,9 +139,9 @@ impl<B: BackendClasses, C: Payload> FromGuest<B> for C {
     }
 }
 
-pub struct Ref<'a, B: BackendClasses, C: Payload>(B::Ref<'a, C>);
+pub struct PayloadRef<'a, B: BackendClasses, C: Payload>(B::Payload<'a, C>);
 
-impl<B: BackendClasses, C: Payload> Deref for Ref<'_, B, C> {
+impl<B: BackendClasses, C: Payload> Deref for PayloadRef<'_, B, C> {
     type Target = C;
 
     fn deref(&self) -> &C {
@@ -150,19 +150,19 @@ impl<B: BackendClasses, C: Payload> Deref for Ref<'_, B, C> {
 }
 
 impl<B: BackendClasses, C: Payload> FromGuestRef<B> for C {
-    type Ref<'a> = Ref<'a, B, C>;
+    type Ref<'a> = PayloadRef<'a, B, C>;
 
     fn from_guest_ref<'js, 'a>(
         enter: &Enter<'js, B>,
         value: &'a Val<'js, B>,
     ) -> Result<Self::Ref<'a>, Error> {
-        B::borrow::<C>(enter.token(), value).map(Ref)
+        B::borrow_payload::<C>(enter.token(), value).map(PayloadRef)
     }
 }
 
-pub struct RefMut<'a, B: BackendClasses, C: Payload>(B::RefMut<'a, C>);
+pub struct PayloadMut<'a, B: BackendClasses, C: Payload>(B::PayloadMut<'a, C>);
 
-impl<B: BackendClasses, C: Payload> Deref for RefMut<'_, B, C> {
+impl<B: BackendClasses, C: Payload> Deref for PayloadMut<'_, B, C> {
     type Target = C;
 
     fn deref(&self) -> &C {
@@ -170,20 +170,20 @@ impl<B: BackendClasses, C: Payload> Deref for RefMut<'_, B, C> {
     }
 }
 
-impl<B: BackendClasses, C: Payload> DerefMut for RefMut<'_, B, C> {
+impl<B: BackendClasses, C: Payload> DerefMut for PayloadMut<'_, B, C> {
     fn deref_mut(&mut self) -> &mut C {
         &mut self.0
     }
 }
 
 impl<B: BackendClasses, C: Payload> FromGuestMut<B> for C {
-    type Mut<'a> = RefMut<'a, B, C>;
+    type Mut<'a> = PayloadMut<'a, B, C>;
 
     fn from_guest_mut<'js, 'a>(
         enter: &Enter<'js, B>,
         value: &'a Val<'js, B>,
     ) -> Result<Self::Mut<'a>, Error> {
-        B::borrow_mut::<C>(enter.token(), value).map(RefMut)
+        B::borrow_payload_mut::<C>(enter.token(), value).map(PayloadMut)
     }
 }
 
@@ -222,24 +222,6 @@ impl<B: BackendClasses, T> Instance<B, T> {
             .with_enter(|enter, value| Instance::<B, C>::check_payload(enter, value))?;
 
         Ok(Instance::from_object(self.object))
-    }
-
-    pub fn borrow_as_with<C, F, R>(&self, f: F) -> Result<R, Error>
-    where
-        C: 'static,
-        F: FnOnce(&C) -> R,
-    {
-        self.handle()
-            .with_enter(|enter, value| Ok(f(&*B::borrow::<C>(enter.token(), value)?)))
-    }
-
-    pub fn borrow_as_with_mut<C, F, R>(&self, f: F) -> Result<R, Error>
-    where
-        C: 'static,
-        F: FnOnce(&mut C) -> R,
-    {
-        self.handle()
-            .with_enter(|enter, value| Ok(f(&mut *B::borrow_mut::<C>(enter.token(), value)?)))
     }
 }
 
@@ -342,8 +324,7 @@ where
     type Owned = C;
 
     fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
-        Instance::<B, C>::from_guest(enter, value)?
-            .borrow_with(Clone::clone)
+        Instance::<B, C>::from_guest(enter, value)?.borrow_with(Clone::clone)
     }
 }
 
@@ -358,7 +339,7 @@ mod tests {
             HasHandle,
             class::{Class, Instance, Payload},
             object::Object,
-            protocol::{ConstructorProtocol, ObjectProtocol},
+            protocol::{ConstructorProtocol, ObjectProtocol, ValueProtocol},
         },
         marshal::{FromGuest, FromGuestMut, FromGuestRef, ToGuest, describe::Expected},
     };

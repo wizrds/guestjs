@@ -5,7 +5,7 @@ use crate::{
     },
     errors::Error,
     handle::{HasHandle, buffer::ArrayBuffer, class::Class, function::Function, object::Object},
-    marshal::{FromGuest, ToGuest, ToGuestArgs, buffers::BufferSource},
+    marshal::{FromGuest, FromGuestMut, FromGuestRef, ToGuest, ToGuestArgs},
 };
 
 pub trait ObjectProtocol<B: BackendValues>: HasHandle<B> {
@@ -154,22 +154,36 @@ pub trait CallableProtocol<B: BackendValues>: HasHandle<B> {
     }
 }
 
-pub trait BufferProtocol<B: BackendBuffers>: HasHandle<B> {
+pub trait BufferProtocol<B: BackendBuffers>: ValueProtocol<B> {
     fn byte_length(&self) -> Result<usize, Error> {
         self.handle()
             .with_enter(|enter, value| B::byte_length(enter.token(), value))
     }
 
     fn bytes(&self) -> Result<Vec<u8>, Error> {
-        self.handle()
-            .with_enter(|enter, value| BufferSource::read(enter, value)?.bytes(enter))
+        self.borrow_as_with::<[u8], _, _>(<[u8]>::to_vec)
     }
 
     fn write_bytes(&self, byte_offset: usize, bytes: &[u8]) -> Result<(), Error> {
-        self.handle()
-            .with_enter(|enter, value| {
-                BufferSource::read(enter, value)?.write(enter, byte_offset, bytes)
-            })
+        self.borrow_as_with_mut::<[u8], _, _>(|target| {
+            match byte_offset
+                .checked_add(bytes.len())
+                .filter(|end| *end <= target.len())
+            {
+                Some(end) => {
+                    target[byte_offset..end].copy_from_slice(bytes);
+
+                    Ok(())
+                }
+                None => Err(Error::conversion(
+                    format!(
+                        "at most {} bytes at byte offset {byte_offset}",
+                        target.len().saturating_sub(byte_offset),
+                    ),
+                    format!("{} bytes", bytes.len()),
+                )),
+            }
+        })?
     }
 }
 
@@ -230,6 +244,26 @@ pub trait ValueProtocol<B: BackendValues>: HasHandle<B> {
     fn display(&self) -> Result<String, Error> {
         self.handle()
             .with_enter(|enter, value| B::display(enter.token(), value))
+    }
+
+    fn borrow_as_with<T, F, R>(&self, f: F) -> Result<R, Error>
+    where
+        T: FromGuestRef<B> + ?Sized,
+        F: FnOnce(&T) -> R,
+    {
+        self.handle()
+            .with_enter(|enter, value| T::from_guest_ref(enter, value).map(|borrowed| f(&borrowed)))
+    }
+
+    fn borrow_as_with_mut<T, F, R>(&self, f: F) -> Result<R, Error>
+    where
+        T: FromGuestMut<B> + ?Sized,
+        F: FnOnce(&mut T) -> R,
+    {
+        self.handle()
+            .with_enter(|enter, value| {
+                T::from_guest_mut(enter, value).map(|mut borrowed| f(&mut borrowed))
+            })
     }
 }
 

@@ -38,7 +38,7 @@ impl BuiltinErrors {
         ModuleDeclaration::new("builtin_errors").function("trigger", |context, _| {
             Err::<(), Error>(B::throw(
                 context.enter().token(),
-                B::error(context.enter().token(), GuestErrorKind::TypeError, "bad value")?,
+                B::new_error(context.enter().token(), GuestErrorKind::TypeError, "bad value")?,
             ))
         })
     }

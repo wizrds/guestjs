@@ -8,6 +8,8 @@ pub mod primitives;
 #[cfg(feature = "serde")]
 pub mod serde;
 
+use std::ops::{Deref, DerefMut};
+
 use crate::{
     backend::{Backend, Val},
     enter::Enter,
@@ -25,7 +27,7 @@ pub trait FromGuest<B: Backend> {
 }
 
 pub trait FromGuestRef<B: Backend> {
-    type Ref<'a>;
+    type Ref<'a>: Deref<Target = Self>;
 
     fn from_guest_ref<'js, 'a>(
         enter: &Enter<'js, B>,
@@ -34,7 +36,7 @@ pub trait FromGuestRef<B: Backend> {
 }
 
 pub trait FromGuestMut<B: Backend> {
-    type Mut<'a>;
+    type Mut<'a>: DerefMut<Target = Self>;
 
     fn from_guest_mut<'js, 'a>(
         enter: &Enter<'js, B>,

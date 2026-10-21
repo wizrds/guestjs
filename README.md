@@ -1,9 +1,6 @@
 # GuestJS
 
-GuestJS lets a Rust application load and run JavaScript and TypeScript code, call the functions and
-read the values that code defines, and expose Rust functions, classes, and modules for guest code to
-call back into. GuestJS runs on a pluggable backend. The `QuickJs` backend uses rquickjs, while the core
-API and host declarations are generic over the selected backend.
+GuestJS lets a Rust application load and run JavaScript and TypeScript code, call the functions and read the values that code defines, and expose Rust functions, classes, and modules for guest code to call back into. GuestJS runs on a pluggable backend.
 
 The library provides:
 
@@ -17,8 +14,7 @@ The library provides:
 - timeouts and cancellation controls; and
 - runtime-global and guest-local capability binding.
 
-Applications choose guest source and decide which host and native capabilities each guest receives.
-GuestJS does not install JavaScript packages or provide complete Node.js compatibility.
+Applications choose guest source and decide which host and native capabilities each guest receives. GuestJS does not install JavaScript packages or provide complete Node.js compatibility.
 
 ## Installation
 
@@ -29,8 +25,7 @@ Add GuestJS and select its `QuickJs` backend:
 guestjs = { git = "https://github.com/wizrds/guestjs", features = ["quickjs"] }
 ```
 
-The backend is reexported through guestjs, so ordinary embedding does not require a separate
-guestjs-quickjs dependency. There are no default features.
+The backend is reexported through guestjs, so ordinary embedding does not require a separate guestjs-quickjs dependency. There are no default features.
 
 | Feature | Behavior |
 | --- | --- |
@@ -40,9 +35,7 @@ guestjs-quickjs dependency. There are no default features.
 | `bytes` | Enables `Bytes` conversion for guest binary data. |
 | `tokio` | Enables Tokio cancellation support and asynchronous filesystem bundle construction. |
 
-Ordinary guest operations are synchronous. An application chooses its own executor when awaiting
-guest promises or other asynchronous work. The `tokio` feature is not needed for embedded bundles or
-ordinary guest calls.
+Ordinary guest operations are synchronous. An application chooses its own executor when awaiting guest promises or other asynchronous work. The `tokio` feature is not needed for embedded bundles or ordinary guest calls.
 
 ## Quick start
 
@@ -77,9 +70,7 @@ function add(left, right) {
 }
 ```
 
-`Runtime::<QuickJs>::builder()` selects `QuickJs`. The calls in this example are synchronous;
-GuestJS converts the arguments and result at the boundary. `Function::call` takes positional
-arguments and calls with JavaScript `undefined` as `this`; `Function::call_this` supplies one.
+`Runtime::<QuickJs>::builder()` selects `QuickJs`. The calls in this example are synchronous; GuestJS converts the arguments and result at the boundary. `Function::call` takes positional arguments and calls with JavaScript `undefined` as `this`; `Function::call_this` supplies one.
 
 ## Runtimes, guests, and isolation
 
@@ -110,15 +101,11 @@ assert_eq!(first.globals()?.get::<String, _>("name")?, "first");
 assert_eq!(second.globals()?.get::<String, _>("name")?, "second");
 ```
 
-Bind host libraries, native libraries, and bundles to a runtime when all its guests should receive
-them, or to a guest builder when they belong to one guest. Builders can deny imports by name.
-Owned handles retain the guest needed for later operations. Closing a guest refuses subsequent
-entries; final ownership release controls when its retained context can be destroyed.
+Bind host libraries, native libraries, and bundles to a runtime when all its guests should receive them, or to a guest builder when they belong to one guest. Builders can deny imports by name. Owned handles retain the guest needed for later operations. Closing a guest refuses subsequent entries; final ownership release controls when its retained context can be destroyed.
 
 ### Execution control
 
-Configure a timeout and cancellation signal on the runtime when an application needs to stop guest
-execution:
+Configure a timeout and cancellation signal on the runtime when an application needs to stop guest execution:
 
 ```rust
 use std::time::Duration;
@@ -156,13 +143,11 @@ assert!(
 );
 ```
 
-A guest builder inherits the runtime's default policy and can override it with `policy`. Use the
-selected backend's configuration type with `RuntimeBuilder::config` for engine-specific settings.
+A guest builder inherits the runtime's default policy and can override it with `policy`. Use the selected backend's configuration type with `RuntimeBuilder::config` for engine-specific settings.
 
 ## Loading guest code
 
-Use `Guest::guest_module(path, source)` to load a named JavaScript or TypeScript module and work
-with its exports:
+Use `Guest::guest_module(path, source)` to load a named JavaScript or TypeScript module and work with its exports:
 
 ```rust
 use guestjs::prelude::*;
@@ -195,8 +180,7 @@ assert_eq!(
 );
 ```
 
-This dynamic handle API is useful when the module shape is not known until runtime. Use
-`ObjectProtocol::call_method` when the called function must receive the original object as `this`.
+This dynamic handle API is useful when the module shape is not known until runtime. Use `ObjectProtocol::call_method` when the called function must receive the original object as `this`.
 
 ### Loading several modules together with Bundle
 
@@ -234,15 +218,9 @@ let module = guest.load(&bundle)?;
 assert_eq!(module.function("run")?.call::<_, f64>(())?, 42.0);
 ```
 
-`Bundle` paths name files relative to the source tree. JavaScript module names omit their script
-extensions. TypeScript is transpiled when added to a bundle; no typescript feature is needed.
-`Bundle` construction does not infer package.json or turn index.js into a parent module name.
+`Bundle` paths name files relative to the source tree. JavaScript module names omit their script extensions. TypeScript is transpiled when added to a bundle; no typescript feature is needed. `Bundle` construction does not infer package.json or turn index.js into a parent module name.
 
-Enable `embedded` for `guestjs::bundle!("$CARGO_MANIFEST_DIR/guest")` and
-`Bundle::from_embedded`. Enable `tokio` for `Bundle::from_dir(path).await` and the builder's
-`directory(path).await`. Embedded construction operates on in-memory bytes and stays synchronous.
-The selected directory's basename is not added as a module prefix. The include_dir dependency's
-stable embedding path does not guarantee incremental rebuild discovery of newly added files.
+Enable `embedded` for `guestjs::bundle!("$CARGO_MANIFEST_DIR/guest")` and `Bundle::from_embedded`. Enable `tokio` for `Bundle::from_dir(path).await` and the builder's `directory(path).await`. Embedded construction operates on in-memory bytes and stays synchronous. The selected directory's basename is not added as a module prefix. The include_dir dependency's stable embedding path does not guarantee incremental rebuild discovery of newly added files.
 
 ## Typed guest facades
 
@@ -283,8 +261,7 @@ assert_eq!(math.add(20.0, 22.0)?, 42.0);
 assert_eq!(math.answer()?, 42.0);
 ```
 
-Declare the functions and values the host needs. The generated facade converts each result into the
-descriptor type declared in the macro.
+Declare the functions and values the host needs. The generated facade converts each result into the descriptor type declared in the macro.
 
 ### Typed guest classes
 
@@ -360,15 +337,11 @@ assert_eq!(client.prefix()?, "api:");
 assert_eq!(client.get("users".to_owned())?.status()?, 9.0);
 ```
 
-A generated class facade wraps an `Instance<B>` and calls JavaScript methods normally. Use
-`Object<B>` for unrestricted dynamic access, `Instance<B>` for a dynamic instance view, and
-`Instance<B, C>` when the live object carries a checked host payload `C` that Rust must borrow.
+A generated class facade wraps an `Instance<B>` and calls JavaScript methods normally. Use `Object<B>` for unrestricted dynamic access, `Instance<B>` for a dynamic instance view, and `Instance<B, C>` when the live object carries a checked host payload `C` that Rust must borrow.
 
 ## Guest-side async
 
-Calling a JavaScript `async` function returns a promise. Convert it to `Promise<B, T>` and await
-that value from an async Rust function to drive guest progress and produce the fulfilled JavaScript
-return value as a `T`:
+Calling a JavaScript `async` function returns a promise. Convert it to `Promise<B, T>` and await that value from an async Rust function to drive guest progress and produce the fulfilled JavaScript return value as a `T`:
 
 ```rust
 use guestjs::prelude::*;
@@ -401,16 +374,11 @@ async function double(value) {
 }
 ```
 
-This example uses Tokio as the application's executor, with its `macros` and `rt-multi-thread`
-features enabled. GuestJS does not select an executor. A `Promise<B, T>` requires a promise result.
-Other host and guest operations are synchronous; module evaluation and asynchronous iteration expose
-their own explicit async operations.
+This example uses Tokio as the application's executor, with its `macros` and `rt-multi-thread` features enabled. GuestJS does not select an executor. A `Promise<B, T>` requires a promise result. `Awaitable<T>` accepts any value the way JavaScript `await` does, adopting a thenable and wrapping any other value, and converts to `Promise<B, T>`. Other host and guest operations are synchronous; module evaluation and asynchronous iteration expose their own explicit async operations.
 
 ## Plain Rust data
 
-Derive `ToGuest` and `FromGuest` for ordinary serde-compatible Rust structs and enums under the
-`serde` feature. The derives follow the type's `serde::Serialize` and
-`serde::de::DeserializeOwned` implementations:
+Derive `ToGuest` and `FromGuest` for ordinary serde-compatible Rust structs and enums under the `serde` feature. The derives follow the type's `serde::Serialize` and `serde::de::DeserializeOwned` implementations:
 
 ```toml
 [dependencies]
@@ -436,14 +404,11 @@ struct Request {
 }
 ```
 
-The derives follow the type's serde representation. Standard Rust primitives, options, collections,
-arrays, and tuples also cross the boundary directly. Use a host class when guest code needs to retain
-Rust object identity rather than receive copied data.
+The derives follow the type's serde representation. Standard Rust primitives, options, collections, arrays, and tuples also cross the boundary directly. Use a host class when guest code needs to retain Rust object identity rather than receive copied data.
 
 ### Union inputs
 
-Mark an enum with `#[guestjs(union)]` when a host API accepts several guest value types. Every
-variant must contain exactly one unnamed field:
+Mark an enum with `#[guestjs(union)]` when a host API accepts several guest value types. Every variant must contain exactly one unnamed field:
 
 ```rust
 #[derive(guestjs::FromGuest, guestjs::ToGuest)]
@@ -454,14 +419,9 @@ enum Identifier {
 }
 ```
 
-`FromGuest` tries variants in declaration order and selects the first conversion that succeeds.
-A conversion mismatch continues to the next variant, while guest exceptions and other failures
-return immediately. Mismatch descriptions combine and deduplicate the accepted type names.
-Each attempt sees the same guest object, so effects of an earlier attempt are not rolled back.
+`FromGuest` tries variants in declaration order and selects the first conversion that succeeds. A conversion mismatch continues to the next variant, while guest exceptions and other failures return immediately. Mismatch descriptions combine and deduplicate the accepted type names. Each attempt sees the same guest object, so effects of an earlier attempt are not rolled back.
 
-Use `#[guestjs(union, backend = B)]` when the enum already declares `B` as its backend parameter.
-Without `backend = B`, the derives introduce their own backend parameter. Union derives require
-the `serde` feature as well.
+Use `#[guestjs(union, backend = B)]` when the enum already declares `B` as its backend parameter. Without `backend = B`, the derives introduce their own backend parameter. Union derives require the `serde` feature as well.
 
 ## Arrays
 
@@ -513,11 +473,7 @@ assert_eq!(guest.eval::<f64>("items[0]")?, 10.0);
 
 ## Binary data
 
-JavaScript binary data lives in an `ArrayBuffer` and is read and written through views: typed
-arrays and `DataView`. `ArrayBuffer`,
-`TypedArray` and
-`DataView` are live
-handles to those guest objects. Writes go into guest memory and reads return a copy:
+JavaScript binary data lives in an `ArrayBuffer` and is read and written through views: typed arrays and `DataView`. `ArrayBuffer`, `TypedArray` and `DataView` are live handles to those guest objects. Writes go into guest memory, `to_vec` returns a copy, and `borrow_with` and `borrow_with_mut` lend the elements in place as `&[T]` and `&mut [T]`:
 
 ```rust
 use guestjs::prelude::*;
@@ -541,21 +497,19 @@ let pixels = guest
 pixels.write(1, &[9, 9])?;
 
 assert_eq!(pixels.to_vec()?, [1, 9, 9, 4]);
+assert_eq!(pixels.borrow_with(|values| values[1])?, 9);
 assert_eq!(pixels.buffer()?.byte_length()?, 4);
 ```
 
-A slice of a typed array element type becomes a new typed array of that type, so `&[u8]`
-becomes a `Uint8Array` and `&[f64]` a `Float64Array`. `Vec<T>` and Rust arrays still become
-JavaScript arrays. Under the `bytes` Cargo feature, `bytes::Bytes` becomes a `Uint8Array` and
-is read from any `ArrayBuffer`, typed array or `DataView`. Serde byte data under the `serde`
-feature follows the same rules. A `SharedArrayBuffer` and views over one are not accepted.
+Guest code does not run while a borrow is live: calling a function, evaluating code or resolving a promise fails with `Error::Borrow` until the closure returns. `ValueProtocol::borrow_as_with` and `borrow_as_with_mut` lend any `ArrayBuffer`, typed array or `DataView` as `[T]` the same way, and `Args::next_ref` and `Args::next_mut` read `&str`, `&[T]` and `&mut [T]` arguments in a host function. A range of a borrowed slice, such as `&values[offset..offset + length]`, is a view into the same guest memory, so a partial read or write copies nothing.
+
+A slice of a typed array element type becomes a new typed array of that type, so `&[u8]` becomes a `Uint8Array` and `&[f64]` a `Float64Array`. `Vec<T>` and Rust arrays still become JavaScript arrays. Under the `bytes` Cargo feature, `bytes::Bytes` becomes a `Uint8Array` and is read from any `ArrayBuffer`, typed array or `DataView`. Serde byte data under the `serde` feature follows the same rules. A `SharedArrayBuffer` and views over one are not accepted.
 
 `TypedArray::from_values` constructs a fresh typed array from a Rust array, slice, or vector of its element type. The input is copied into guest memory; cloning the resulting handle instead retains the same guest view.
 
 ## Host classes
 
-`#[guestjs::host_class]` exposes an ordinary Rust type as a JavaScript class. Mark the constructor,
-methods, and properties guest code needs:
+`#[guestjs::host_class]` exposes an ordinary Rust type as a JavaScript class. Mark the constructor, methods, and properties guest code needs:
 
 ```rust
 use guestjs::prelude::*;
@@ -594,18 +548,13 @@ console.log(vector.x);
 console.log(vector.length());
 ```
 
-Returning a host-class value to Rust preserves the live guest instance rather than cloning the Rust
-payload. Use `Instance<B, Vector2>::borrow_with` or `borrow_with_mut` when the host needs direct
-payload access; ordinary facade calls still use JavaScript dispatch.
+Returning a host-class value to Rust preserves the live guest instance rather than cloning the Rust payload. Use `Instance<B, Vector2>::borrow_with` or `borrow_with_mut` when the host needs direct payload access; ordinary facade calls still use JavaScript dispatch.
 
-The macro also supports mutable methods, constructor-side members, supported well-known symbols,
-and asynchronous host work. A Rust `&self` or `&mut self` receiver accesses the instance's Rust payload;
-an injected `this` parameter accesses its JavaScript object.
+The macro also supports mutable methods, constructor-side members, supported well-known symbols, and asynchronous host work. A Rust `&self` or `&mut self` receiver accesses the instance's Rust payload; an injected `this` parameter accesses its JavaScript object.
 
 ## Backend-generic host classes
 
-A host class that stores guest values rather than plain Rust data is generic over the backend. Name
-the backend parameter with `backend` so the macro knows which one it is:
+A host class that stores guest values rather than plain Rust data is generic over the backend. Name the backend parameter with `backend` so the macro knows which one it is:
 
 ```rust
 use guestjs::prelude::*;
@@ -637,8 +586,7 @@ struct Mail;
 impl Mail {}
 ```
 
-A host class does not have to carry the backend in its own type. Naming a parameter the impl does
-not declare introduces it on the exported members:
+A host class does not have to carry the backend in its own type. Naming a parameter the impl does not declare introduces it on the exported members:
 
 ```rust
 struct Contract;
@@ -655,9 +603,7 @@ impl Contract {
 }
 ```
 
-In both forms `backend` names a type parameter. Whether it is reused from the impl or introduced on
-the members is decided by the impl. Use `backend(pin = QuickJs)` to pin a class to the `QuickJs`
-backend. `HostClass` and `ClassDeclaration` remain available for handwritten declarations.
+In both forms `backend` names a type parameter. Whether it is reused from the impl or introduced on the members is decided by the impl. Use `backend(pin = QuickJs)` to pin a class to the `QuickJs` backend. `HostClass` and `ClassDeclaration` remain available for handwritten declarations.
 
 ## Host modules
 
@@ -690,18 +636,31 @@ import { hypot } from "host_geometry";
 console.log(hypot(5, 12));
 ```
 
-Bind one module directly to a runtime or guest builder according to the scope that should receive
-it. Use `HostLibrary` when that scope needs more than one host module or initializer.
+Bind one module directly to a runtime or guest builder according to the scope that should receive it. Use `HostLibrary` when that scope needs more than one host module or initializer.
 
-Module state is constructed per realisation and captured into callbacks. `context`, `enter`, and
-`state` request the `CallContext`, its borrowed `Enter`, and typed `ModuleState` respectively.
-Handwritten callbacks can use the same `FromContext` API without macros.
+Module state is constructed per realisation and captured into callbacks. `context`, `enter`, and `state` request the `CallContext`, its borrowed `Enter`, and typed `ModuleState` respectively. Handwritten callbacks can use the same `FromContext` API without macros.
+
+`#[guestjs(borrow)]` and `#[guestjs(borrow_mut)]` take an argument by reference instead of copying it. A `&str` borrows a guest string, and `&[T]` or `&mut [T]` borrow the elements of a guest `ArrayBuffer`, typed array or `DataView` in place:
+
+```rust
+use guestjs::prelude::*;
+
+struct Buffers;
+
+#[guestjs::host_module(name = "host_buffers")]
+impl Buffers {
+    #[guestjs(function)]
+    fn fill(#[guestjs(borrow_mut)] target: &mut [u8], value: u8) -> Result<(), Error> {
+        target.fill(value);
+
+        Ok(())
+    }
+}
+```
 
 ## Native libraries
 
-Native libraries are the backend-specific escape hatch for integrations that cannot be expressed
-as host declarations. This advanced `QuickJs` example needs a compatible direct rquickjs dependency
-because it implements that dependency's `ModuleDef`:
+Native libraries are the backend-specific escape hatch for integrations that cannot be expressed as host declarations. This advanced `QuickJs` example needs a compatible direct rquickjs dependency because it implements that dependency's `ModuleDef`:
 
 ```rust
 use guestjs::prelude::*;
@@ -742,9 +701,7 @@ let runtime = Runtime::<QuickJs>::builder()
     .build()?;
 ```
 
-Use rquickjs 0.14 with full-async enabled to match this backend. Bind a native module directly, or
-combine native modules and initializers in `NativeLibrary`. Native code is not loaded from source
-bundles, and binding native modules does not grant complete Node.js compatibility.
+Use rquickjs 0.14 with full-async enabled to match this backend. Bind a native module directly, or combine native modules and initializers in `NativeLibrary`. Native code is not loaded from source bundles, and binding native modules does not grant complete Node.js compatibility.
 
 ## Direct guest entry
 
@@ -761,13 +718,11 @@ let answer = guest.enter(|enter| {
 assert_eq!(answer, 42.0);
 ```
 
-It follows the guest's execution policy. Owned handles retain the guest for later reentry; direct
-entry does not create a second bound-handle API or allow a borrowed engine value to escape.
+It follows the guest's execution policy. Owned handles retain the guest for later reentry; direct entry does not create a second bound-handle API or allow a borrowed engine value to escape.
 
 ## Errors
 
-Fallible guest operations return `Result<T, Error>`. Match a guest exception when the application can
-recover from it, and propagate other failures:
+Fallible guest operations return `Result<T, Error>`. Match a guest exception when the application can recover from it, and propagate other failures:
 
 ```rust
 use guestjs::prelude::*;
@@ -789,13 +744,9 @@ fn read_count(guest: &Guest<QuickJs>) -> Result<Option<f64>, Error> {
 }
 ```
 
-`GuestException` retains the thrown value and exposes `name`, `message`, optional `stack`, and matching
-against recorded constructor names on its prototype chain. JavaScript can throw values that are
-not `Error` objects. Conversion, import, borrowing, engine, interruption, timeout, cancellation, and
-closed-guest failures retain their own error categories.
+`GuestException` retains the thrown value and exposes `name`, `message`, optional `stack`, and matching against recorded constructor names on its prototype chain. JavaScript can throw values that are not `Error` objects. Conversion, import, borrowing, engine, interruption, timeout, cancellation, and closed-guest failures retain their own error categories.
 
-Host callables can return application errors that convert into `Error`. For example, with
-`thiserror` as an application dependency:
+Host callables can return application errors that convert into `Error`. For example, with `thiserror` as an application dependency:
 
 ```rust
 #[derive(Debug, thiserror::Error)]
@@ -811,8 +762,7 @@ impl From<GeometryError> for Error {
 
 ### Typed host exceptions
 
-Derive `HostException`, register the exception with the host module, and throw it using the active
-entry context:
+Derive `HostException`, register the exception with the host module, and throw it using the active entry context:
 
 ```rust
 use guestjs::prelude::*;
@@ -862,8 +812,7 @@ try {
 }
 ```
 
-If JavaScript does not catch the exception, Rust receives it as `Error::Guest`. Match the typed
-exception without re-entering the guest:
+If JavaScript does not catch the exception, Rust receives it as `Error::Guest`. Match the typed exception without re-entering the guest:
 
 ```rust
 match guest
@@ -882,9 +831,7 @@ match guest
 }
 ```
 
-`HostException::caught` checks the exception's recorded name hierarchy. Host exceptions expose a
-name, a built-in base, and a message. Supported bases are `Error`, `TypeError`, `RangeError`,
-`ReferenceError`, and `SyntaxError`.
+`HostException::caught` checks the exception's recorded name hierarchy. Host exceptions expose a name, a built-in base, and a message. Supported bases are `Error`, `TypeError`, `RangeError`, `ReferenceError`, and `SyntaxError`.
 
 ## License
 

@@ -1,3 +1,5 @@
+use std::{ops::Deref, ptr::NonNull, slice};
+
 use guestjs_core::{
     backend::{
         Tok, Val,
@@ -6,15 +8,15 @@ use guestjs_core::{
     errors::Error,
 };
 use rquickjs::{
-    Array, BigInt, Coerced, Constructor, Ctx, Filter, Function, IntoJs, IteratorJs, Object, Symbol,
-    Type, Value,
+    Array, BigInt, Coerced, Constructor, Ctx, Exception, Filter, Function, IntoJs, IteratorJs,
+    Object, Symbol, Type, Value,
     atom::PredefinedAtom,
     function::{Args, This},
     object::{AsProperty, PropertyFlags},
-    qjs,
+    qjs::{self, c_char},
 };
 
-use crate::{backend::QuickJs, error::Capture};
+use crate::{backend::QuickJs, context::Token, error::Capture};
 
 pub struct Descriptor<'js>(Property<'js, QuickJs>);
 
@@ -65,7 +67,51 @@ impl<'js> AsProperty<'js, ()> for Descriptor<'js> {
     }
 }
 
+pub struct Str<'a> {
+    context: NonNull<qjs::JSContext>,
+    pointer: *const c_char,
+    text: &'a str,
+}
+
+impl<'a> Str<'a> {
+    pub fn new<'js>(token: Token<'js>, value: &'a Value<'js>) -> Result<Self, Error> {
+        let mut length = 0;
+
+        match unsafe {
+            qjs::JS_ToCStringLen2(token.pointer().as_ptr(), &mut length, value.as_raw(), false)
+        } {
+            pointer if pointer.is_null() => Err(rquickjs::Error::Exception).capture(token),
+            pointer => match str::from_utf8(unsafe {
+                slice::from_raw_parts(pointer.cast(), length as usize)
+            }) {
+                Ok(text) => Ok(Self { context: token.pointer(), pointer, text }),
+                Err(_) => {
+                    unsafe { qjs::JS_FreeCString(token.pointer().as_ptr(), pointer) };
+
+                    Err(Error::conversion("UTF-8 string", "string with lone surrogates"))
+                }
+            },
+        }
+    }
+}
+
+impl Deref for Str<'_> {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        self.text
+    }
+}
+
+impl Drop for Str<'_> {
+    fn drop(&mut self) {
+        unsafe { qjs::JS_FreeCString(self.context.as_ptr(), self.pointer) };
+    }
+}
+
 impl BackendValues for QuickJs {
+    type Str<'a> = Str<'a>;
+
     fn new_undefined<'js>(token: Tok<'js, Self>) -> Val<'js, Self> {
         Value::new_undefined(token.ctx())
     }
@@ -207,11 +253,19 @@ impl BackendValues for QuickJs {
         }
     }
 
-    fn as_string<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<String, Error> {
-        value.get::<String>().capture(token)
+    fn borrow_str<'js, 'a>(
+        token: Tok<'js, Self>,
+        value: &'a Val<'js, Self>,
+    ) -> Result<Self::Str<'a>, Error> {
+        match Self::kind(token, value) {
+            Kind::String => Str::new(token, value),
+            _ => Err(Exception::throw_type(&token.ctx(), "not a string")).capture(token),
+        }
     }
 
     fn display<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<String, Error> {
+        token.loans().settled()?;
+
         match Symbol::from_value(value.clone()) {
             Ok(symbol) => symbol
                 .description()
@@ -233,6 +287,8 @@ impl BackendValues for QuickJs {
         object: &Val<'js, Self>,
         key: &Val<'js, Self>,
     ) -> Result<Val<'js, Self>, Error> {
+        token.loans().settled()?;
+
         Object::from_value(object.clone())
             .and_then(|object| object.get(key.clone()))
             .capture(token)
@@ -244,6 +300,8 @@ impl BackendValues for QuickJs {
         key: &Val<'js, Self>,
         value: Val<'js, Self>,
     ) -> Result<(), Error> {
+        token.loans().settled()?;
+
         Object::from_value(object.clone())
             .and_then(|object| object.set(key.clone(), value))
             .capture(token)
@@ -255,6 +313,8 @@ impl BackendValues for QuickJs {
         key: &Val<'js, Self>,
         property: Property<'js, Self>,
     ) -> Result<(), Error> {
+        token.loans().settled()?;
+
         Object::from_value(object.clone())
             .and_then(|object| object.prop(key.clone(), Descriptor(property)))
             .capture(token)
@@ -265,6 +325,8 @@ impl BackendValues for QuickJs {
         object: &Val<'js, Self>,
         key: &Val<'js, Self>,
     ) -> Result<(), Error> {
+        token.loans().settled()?;
+
         Object::from_value(object.clone())
             .and_then(|object| object.remove(key.clone()))
             .capture(token)
@@ -275,6 +337,8 @@ impl BackendValues for QuickJs {
         object: &Val<'js, Self>,
         key: &Val<'js, Self>,
     ) -> Result<bool, Error> {
+        token.loans().settled()?;
+
         Object::from_value(object.clone())
             .and_then(|object| object.contains_key(key.clone()))
             .capture(token)
@@ -284,6 +348,8 @@ impl BackendValues for QuickJs {
         token: Tok<'js, Self>,
         object: &Val<'js, Self>,
     ) -> Result<Vec<Val<'js, Self>>, Error> {
+        token.loans().settled()?;
+
         Object::from_value(object.clone())
             .and_then(|object| {
                 object
@@ -303,6 +369,8 @@ impl BackendValues for QuickJs {
         value: &Val<'js, Self>,
         constructor: &Val<'js, Self>,
     ) -> Result<bool, Error> {
+        token.loans().settled()?;
+
         match unsafe {
             qjs::JS_IsInstanceOf(token.pointer().as_ptr(), value.as_raw(), constructor.as_raw())
         } {
@@ -315,6 +383,8 @@ impl BackendValues for QuickJs {
         token: Tok<'js, Self>,
         object: &Val<'js, Self>,
     ) -> Result<Val<'js, Self>, Error> {
+        token.loans().settled()?;
+
         Object::from_value(object.clone())
             .map(|object| {
                 object
@@ -329,6 +399,8 @@ impl BackendValues for QuickJs {
         object: &Val<'js, Self>,
         prototype: &Val<'js, Self>,
     ) -> Result<(), Error> {
+        token.loans().settled()?;
+
         Object::from_value(object.clone())
             .and_then(|object| object.set_prototype(prototype.as_object()))
             .capture(token)
@@ -340,6 +412,8 @@ impl BackendValues for QuickJs {
         this: &Val<'js, Self>,
         args: &[Val<'js, Self>],
     ) -> Result<Val<'js, Self>, Error> {
+        token.loans().settled()?;
+
         Function::from_value(function.clone())
             .and_then(|function| {
                 let mut arguments = Args::new(token.ctx(), args.len());
@@ -357,6 +431,8 @@ impl BackendValues for QuickJs {
         constructor: &Val<'js, Self>,
         args: &[Val<'js, Self>],
     ) -> Result<Val<'js, Self>, Error> {
+        token.loans().settled()?;
+
         Constructor::from_value(constructor.clone())
             .and_then(|constructor| {
                 let mut arguments = Args::new(token.ctx(), args.len());
@@ -373,6 +449,8 @@ impl BackendValues for QuickJs {
         iterable: &Val<'js, Self>,
         kind: IteratorKind,
     ) -> Result<Option<Val<'js, Self>>, Error> {
+        token.loans().settled()?;
+
         iterable
             .as_object()
             .map(|object| {
@@ -390,6 +468,8 @@ impl BackendValues for QuickJs {
         token: Tok<'js, Self>,
         iterator: &Val<'js, Self>,
     ) -> Result<Val<'js, Self>, Error> {
+        token.loans().settled()?;
+
         Object::from_value(iterator.clone())
             .and_then(|iterator| {
                 iterator
@@ -403,6 +483,8 @@ impl BackendValues for QuickJs {
         token: Tok<'js, Self>,
         result: &Val<'js, Self>,
     ) -> Result<Option<Val<'js, Self>>, Error> {
+        token.loans().settled()?;
+
         Object::from_value(result.clone())
             .and_then(|result| {
                 match result
@@ -422,6 +504,8 @@ impl BackendValues for QuickJs {
         token: Tok<'js, Self>,
         iterator: &Val<'js, Self>,
     ) -> Result<Val<'js, Self>, Error> {
+        token.loans().settled()?;
+
         Object::from_value(iterator.clone())
             .and_then(|iterator| {
                 match iterator.get::<_, Option<Function>>(PredefinedAtom::Return)? {
@@ -751,6 +835,53 @@ mod tests {
             assert!(QuickJs::instance_of(token, &QuickJs::new_number(token, 2.0), &even,).unwrap());
             assert!(
                 !QuickJs::instance_of(token, &QuickJs::new_number(token, 3.0), &even,).unwrap()
+            );
+        });
+    }
+
+    #[test]
+    fn borrow_str_views_a_string() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            for text in ["plain ascii", "naïve ☃ 𝄞"] {
+                assert_eq!(
+                    &*QuickJs::borrow_str(token, &QuickJs::new_string(token, text).unwrap())
+                        .unwrap(),
+                    text,
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn borrow_str_refuses_an_object_without_calling_to_string() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            assert!(
+                QuickJs::borrow_str(
+                    token,
+                    &token
+                        .ctx()
+                        .eval::<Value, _>(
+                            r#"
+                            globalThis.calls = 0;
+                            ({ toString() { calls += 1; return "called"; } })
+                            "#,
+                        )
+                        .unwrap(),
+                )
+                .is_err()
+            );
+            assert_eq!(
+                token
+                    .ctx()
+                    .eval::<i32, _>("calls")
+                    .unwrap(),
+                0,
             );
         });
     }

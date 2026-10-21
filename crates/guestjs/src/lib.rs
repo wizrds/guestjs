@@ -348,7 +348,12 @@
 //! ```
 //!
 //! A [`guestjs_core::handle::promise::Promise`](guestjs_core::handle::promise::Promise)
-//! requires a promise result. GuestJS does not select an executor. Other host and guest
+//! requires a promise result.
+//! [`guestjs_core::handle::promise::Awaitable`](guestjs_core::handle::promise::Awaitable)
+//! accepts any value the way JavaScript `await` does, adopting a thenable and wrapping any other
+//! value, and converts to a
+//! [`guestjs_core::handle::promise::Promise`](guestjs_core::handle::promise::Promise).
+//! GuestJS does not select an executor. Other host and guest
 //! operations are synchronous; module evaluation and asynchronous iteration expose their own
 //! explicit async operations.
 //!
@@ -458,7 +463,13 @@
 //! arrays and `DataView`. [`guestjs_core::handle::buffer::ArrayBuffer`](guestjs_core::handle::buffer::ArrayBuffer),
 //! [`guestjs_core::handle::buffer::TypedArray`](guestjs_core::handle::buffer::TypedArray) and
 //! [`guestjs_core::handle::buffer::DataView`](guestjs_core::handle::buffer::DataView) are live
-//! handles to those guest objects. Writes go into guest memory and reads return a copy:
+//! handles to those guest objects. Writes go into guest memory,
+//! [`guestjs_core::handle::buffer::TypedArray::to_vec`](guestjs_core::handle::buffer::TypedArray::to_vec)
+//! returns a copy, and
+//! [`guestjs_core::handle::buffer::TypedArray::borrow_with`](guestjs_core::handle::buffer::TypedArray::borrow_with)
+//! and
+//! [`guestjs_core::handle::buffer::TypedArray::borrow_with_mut`](guestjs_core::handle::buffer::TypedArray::borrow_with_mut)
+//! lend the elements in place as `&[T]` and `&mut [T]`:
 //!
 //! ```ignore
 //! use guestjs::prelude::*;
@@ -482,8 +493,24 @@
 //! pixels.write(1, &[9, 9])?;
 //!
 //! assert_eq!(pixels.to_vec()?, [1, 9, 9, 4]);
+//! assert_eq!(pixels.borrow_with(|values| values[1])?, 9);
 //! assert_eq!(pixels.buffer()?.byte_length()?, 4);
 //! ```
+//!
+//! Guest code does not run while a borrow is live: calling a function, evaluating code or
+//! resolving a promise fails with
+//! [`guestjs_core::errors::Error::Borrow`](guestjs_core::errors::Error::Borrow) until the closure
+//! returns.
+//! [`guestjs_core::handle::protocol::ValueProtocol::borrow_as_with`](guestjs_core::handle::protocol::ValueProtocol::borrow_as_with)
+//! and
+//! [`guestjs_core::handle::protocol::ValueProtocol::borrow_as_with_mut`](guestjs_core::handle::protocol::ValueProtocol::borrow_as_with_mut)
+//! lend any `ArrayBuffer`, typed array or `DataView` as `[T]` the same way, and
+//! [`guestjs_core::marshal::args::Args::next_ref`](guestjs_core::marshal::args::Args::next_ref)
+//! and
+//! [`guestjs_core::marshal::args::Args::next_mut`](guestjs_core::marshal::args::Args::next_mut)
+//! read `&str`, `&[T]` and `&mut [T]` arguments in a host function.
+//! A range of a borrowed slice, such as `&values[offset..offset + length]`, is a view into the
+//! same guest memory, so a partial read or write copies nothing.
 //!
 //! A slice of a typed array element type becomes a new typed array of that type, so `&[u8]`
 //! becomes a `Uint8Array` and `&[f64]` a `Float64Array`. `Vec<T>` and Rust arrays still become
@@ -645,6 +672,26 @@
 //! respectively. Handwritten callbacks can use the same
 //! [`guestjs_core::host::context::FromContext`](guestjs_core::host::context::FromContext) API
 //! without macros.
+//!
+//! `#[guestjs(borrow)]` and `#[guestjs(borrow_mut)]` take an argument by reference instead of
+//! copying it. A `&str` borrows a guest string, and `&[T]` or `&mut [T]` borrow the elements of a
+//! guest `ArrayBuffer`, typed array or `DataView` in place:
+//!
+//! ```ignore
+//! use guestjs::prelude::*;
+//!
+//! struct Buffers;
+//!
+//! #[guestjs::host_module(name = "host_buffers")]
+//! impl Buffers {
+//!     #[guestjs(function)]
+//!     fn fill(#[guestjs(borrow_mut)] target: &mut [u8], value: u8) -> Result<(), Error> {
+//!         target.fill(value);
+//!
+//!         Ok(())
+//!     }
+//! }
+//! ```
 //!
 //! Native libraries are the backend-specific escape hatch for integrations that cannot be
 //! expressed as host declarations. Bind native modules directly or group modules and

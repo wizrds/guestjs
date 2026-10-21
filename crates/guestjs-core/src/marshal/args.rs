@@ -43,14 +43,14 @@ impl<'js, B: BackendValues> Args<'js, B> {
 
     pub fn this_ref<T>(&self, enter: &Enter<'js, B>) -> Result<T::Ref<'_>, Error>
     where
-        T: FromGuestRef<B>,
+        T: FromGuestRef<B> + ?Sized,
     {
         T::from_guest_ref(enter, &self.this)
     }
 
     pub fn this_mut<T>(&self, enter: &Enter<'js, B>) -> Result<T::Mut<'_>, Error>
     where
-        T: FromGuestMut<B>,
+        T: FromGuestMut<B> + ?Sized,
     {
         T::from_guest_mut(enter, &self.this)
     }
@@ -71,14 +71,14 @@ impl<'js, B: BackendValues> Args<'js, B> {
 
     pub fn next_ref<T>(&self, enter: &Enter<'js, B>) -> Result<T::Ref<'_>, Error>
     where
-        T: FromGuestRef<B>,
+        T: FromGuestRef<B> + ?Sized,
     {
         T::from_guest_ref(enter, self.advance())
     }
 
     pub fn next_mut<T>(&self, enter: &Enter<'js, B>) -> Result<T::Mut<'_>, Error>
     where
-        T: FromGuestMut<B>,
+        T: FromGuestMut<B> + ?Sized,
     {
         T::from_guest_mut(enter, self.advance())
     }
@@ -148,7 +148,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{backend::tests::Stub, guest::Guest, marshal::ToGuestArgs, runtime::Runtime};
+    use crate::{
+        backend::tests::Stub,
+        guest::Guest,
+        marshal::{ToGuestArgs, args::Args},
+        runtime::Runtime,
+    };
 
     #[test]
     fn unit_passes_no_arguments() {
@@ -164,5 +169,14 @@ mod tests {
                 .unwrap(),
             0,
         );
+    }
+
+    #[test]
+    fn borrows_accept_unsized_targets() {
+        let _ = Args::<Stub>::next_ref::<str>;
+        let _ = Args::<Stub>::next_ref::<[u8]>;
+        let _ = Args::<Stub>::this_ref::<[u8]>;
+        let _ = Args::<Stub>::next_mut::<[f64]>;
+        let _ = Args::<Stub>::this_mut::<[f64]>;
     }
 }

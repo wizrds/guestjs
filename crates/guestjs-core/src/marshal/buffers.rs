@@ -1,26 +1,64 @@
+use std::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+};
+
+use bytemuck::{AnyBitPattern, NoUninit};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 
 use crate::{
     backend::{
-        Backend, Val,
+        Val,
         buffers::{BackendBuffers, ElementType},
         values::Kind,
     },
     enter::Enter,
     errors::Error,
     marshal::{
-        FromGuest, ToGuest,
+        FromGuest, FromGuestMut, FromGuestRef, ToGuest,
         describe::{Describe, Expected},
     },
 };
 
-pub trait Element: Copy + 'static {
+pub trait Element: NoUninit + AnyBitPattern {
     const TYPE: ElementType;
 
-    fn from_bytes(bytes: &[u8]) -> Vec<Self>;
+    fn check(bytes: &[u8]) -> Result<(), Error> {
+        match bytes.is_empty() {
+            true => Ok(()),
+            false => bytemuck::try_cast_slice::<u8, Self>(bytes)
+                .map(|_| ())
+                .map_err(|_| {
+                    Error::conversion(
+                        format!(
+                            "{}-byte aligned bytes in multiples of {}",
+                            align_of::<Self>(),
+                            size_of::<Self>(),
+                        ),
+                        format!("{} bytes", bytes.len()),
+                    )
+                }),
+        }
+    }
 
-    fn to_bytes(values: &[Self]) -> Vec<u8>;
+    fn cast(bytes: &[u8]) -> &[Self] {
+        match bytes.is_empty() {
+            true => &[],
+            false => bytemuck::cast_slice(bytes),
+        }
+    }
+
+    fn cast_mut(bytes: &mut [u8]) -> &mut [Self] {
+        match bytes.is_empty() {
+            true => &mut [],
+            false => bytemuck::cast_slice_mut(bytes),
+        }
+    }
+
+    fn as_bytes(values: &[Self]) -> &[u8] {
+        bytemuck::cast_slice(values)
+    }
 }
 
 macro_rules! element {
@@ -28,22 +66,6 @@ macro_rules! element {
         $(
             impl Element for $type {
                 const TYPE: ElementType = ElementType::$element;
-
-                fn from_bytes(bytes: &[u8]) -> Vec<Self> {
-                    bytes
-                        .as_chunks::<{ size_of::<$type>() }>()
-                        .0
-                        .iter()
-                        .map(|chunk| Self::from_ne_bytes(*chunk))
-                        .collect()
-                }
-
-                fn to_bytes(values: &[Self]) -> Vec<u8> {
-                    values
-                        .iter()
-                        .flat_map(|value| value.to_ne_bytes())
-                        .collect()
-                }
             }
         )+
     };
@@ -62,66 +84,79 @@ element!(
     f64 => Float64
 );
 
-pub struct BufferSource<'js, B: Backend> {
-    buffer: Val<'js, B>,
-    byte_offset: usize,
-    byte_length: usize,
+pub struct SliceRef<'a, B: BackendBuffers, T> {
+    bytes: B::Bytes<'a>,
+    element: PhantomData<T>,
 }
 
-impl<'js, B: BackendBuffers> BufferSource<'js, B> {
-    pub fn read(enter: &Enter<'js, B>, value: &Val<'js, B>) -> Result<Self, Error> {
-        match B::kind(enter.token(), value) {
-            Kind::ArrayBuffer => Ok(Self {
-                buffer: value.clone(),
-                byte_offset: 0,
-                byte_length: B::byte_length(enter.token(), value)?,
-            }),
-            Kind::TypedArray | Kind::DataView => match B::buffer(enter.token(), value)? {
-                buffer if B::kind(enter.token(), &buffer) == Kind::ArrayBuffer => Ok(Self {
-                    buffer,
-                    byte_offset: B::byte_offset(enter.token(), value)?,
-                    byte_length: B::byte_length(enter.token(), value)?,
-                }),
-                _ => {
-                    Err(Error::conversion("view of an ArrayBuffer", "view of a SharedArrayBuffer"))
-                }
-            },
-            kind => Err(Expected::of::<Self>().mismatch(kind)),
-        }
-    }
+impl<B: BackendBuffers, T: Element> Deref for SliceRef<'_, B, T> {
+    type Target = [T];
 
-    pub fn bytes(&self, enter: &Enter<'js, B>) -> Result<Vec<u8>, Error> {
-        B::read(enter.token(), &self.buffer, self.byte_offset, self.byte_length)
-    }
-
-    pub fn write(
-        &self,
-        enter: &Enter<'js, B>,
-        byte_offset: usize,
-        bytes: &[u8],
-    ) -> Result<(), Error> {
-        match byte_offset
-            .checked_add(bytes.len())
-            .is_some_and(|end| end <= self.byte_length)
-        {
-            true => B::write(enter.token(), &self.buffer, self.byte_offset + byte_offset, bytes),
-            false => Err(Error::conversion(
-                format!(
-                    "at most {} bytes at byte offset {byte_offset}",
-                    self.byte_length
-                        .saturating_sub(byte_offset),
-                ),
-                format!("{} bytes", bytes.len()),
-            )),
-        }
+    fn deref(&self) -> &[T] {
+        T::cast(&self.bytes)
     }
 }
 
-impl<B: Backend> Describe for BufferSource<'_, B> {
+pub struct SliceMut<'a, B: BackendBuffers, T> {
+    bytes: B::BytesMut<'a>,
+    element: PhantomData<T>,
+}
+
+impl<B: BackendBuffers, T: Element> Deref for SliceMut<'_, B, T> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        T::cast(&self.bytes)
+    }
+}
+
+impl<B: BackendBuffers, T: Element> DerefMut for SliceMut<'_, B, T> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        T::cast_mut(&mut self.bytes)
+    }
+}
+
+impl<T: Element> Describe for [T] {
     fn describe(expected: &mut Expected) {
         expected.push("ArrayBuffer");
         expected.push("typed array");
         expected.push("DataView");
+    }
+}
+
+impl<B: BackendBuffers, T: Element> FromGuestRef<B> for [T] {
+    type Ref<'a> = SliceRef<'a, B, T>;
+
+    fn from_guest_ref<'js, 'a>(
+        enter: &Enter<'js, B>,
+        value: &'a Val<'js, B>,
+    ) -> Result<Self::Ref<'a>, Error> {
+        match B::kind(enter.token(), value) {
+            Kind::ArrayBuffer | Kind::TypedArray | Kind::DataView => {
+                B::borrow_bytes(enter.token(), value).and_then(|bytes| {
+                    T::check(&bytes).map(|_| SliceRef { bytes, element: PhantomData })
+                })
+            }
+            kind => Err(Expected::of::<Self>().mismatch(kind)),
+        }
+    }
+}
+
+impl<B: BackendBuffers, T: Element> FromGuestMut<B> for [T] {
+    type Mut<'a> = SliceMut<'a, B, T>;
+
+    fn from_guest_mut<'js, 'a>(
+        enter: &Enter<'js, B>,
+        value: &'a Val<'js, B>,
+    ) -> Result<Self::Mut<'a>, Error> {
+        match B::kind(enter.token(), value) {
+            Kind::ArrayBuffer | Kind::TypedArray | Kind::DataView => {
+                B::borrow_bytes_mut(enter.token(), value).and_then(|bytes| {
+                    T::check(&bytes).map(|_| SliceMut { bytes, element: PhantomData })
+                })
+            }
+            kind => Err(Expected::of::<Self>().mismatch(kind)),
+        }
     }
 }
 
@@ -134,7 +169,7 @@ where
         B::new_typed_array(
             enter.token(),
             T::TYPE,
-            &B::new_array_buffer(enter.token(), &T::to_bytes(self))?,
+            &B::new_array_buffer(enter.token(), T::as_bytes(self))?,
             0,
             self.len(),
         )
@@ -169,9 +204,8 @@ impl<B: BackendBuffers> FromGuest<B> for Bytes {
     type Owned = Self;
 
     fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
-        BufferSource::read(enter, &value)?
-            .bytes(enter)
-            .map(Bytes::from)
+        <[u8] as FromGuestRef<B>>::from_guest_ref(enter, &value)
+            .map(|bytes| Bytes::copy_from_slice(&bytes))
     }
 }
 
@@ -181,24 +215,23 @@ mod tests {
     use bytes::Bytes;
 
     use crate::{
-        backend::{
-            buffers::{BackendBuffers, ElementType},
-            tests::Stub,
-        },
+        backend::buffers::{BackendBuffers, ElementType},
         marshal::{
-            FromGuest, ToGuest,
-            buffers::{BufferSource, Element},
-            describe::Expected,
+            FromGuest, FromGuestMut, FromGuestRef, ToGuest, buffers::Element, describe::Expected,
         },
     };
 
     #[allow(dead_code)]
     fn conversions<B: BackendBuffers>() {
         fn to<B: BackendBuffers, T: ToGuest<B>>() {}
+        fn from_ref<B: BackendBuffers, T: FromGuestRef<B> + ?Sized>() {}
+        fn from_mut<B: BackendBuffers, T: FromGuestMut<B> + ?Sized>() {}
 
         to::<B, &[u8]>();
         to::<B, &[i64]>();
         to::<B, &[f64]>();
+        from_ref::<B, [u8]>();
+        from_mut::<B, [f64]>();
     }
 
     #[cfg(feature = "bytes")]
@@ -233,18 +266,35 @@ mod tests {
     }
 
     #[test]
-    fn elements_round_trip_through_native_endian_bytes() {
-        assert_eq!(i16::to_bytes(&[1]), 1i16.to_ne_bytes().to_vec());
-        assert_eq!(f32::from_bytes(&f32::to_bytes(&[1.5, -2.0])), vec![1.5, -2.0]);
-        assert_eq!(u64::from_bytes(&u64::to_bytes(&[u64::MAX])), vec![u64::MAX]);
+    fn elements_check_whole_aligned_ranges() {
+        let words = [0u64; 2];
+        let bytes = u64::as_bytes(&words);
+
+        u64::check(bytes).unwrap();
+        u64::check(&bytes[8..]).unwrap();
+        u64::check(&bytes[..0]).unwrap();
+
+        assert!(u64::check(&bytes[1..9]).is_err());
+        assert!(u64::check(&bytes[..12]).is_err());
     }
 
     #[test]
-    fn buffer_sources_accept_every_binary_kind() {
-        assert_eq!(
-            Expected::of::<BufferSource<Stub>>().to_string(),
-            "ArrayBuffer, typed array or DataView",
-        );
+    fn elements_cast_without_copying() {
+        let values = [1.5f32, -2.0];
+        let bytes = f32::as_bytes(&values);
+
+        assert_eq!(bytes.as_ptr(), values.as_ptr().cast());
+        assert_eq!(f32::cast(bytes), &values);
+    }
+
+    #[test]
+    fn empty_bytes_cast_to_empty_elements() {
+        assert!(u64::cast(&[]).is_empty());
+    }
+
+    #[test]
+    fn slices_accept_every_binary_kind() {
+        assert_eq!(Expected::of::<[u8]>().to_string(), "ArrayBuffer, typed array or DataView");
     }
 
     #[cfg(feature = "bytes")]

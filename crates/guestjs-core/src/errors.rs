@@ -23,7 +23,7 @@ pub enum Error {
     #[error("a value was used outside the guest it belongs to")]
     ForeignContext,
 
-    /// A class payload that is already borrowed.
+    /// Guest storage that is already borrowed.
     #[error("{type_name} is already borrowed ({kind})")]
     Borrow { kind: BorrowKind, type_name: String },
 

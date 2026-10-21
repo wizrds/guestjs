@@ -206,7 +206,7 @@ where
     C: Payload,
 {
     fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
-        B::instantiate(
+        B::new_instance(
             enter.token(),
             &RealisedClasses::of(enter.guest())
                 .get::<C>()
@@ -368,7 +368,7 @@ where
             self.prototype
                 .install(enter, state, &prototype)?;
 
-            let constructor = B::constructor(
+            let constructor = B::new_constructor(
                 enter.token(),
                 C::NAME,
                 0,
@@ -378,14 +378,14 @@ where
                     let prototype = ClassPrototype::new(enter, prototype.clone());
 
                     move |enter, call| match (&construct, call.new_target.clone()) {
-                        (Some(construct), Some(new_target)) => B::instantiate(
+                        (Some(construct), Some(new_target)) => B::new_instance(
                             enter.token(),
                             &prototype.for_target(enter, Some(&new_target))?,
                             construct(&CallContext::new(enter, &state), &Args::new(call))?,
                         ),
                         (_, new_target) => Err(B::throw(
                             enter.token(),
-                            B::error(
+                            B::new_error(
                                 enter.token(),
                                 GuestErrorKind::TypeError,
                                 &match new_target {

@@ -12,17 +12,17 @@ use crate::{
 };
 
 pub trait BackendClasses: BackendCallables {
-    type Ref<'a, C: 'static>: Deref<Target = C> + 'a;
-    type RefMut<'a, C: 'static>: DerefMut<Target = C> + 'a;
+    type Payload<'a, C: 'static>: Deref<Target = C> + 'a;
+    type PayloadMut<'a, C: 'static>: DerefMut<Target = C> + 'a;
 
-    fn constructor<'js>(
+    fn new_constructor<'js>(
         token: Tok<'js, Self>,
         name: &str,
         length: u32,
         body: RawBody<Self>,
     ) -> Result<Val<'js, Self>, Error>;
 
-    fn instantiate<'js, C: 'static>(
+    fn new_instance<'js, C: 'static>(
         token: Tok<'js, Self>,
         prototype: &Val<'js, Self>,
         payload: C,
@@ -30,13 +30,13 @@ pub trait BackendClasses: BackendCallables {
 
     fn payload_type<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Option<TypeId>;
 
-    fn borrow<'js, 'a, C: 'static>(
+    fn borrow_payload<'js, 'a, C: 'static>(
         token: Tok<'js, Self>,
         value: &'a Val<'js, Self>,
-    ) -> Result<Self::Ref<'a, C>, Error>;
+    ) -> Result<Self::Payload<'a, C>, Error>;
 
-    fn borrow_mut<'js, 'a, C: 'static>(
+    fn borrow_payload_mut<'js, 'a, C: 'static>(
         token: Tok<'js, Self>,
         value: &'a Val<'js, Self>,
-    ) -> Result<Self::RefMut<'a, C>, Error>;
+    ) -> Result<Self::PayloadMut<'a, C>, Error>;
 }

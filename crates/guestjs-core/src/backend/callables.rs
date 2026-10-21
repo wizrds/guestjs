@@ -15,7 +15,7 @@ pub struct RawCall<'js, B: Backend> {
 pub type RawBody<B> = Rc<dyn for<'js> Fn(RawCall<'js, B>) -> Result<Val<'js, B>, Error>>;
 
 pub trait BackendCallables: BackendValues {
-    fn function<'js>(
+    fn new_function<'js>(
         token: Tok<'js, Self>,
         name: &str,
         length: u32,

@@ -23,7 +23,7 @@ use crate::{
         iter::AsyncIter,
         object::Object,
         promise::Promise,
-        protocol::{CallableProtocol, ConstructorProtocol, ObjectProtocol},
+        protocol::{CallableProtocol, ConstructorProtocol, ObjectProtocol, ValueProtocol},
     },
     host::{
         class::{ClassDeclaration, HostClass},

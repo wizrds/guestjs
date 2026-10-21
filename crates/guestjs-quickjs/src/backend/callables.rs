@@ -17,7 +17,7 @@ use crate::{
 };
 
 impl BackendCallables for QuickJs {
-    fn function<'js>(
+    fn new_function<'js>(
         token: Tok<'js, Self>,
         name: &str,
         length: u32,
@@ -80,7 +80,7 @@ mod tests {
                 token,
                 &QuickJs::globals(token),
                 &QuickJs::new_string(token, "describe").unwrap(),
-                QuickJs::function(
+                QuickJs::new_function(
                     token,
                     "describe",
                     2,
@@ -143,7 +143,7 @@ mod tests {
                 token,
                 &QuickJs::globals(token),
                 &QuickJs::new_string(token, "fail").unwrap(),
-                QuickJs::function(
+                QuickJs::new_function(
                     token,
                     "fail",
                     0,
@@ -156,7 +156,7 @@ mod tests {
                 token,
                 &QuickJs::globals(token),
                 &QuickJs::new_string(token, "rethrow").unwrap(),
-                QuickJs::function(
+                QuickJs::new_function(
                     token,
                     "rethrow",
                     1,

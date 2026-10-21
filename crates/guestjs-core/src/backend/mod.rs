@@ -130,6 +130,8 @@ pub mod tests {
     }
 
     impl BackendValues for Stub {
+        type Str<'a> = &'a str;
+
         fn new_undefined<'js>(_token: Tok<'js, Self>) -> Val<'js, Self> {
             unimplemented!()
         }
@@ -203,10 +205,10 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn as_string<'js>(
+        fn borrow_str<'js, 'a>(
             _token: Tok<'js, Self>,
-            _value: &Val<'js, Self>,
-        ) -> Result<String, Error> {
+            _value: &'a Val<'js, Self>,
+        ) -> Result<Self::Str<'a>, Error> {
             unimplemented!()
         }
 
@@ -342,6 +344,9 @@ pub mod tests {
     }
 
     impl BackendBuffers for Stub {
+        type Bytes<'a> = &'a [u8];
+        type BytesMut<'a> = &'a mut [u8];
+
         fn new_array_buffer<'js>(
             _token: Tok<'js, Self>,
             _bytes: &[u8],
@@ -387,27 +392,23 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn read<'js>(
+        fn borrow_bytes<'js, 'a>(
             _token: Tok<'js, Self>,
-            _buffer: &Val<'js, Self>,
-            _byte_offset: usize,
-            _byte_length: usize,
-        ) -> Result<Vec<u8>, Error> {
+            _source: &'a Val<'js, Self>,
+        ) -> Result<Self::Bytes<'a>, Error> {
             unimplemented!()
         }
 
-        fn write<'js>(
+        fn borrow_bytes_mut<'js, 'a>(
             _token: Tok<'js, Self>,
-            _buffer: &Val<'js, Self>,
-            _byte_offset: usize,
-            _bytes: &[u8],
-        ) -> Result<(), Error> {
+            _source: &'a Val<'js, Self>,
+        ) -> Result<Self::BytesMut<'a>, Error> {
             unimplemented!()
         }
     }
 
     impl BackendCallables for Stub {
-        fn function<'js>(
+        fn new_function<'js>(
             _token: Tok<'js, Self>,
             _name: &str,
             _length: u32,
@@ -418,10 +419,10 @@ pub mod tests {
     }
 
     impl BackendClasses for Stub {
-        type Ref<'a, C: 'static> = &'a C;
-        type RefMut<'a, C: 'static> = &'a mut C;
+        type Payload<'a, C: 'static> = &'a C;
+        type PayloadMut<'a, C: 'static> = &'a mut C;
 
-        fn constructor<'js>(
+        fn new_constructor<'js>(
             _token: Tok<'js, Self>,
             _name: &str,
             _length: u32,
@@ -430,7 +431,7 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn instantiate<'js, C: 'static>(
+        fn new_instance<'js, C: 'static>(
             _token: Tok<'js, Self>,
             _prototype: &Val<'js, Self>,
             _payload: C,
@@ -442,17 +443,17 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn borrow<'js, 'a, C: 'static>(
+        fn borrow_payload<'js, 'a, C: 'static>(
             _token: Tok<'js, Self>,
             _value: &'a Val<'js, Self>,
-        ) -> Result<Self::Ref<'a, C>, Error> {
+        ) -> Result<Self::Payload<'a, C>, Error> {
             unimplemented!()
         }
 
-        fn borrow_mut<'js, 'a, C: 'static>(
+        fn borrow_payload_mut<'js, 'a, C: 'static>(
             _token: Tok<'js, Self>,
             _value: &'a Val<'js, Self>,
-        ) -> Result<Self::RefMut<'a, C>, Error> {
+        ) -> Result<Self::PayloadMut<'a, C>, Error> {
             unimplemented!()
         }
     }
@@ -462,11 +463,14 @@ pub mod tests {
             unimplemented!()
         }
 
-        fn exception<'js>(_token: Tok<'js, Self>, _error: Error) -> Result<Val<'js, Self>, Error> {
+        fn new_exception<'js>(
+            _token: Tok<'js, Self>,
+            _error: Error,
+        ) -> Result<Val<'js, Self>, Error> {
             unimplemented!()
         }
 
-        fn error<'js>(
+        fn new_error<'js>(
             _token: Tok<'js, Self>,
             _kind: GuestErrorKind,
             _message: &str,
@@ -476,7 +480,7 @@ pub mod tests {
     }
 
     impl BackendPromises for Stub {
-        fn promise<'js>(
+        fn new_promise<'js>(
             _token: Tok<'js, Self>,
         ) -> Result<(Val<'js, Self>, Val<'js, Self>, Val<'js, Self>), Error> {
             unimplemented!()

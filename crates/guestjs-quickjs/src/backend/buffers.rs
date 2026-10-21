@@ -1,4 +1,10 @@
-use std::{ffi::c_int, mem::MaybeUninit, ptr, slice};
+use std::{
+    ffi::c_int,
+    marker::PhantomData,
+    mem::MaybeUninit,
+    ops::{Deref, DerefMut},
+    ptr::{self, NonNull},
+};
 
 use guestjs_core::{
     backend::{
@@ -6,11 +12,16 @@ use guestjs_core::{
         buffers::{BackendBuffers, ElementType},
         values::{BackendValues, Kind},
     },
-    errors::Error,
+    errors::{BorrowKind, Error},
 };
 use rquickjs::{ArrayBuffer, Exception, Function, Value, function::This, qjs};
 
-use crate::{backend::QuickJs, context::Token, error::Capture};
+use crate::{
+    backend::QuickJs,
+    context::Token,
+    engine::{LoanGuard, Storage},
+    error::Capture,
+};
 
 pub struct PropertyAtom<'js> {
     token: Token<'js>,
@@ -66,12 +77,7 @@ impl RawElementType for ElementType {
 pub trait ArrayBufferData<'js> {
     fn array_buffer(&self, token: Token<'js>) -> rquickjs::Result<(*mut u8, usize)>;
 
-    unsafe fn range(
-        &self,
-        token: Token<'js>,
-        byte_offset: usize,
-        length: usize,
-    ) -> rquickjs::Result<&mut [u8]>;
+    fn buffer_range(&self, token: Token<'js>) -> Result<(Value<'js>, usize, usize), Error>;
 }
 
 impl<'js> ArrayBufferData<'js> for Value<'js> {
@@ -93,22 +99,21 @@ impl<'js> ArrayBufferData<'js> for Value<'js> {
         }
     }
 
-    unsafe fn range(
-        &self,
-        token: Token<'js>,
-        byte_offset: usize,
-        length: usize,
-    ) -> rquickjs::Result<&mut [u8]> {
-        match self.array_buffer(token)? {
-            (_, size)
-                if byte_offset
-                    .checked_add(length)
-                    .is_none_or(|end| end > size) =>
-            {
-                Err(Exception::throw_range(&token.ctx(), "byte range is outside the ArrayBuffer"))
-            }
-            _ if length == 0 => Ok(&mut []),
-            (data, _) => Ok(unsafe { slice::from_raw_parts_mut(data.add(byte_offset), length) }),
+    fn buffer_range(&self, token: Token<'js>) -> Result<(Value<'js>, usize, usize), Error> {
+        match QuickJs::kind(token, self) {
+            Kind::ArrayBuffer => Ok((self.clone(), 0, QuickJs::byte_length(token, self)?)),
+            Kind::TypedArray | Kind::DataView => match QuickJs::buffer(token, self)? {
+                buffer if QuickJs::kind(token, &buffer) == Kind::ArrayBuffer => Ok((
+                    buffer,
+                    QuickJs::byte_offset(token, self)?,
+                    QuickJs::byte_length(token, self)?,
+                )),
+                _ => {
+                    Err(Error::conversion("view of an ArrayBuffer", "view of a SharedArrayBuffer"))
+                }
+            },
+            _ => Err(Exception::throw_type(&token.ctx(), "not an ArrayBuffer or ArrayBuffer view"))
+                .capture(token),
         }
     }
 }
@@ -183,7 +188,94 @@ impl<'js> IntrinsicAccessor<'js> for Value<'js> {
     }
 }
 
+pub struct Bytes<'a> {
+    _guard: Option<LoanGuard>,
+    bytes: NonNull<[u8]>,
+    source: PhantomData<&'a [u8]>,
+}
+
+impl<'a> Bytes<'a> {
+    pub fn new<'js>(
+        token: Token<'js>,
+        source: &'a Value<'js>,
+        kind: BorrowKind,
+    ) -> Result<Self, Error> {
+        let (buffer, byte_offset, byte_length) = source.buffer_range(token)?;
+        let (data, size) = buffer
+            .array_buffer(token)
+            .capture(token)?;
+
+        if byte_offset
+            .checked_add(byte_length)
+            .is_none_or(|end| end > size)
+        {
+            return Err(Exception::throw_range(
+                &token.ctx(),
+                "byte range is outside the ArrayBuffer",
+            ))
+            .capture(token);
+        }
+
+        if kind == BorrowKind::Exclusive
+            && unsafe { qjs::JS_IsImmutableArrayBuffer(buffer.as_raw()) } == 1
+        {
+            return Err(Exception::throw_type(&token.ctx(), "ArrayBuffer is immutable"))
+                .capture(token);
+        }
+
+        match byte_length {
+            0 => Ok(Self {
+                _guard: None,
+                bytes: NonNull::from(&mut [][..]),
+                source: PhantomData,
+            }),
+            _ => token
+                .loans()
+                .lend(Storage::new("ArrayBuffer", data.addr()), kind)
+                .map(|guard| Self {
+                    _guard: Some(guard),
+                    bytes: NonNull::slice_from_raw_parts(
+                        unsafe { NonNull::new_unchecked(data.add(byte_offset)) },
+                        byte_length,
+                    ),
+                    source: PhantomData,
+                }),
+        }
+    }
+
+    pub unsafe fn as_mut(&mut self) -> &mut [u8] {
+        unsafe { self.bytes.as_mut() }
+    }
+}
+
+impl Deref for Bytes<'_> {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        unsafe { self.bytes.as_ref() }
+    }
+}
+
+pub struct BytesMut<'a>(Bytes<'a>);
+
+impl Deref for BytesMut<'_> {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl DerefMut for BytesMut<'_> {
+    fn deref_mut(&mut self) -> &mut [u8] {
+        unsafe { self.0.as_mut() }
+    }
+}
+
 impl BackendBuffers for QuickJs {
+    type Bytes<'a> = Bytes<'a>;
+    type BytesMut<'a> = BytesMut<'a>;
+
     fn new_array_buffer<'js>(token: Tok<'js, Self>, bytes: &[u8]) -> Result<Val<'js, Self>, Error> {
         ArrayBuffer::new_copy(token.ctx(), bytes)
             .map(ArrayBuffer::into_value)
@@ -271,42 +363,36 @@ impl BackendBuffers for QuickJs {
         .capture(token)
     }
 
-    fn read<'js>(
+    fn borrow_bytes<'js, 'a>(
         token: Tok<'js, Self>,
-        buffer: &Val<'js, Self>,
-        byte_offset: usize,
-        byte_length: usize,
-    ) -> Result<Vec<u8>, Error> {
-        unsafe { buffer.range(token, byte_offset, byte_length) }
-            .map(|range| range.to_vec())
-            .capture(token)
+        source: &'a Val<'js, Self>,
+    ) -> Result<Self::Bytes<'a>, Error> {
+        Bytes::new(token, source, BorrowKind::Shared)
     }
 
-    fn write<'js>(
+    fn borrow_bytes_mut<'js, 'a>(
         token: Tok<'js, Self>,
-        buffer: &Val<'js, Self>,
-        byte_offset: usize,
-        bytes: &[u8],
-    ) -> Result<(), Error> {
-        match unsafe { qjs::JS_IsImmutableArrayBuffer(buffer.as_raw()) } {
-            1 => Err(Exception::throw_type(&token.ctx(), "ArrayBuffer is immutable")),
-            _ => unsafe { buffer.range(token, byte_offset, bytes.len()) }
-                .map(|range| range.copy_from_slice(bytes)),
-        }
-        .capture(token)
+        source: &'a Val<'js, Self>,
+    ) -> Result<Self::BytesMut<'a>, Error> {
+        Bytes::new(token, source, BorrowKind::Exclusive).map(BytesMut)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use guestjs_core::backend::{
-        Backend,
-        buffers::{BackendBuffers, ElementType},
-        values::BackendValues,
+    use guestjs_core::{
+        backend::{
+            Backend,
+            buffers::{BackendBuffers, ElementType},
+            values::BackendValues,
+        },
+        errors::Error,
     };
     use rquickjs::{Value, qjs};
 
     use crate::{backend::QuickJs, engine::Config};
+
+    guestjs_core::fixtures::buffers::tests!(QuickJs);
 
     #[test]
     fn typed_arrays_view_a_new_array_buffer() {
@@ -322,7 +408,7 @@ mod tests {
             assert_eq!(QuickJs::byte_offset(token, &view).unwrap(), 2);
             assert_eq!(QuickJs::byte_length(token, &view).unwrap(), 6);
             assert_eq!(QuickJs::byte_length(token, &buffer).unwrap(), 8);
-            assert_eq!(QuickJs::read(token, &buffer, 2, 6).unwrap(), vec![3, 4, 5, 6, 7, 8]);
+            assert_eq!(&QuickJs::borrow_bytes(token, &buffer).unwrap()[2..], [3, 4, 5, 6, 7, 8]);
         });
     }
 
@@ -375,21 +461,21 @@ mod tests {
     }
 
     #[test]
-    fn write_copies_into_the_buffer() {
+    fn borrow_bytes_mut_copies_into_the_buffer() {
         let engine = QuickJs::engine(Config::default()).unwrap();
         let context = QuickJs::new_context(&engine).unwrap();
 
         QuickJs::enter(&engine, &context, |token| {
             let buffer = QuickJs::new_array_buffer(token, &[0; 4]).unwrap();
 
-            QuickJs::write(token, &buffer, 1, &[7, 8]).unwrap();
+            QuickJs::borrow_bytes_mut(token, &buffer).unwrap()[1..3].copy_from_slice(&[7, 8]);
 
-            assert_eq!(QuickJs::read(token, &buffer, 0, 4).unwrap(), vec![0, 7, 8, 0]);
+            assert_eq!(&QuickJs::borrow_bytes(token, &buffer).unwrap()[..], [0, 7, 8, 0]);
         });
     }
 
     #[test]
-    fn byte_access_rejects_invalid_buffers_and_ranges() {
+    fn byte_access_rejects_invalid_buffers() {
         let engine = QuickJs::engine(Config::default()).unwrap();
         let context = QuickJs::new_context(&engine).unwrap();
 
@@ -404,25 +490,15 @@ mod tests {
             let detached =
                 eval("const detached = new ArrayBuffer(4); detached.transfer(); detached");
 
-            assert!(
-                QuickJs::read(token, &buffer, 2, 4)
-                    .unwrap_err()
-                    .is_guest()
-            );
-            assert!(
-                QuickJs::read(token, &detached, 0, 0)
-                    .unwrap_err()
-                    .is_guest()
-            );
+            assert!(QuickJs::borrow_bytes(token, &detached).is_err_and(|error| error.is_guest()));
             assert!(
                 QuickJs::byte_length(token, &detached)
                     .unwrap_err()
                     .is_guest()
             );
             assert!(
-                QuickJs::read(token, &eval("new SharedArrayBuffer(4)"), 0, 0)
-                    .unwrap_err()
-                    .is_guest()
+                QuickJs::borrow_bytes(token, &eval("new SharedArrayBuffer(4)"))
+                    .is_err_and(|error| error.is_guest())
             );
             assert!(
                 QuickJs::byte_length(token, &eval("({ byteLength: 4 })"))
@@ -432,12 +508,177 @@ mod tests {
 
             unsafe { qjs::JS_SetImmutableArrayBuffer(buffer.as_raw(), true) };
 
-            assert!(
-                QuickJs::write(token, &buffer, 0, &[1])
-                    .unwrap_err()
-                    .is_guest()
-            );
+            assert!(QuickJs::borrow_bytes_mut(token, &buffer).is_err_and(|error| error.is_guest()));
             assert!(!token.ctx().has_exception());
+        });
+    }
+
+    #[test]
+    fn borrow_bytes_views_a_typed_array_window() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let buffer = QuickJs::new_array_buffer(token, &[1, 2, 3, 4, 5, 6]).unwrap();
+
+            assert_eq!(
+                &QuickJs::borrow_bytes(
+                    token,
+                    &QuickJs::new_typed_array(token, ElementType::Uint8, &buffer, 2, 3).unwrap(),
+                )
+                .unwrap()[..],
+                [3, 4, 5],
+            );
+        });
+    }
+
+    #[test]
+    fn borrow_bytes_mut_writes_through_to_the_buffer() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            QuickJs::borrow_bytes_mut(
+                token,
+                &token
+                    .ctx()
+                    .eval::<Value, _>("globalThis.bytes = new Uint8Array(4); bytes")
+                    .unwrap(),
+            )
+            .unwrap()[2] = 9;
+
+            assert_eq!(
+                token
+                    .ctx()
+                    .eval::<i32, _>("bytes[2]")
+                    .unwrap(),
+                9,
+            );
+        });
+    }
+
+    #[test]
+    fn borrow_bytes_mut_refuses_an_immutable_buffer() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let buffer = QuickJs::new_array_buffer(token, &[0; 4]).unwrap();
+
+            unsafe { qjs::JS_SetImmutableArrayBuffer(buffer.as_raw(), true) };
+
+            assert!(matches!(
+                QuickJs::borrow_bytes_mut(token, &buffer),
+                Err(Error::Guest(exception)) if exception.name() == "TypeError",
+            ));
+        });
+    }
+
+    #[test]
+    fn borrow_bytes_refuses_a_shared_array_buffer_view() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            assert!(matches!(
+                QuickJs::borrow_bytes(
+                    token,
+                    &token
+                        .ctx()
+                        .eval::<Value, _>("new Uint8Array(new SharedArrayBuffer(4))")
+                        .unwrap(),
+                ),
+                Err(Error::Conversion { found, .. }) if found == "view of a SharedArrayBuffer",
+            ));
+        });
+    }
+
+    #[test]
+    fn a_second_mutable_loan_is_refused() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let buffer = QuickJs::new_array_buffer(token, &[0; 4]).unwrap();
+            let first = QuickJs::new_typed_array(token, ElementType::Uint8, &buffer, 0, 2).unwrap();
+            let _guard = QuickJs::borrow_bytes_mut(token, &first).unwrap();
+
+            assert!(matches!(
+                QuickJs::borrow_bytes_mut(
+                    token,
+                    &QuickJs::new_typed_array(token, ElementType::Uint8, &buffer, 2, 2).unwrap(),
+                ),
+                Err(Error::Borrow { .. }),
+            ));
+        });
+    }
+
+    #[test]
+    fn guest_code_is_refused_while_lent() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let buffer = QuickJs::new_array_buffer(token, &[1]).unwrap();
+            let function = token
+                .ctx()
+                .eval::<Value, _>("globalThis.calls = 0; () => { calls += 1; }")
+                .unwrap();
+            let guard = QuickJs::borrow_bytes(token, &buffer).unwrap();
+
+            assert!(matches!(
+                QuickJs::call(token, &function, &QuickJs::new_undefined(token), &[]),
+                Err(Error::Borrow { .. }),
+            ));
+
+            drop(guard);
+
+            assert_eq!(
+                token
+                    .ctx()
+                    .eval::<i32, _>("calls")
+                    .unwrap(),
+                0,
+            );
+        });
+    }
+
+    #[test]
+    fn guest_code_runs_after_the_loan_drops() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let buffer = QuickJs::new_array_buffer(token, &[1]).unwrap();
+            let function = token
+                .ctx()
+                .eval::<Value, _>("globalThis.calls = 0; () => { calls += 1; }")
+                .unwrap();
+
+            drop(QuickJs::borrow_bytes(token, &buffer).unwrap());
+
+            QuickJs::call(token, &function, &QuickJs::new_undefined(token), &[]).unwrap();
+
+            assert_eq!(
+                token
+                    .ctx()
+                    .eval::<i32, _>("calls")
+                    .unwrap(),
+                1,
+            );
+        });
+    }
+
+    #[test]
+    fn empty_buffers_are_not_lent() {
+        let engine = QuickJs::engine(Config::default()).unwrap();
+        let context = QuickJs::new_context(&engine).unwrap();
+
+        QuickJs::enter(&engine, &context, |token| {
+            let buffer = QuickJs::new_array_buffer(token, &[]).unwrap();
+            let _guard = QuickJs::borrow_bytes_mut(token, &buffer).unwrap();
+
+            assert!(token.loans().settled().is_ok());
         });
     }
 }

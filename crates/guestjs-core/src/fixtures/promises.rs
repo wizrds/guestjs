@@ -10,7 +10,7 @@ use crate::{
     handle::{
         iter::AsyncIter,
         object::Object,
-        promise::Promise,
+        promise::{Awaitable, Promise},
         protocol::{CallableProtocol, ObjectProtocol},
     },
     runtime::Runtime,
@@ -295,6 +295,62 @@ guest_fixture! {
     }
 }
 
+guest_fixture! {
+    pub async fn awaitable_wraps_plain_values<B>()
+    where B: [
+        BackendModules,
+        BackendInterrupt,
+        BackendPromises,
+        BackendExceptions,
+    ]
+    using Runtime::<B>::builder();
+    |guest| {
+        assert_eq!(
+            guest
+                .eval::<Awaitable<i32>>("7")
+                .unwrap()
+                .await
+                .unwrap(),
+            7,
+        );
+    }
+}
+
+guest_fixture! {
+    pub async fn awaitable_adopts_thenables<B>()
+    where B: [
+        BackendModules,
+        BackendInterrupt,
+        BackendPromises,
+        BackendExceptions,
+    ]
+    using Runtime::<B>::builder();
+    |guest| {
+        assert_eq!(
+            guest
+                .eval::<Awaitable<i32>>("({ then(resolve) { resolve(9); } })")
+                .unwrap()
+                .await
+                .unwrap(),
+            9,
+        );
+    }
+}
+
+guest_fixture! {
+    pub fn strict_promises_still_refuse_plain_values<B>()
+    where B: [
+        BackendModules,
+        BackendInterrupt,
+    ]
+    using Runtime::<B>::builder();
+    |guest| {
+        assert!(guest
+            .eval::<Promise<B, i32>>("7")
+            .is_err_and(|error| error.is_conversion()));
+    }
+}
+
 #[macro_export]
 macro_rules! __guestjs_backend_promises_tests {
     ($backend:ty) => {
@@ -322,6 +378,21 @@ macro_rules! __guestjs_backend_promises_tests {
         async fn async_iteration_adopts_thenable_next_results() {
             $crate::fixtures::promises::async_iteration_adopts_thenable_next_results::<$backend>()
                 .await;
+        }
+
+        #[tokio::test]
+        async fn awaitable_wraps_plain_values() {
+            $crate::fixtures::promises::awaitable_wraps_plain_values::<$backend>().await;
+        }
+
+        #[tokio::test]
+        async fn awaitable_adopts_thenables() {
+            $crate::fixtures::promises::awaitable_adopts_thenables::<$backend>().await;
+        }
+
+        #[test]
+        fn strict_promises_still_refuse_plain_values() {
+            $crate::fixtures::promises::strict_promises_still_refuse_plain_values::<$backend>();
         }
     };
 }

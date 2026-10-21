@@ -57,7 +57,7 @@ where
             .and_then(|result| result(enter))
         {
             Ok(value) => (&self.resolve, value),
-            Err(error) => (&self.reject, B::exception(token, error)?),
+            Err(error) => (&self.reject, B::new_exception(token, error)?),
         };
 
         B::call(token, &B::attach(token, resolver)?, &B::new_undefined(token), &[argument])
@@ -117,7 +117,7 @@ where
         enter: &Enter<'js, B>,
         future: HostFuture<B>,
     ) -> Result<Val<'js, B>, Error> {
-        let (promise, resolve, reject) = B::promise(enter.token())?;
+        let (promise, resolve, reject) = B::new_promise(enter.token())?;
 
         self.in_flight
             .borrow_mut()

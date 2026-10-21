@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     backend::{Backend, Tok, Val},
     errors::Error,
@@ -77,6 +79,8 @@ pub enum Property<'js, B: Backend> {
 }
 
 pub trait BackendValues: Backend {
+    type Str<'a>: Deref<Target = str> + 'a;
+
     fn new_undefined<'js>(token: Tok<'js, Self>) -> Val<'js, Self>;
     fn new_null<'js>(token: Tok<'js, Self>) -> Val<'js, Self>;
     fn new_boolean<'js>(token: Tok<'js, Self>, value: bool) -> Val<'js, Self>;
@@ -100,7 +104,10 @@ pub trait BackendValues: Backend {
     fn as_bool<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<bool, Error>;
     fn as_f64<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<f64, Error>;
     fn as_i64<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<i64, Error>;
-    fn as_string<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<String, Error>;
+    fn borrow_str<'js, 'a>(
+        token: Tok<'js, Self>,
+        value: &'a Val<'js, Self>,
+    ) -> Result<Self::Str<'a>, Error>;
     fn display<'js>(token: Tok<'js, Self>, value: &Val<'js, Self>) -> Result<String, Error>;
     fn same<'js>(token: Tok<'js, Self>, first: &Val<'js, Self>, second: &Val<'js, Self>) -> bool;
 

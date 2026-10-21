@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     backend::{
         Val,
@@ -6,7 +8,7 @@ use crate::{
     enter::Enter,
     errors::Error,
     marshal::{
-        FromGuest, ToGuest,
+        FromGuest, FromGuestRef, ToGuest,
         describe::{Describe, Expected},
     },
 };
@@ -186,6 +188,36 @@ impl<B: BackendValues> FromGuest<B> for f32 {
     }
 }
 
+pub struct StrRef<'a, B: BackendValues>(B::Str<'a>);
+
+impl<B: BackendValues> Deref for StrRef<'_, B> {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Describe for str {
+    fn describe(expected: &mut Expected) {
+        expected.push("string");
+    }
+}
+
+impl<B: BackendValues> FromGuestRef<B> for str {
+    type Ref<'a> = StrRef<'a, B>;
+
+    fn from_guest_ref<'js, 'a>(
+        enter: &Enter<'js, B>,
+        value: &'a Val<'js, B>,
+    ) -> Result<Self::Ref<'a>, Error> {
+        match B::kind(enter.token(), value) {
+            Kind::String => B::borrow_str(enter.token(), value).map(StrRef),
+            kind => Err(Expected::of::<Self>().mismatch(kind)),
+        }
+    }
+}
+
 impl Describe for String {
     fn describe(expected: &mut Expected) {
         expected.push("string");
@@ -208,10 +240,7 @@ impl<B: BackendValues> FromGuest<B> for String {
     type Owned = Self;
 
     fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
-        match B::kind(enter.token(), &value) {
-            Kind::String => B::as_string(enter.token(), &value),
-            kind => Err(Expected::of::<Self>().mismatch(kind)),
-        }
+        <str as FromGuestRef<B>>::from_guest_ref(enter, &value).map(|text| text.to_owned())
     }
 }
 
@@ -253,6 +282,11 @@ mod tests {
     #[test]
     fn floats_accept_numbers() {
         assert_eq!(Expected::of::<f32>().to_string(), "number");
+    }
+
+    #[test]
+    fn str_describes_as_string() {
+        assert_eq!(Expected::of::<str>().to_string(), "string");
     }
 
     #[test]

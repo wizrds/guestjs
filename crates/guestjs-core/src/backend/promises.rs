@@ -12,7 +12,7 @@ pub enum PromiseState<V> {
 }
 
 pub trait BackendPromises: BackendValues {
-    fn promise<'js>(
+    fn new_promise<'js>(
         token: Tok<'js, Self>,
     ) -> Result<(Val<'js, Self>, Val<'js, Self>, Val<'js, Self>), Error>;
 

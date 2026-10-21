@@ -15,8 +15,7 @@ use crate::{
     enter::Enter,
     errors::Error,
     marshal::{
-        FromGuest, ToGuest,
-        buffers::BufferSource,
+        FromGuest, FromGuestRef, ToGuest,
         collections::{Elements, Entries},
         describe::{Describe, Expected},
         primitives::MAX_SAFE_INTEGER,
@@ -428,11 +427,12 @@ impl<'de, 'a, 'js, B: BackendBuffers> de::Deserializer<'de> for Deserializer<'a,
                 }
             }
             Kind::BigInt => visitor.visit_i64(i64::from_guest(self.enter, self.value)?),
-            Kind::String => visitor.visit_string(String::from_guest(self.enter, self.value)?),
+            Kind::String => visitor
+                .visit_str(&<str as FromGuestRef<B>>::from_guest_ref(self.enter, &self.value)?),
             Kind::Array => visitor
                 .visit_seq(ArrayAccess::new(self.enter, Elements::read(self.enter, &self.value)?)),
             Kind::ArrayBuffer | Kind::TypedArray | Kind::DataView => visitor
-                .visit_byte_buf(BufferSource::read(self.enter, &self.value)?.bytes(self.enter)?),
+                .visit_bytes(&<[u8] as FromGuestRef<B>>::from_guest_ref(self.enter, &self.value)?),
             Kind::Object => visitor
                 .visit_map(ObjectAccess::new(self.enter, Entries::read(self.enter, &self.value)?)),
             kind => Err(Expected::of::<Self>().mismatch(kind)),

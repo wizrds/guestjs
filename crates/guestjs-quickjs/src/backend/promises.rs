@@ -12,7 +12,7 @@ use rquickjs::{Promise, Value};
 use crate::{backend::QuickJs, error::Capture};
 
 impl BackendPromises for QuickJs {
-    fn promise<'js>(
+    fn new_promise<'js>(
         token: Tok<'js, Self>,
     ) -> Result<(Val<'js, Self>, Val<'js, Self>, Val<'js, Self>), Error> {
         token
@@ -25,6 +25,8 @@ impl BackendPromises for QuickJs {
     }
 
     fn resolve<'js>(token: Tok<'js, Self>, value: Val<'js, Self>) -> Result<Val<'js, Self>, Error> {
+        token.loans().settled()?;
+
         match value.is_promise() {
             true => Ok(value),
             false => token
@@ -90,8 +92,8 @@ mod tests {
         let context = QuickJs::new_context(&engine).unwrap();
 
         QuickJs::enter(&engine, &context, |token| {
-            let (fulfilled, resolve, _) = QuickJs::promise(token).unwrap();
-            let (rejected, _, reject) = QuickJs::promise(token).unwrap();
+            let (fulfilled, resolve, _) = QuickJs::new_promise(token).unwrap();
+            let (rejected, _, reject) = QuickJs::new_promise(token).unwrap();
             let reason = QuickJs::new_object(token).unwrap();
 
             assert!(matches!(QuickJs::state(token, &fulfilled), Ok(PromiseState::Pending),));
@@ -175,7 +177,7 @@ mod tests {
                 token,
                 &QuickJs::eval(token, "queueMicrotask", "queue.js").unwrap(),
                 &QuickJs::new_undefined(token),
-                &[QuickJs::function(
+                &[QuickJs::new_function(
                     token,
                     "probe",
                     0,

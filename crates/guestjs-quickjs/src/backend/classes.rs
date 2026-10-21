@@ -19,13 +19,13 @@ use rquickjs::{
 
 use crate::{backend::QuickJs, error::Capture};
 
-pub struct Payload {
+pub struct PayloadCell {
     pub type_id: TypeId,
     pub type_name: &'static str,
     pub cell: RefCell<Box<dyn Any>>,
 }
 
-impl Payload {
+impl PayloadCell {
     pub fn new<C>(payload: C) -> Self
     where
         C: 'static,
@@ -59,16 +59,16 @@ impl Payload {
     }
 }
 
-unsafe impl<'js> JsLifetime<'js> for Payload {
-    type Changed<'to> = Payload;
+unsafe impl<'js> JsLifetime<'js> for PayloadCell {
+    type Changed<'to> = PayloadCell;
 }
 
-impl<'js> Trace<'js> for Payload {
+impl<'js> Trace<'js> for PayloadCell {
     fn trace<'a>(&self, _: Tracer<'a, 'js>) {}
 }
 
-impl<'js> JsClass<'js> for Payload {
-    const NAME: &'static str = "Payload";
+impl<'js> JsClass<'js> for PayloadCell {
+    const NAME: &'static str = "PayloadCell";
 
     type Mutable = Readable;
 
@@ -78,16 +78,16 @@ impl<'js> JsClass<'js> for Payload {
 }
 
 impl BackendClasses for QuickJs {
-    type Ref<'a, C: 'static> = cell::Ref<'a, C>;
-    type RefMut<'a, C: 'static> = cell::RefMut<'a, C>;
+    type Payload<'a, C: 'static> = cell::Ref<'a, C>;
+    type PayloadMut<'a, C: 'static> = cell::RefMut<'a, C>;
 
-    fn constructor<'js>(
+    fn new_constructor<'js>(
         token: Tok<'js, Self>,
         name: &str,
         length: u32,
         body: RawBody<Self>,
     ) -> Result<Val<'js, Self>, Error> {
-        Self::function(token, name, length, body).and_then(|function| {
+        Self::new_function(token, name, length, body).and_then(|function| {
             Function::from_value(function)
                 .map(|function| {
                     function
@@ -98,26 +98,26 @@ impl BackendClasses for QuickJs {
         })
     }
 
-    fn instantiate<'js, C: 'static>(
+    fn new_instance<'js, C: 'static>(
         token: Tok<'js, Self>,
         prototype: &Val<'js, Self>,
         payload: C,
     ) -> Result<Val<'js, Self>, Error> {
         Object::from_value(prototype.clone())
-            .and_then(|prototype| Class::instance_proto(Payload::new(payload), prototype))
+            .and_then(|prototype| Class::instance_proto(PayloadCell::new(payload), prototype))
             .map(Class::into_value)
             .capture(token)
     }
 
     fn payload_type<'js>(_token: Tok<'js, Self>, value: &Val<'js, Self>) -> Option<TypeId> {
-        Payload::of(value).map(|payload| payload.type_id)
+        PayloadCell::of(value).map(|payload| payload.type_id)
     }
 
-    fn borrow<'js, 'a, C: 'static>(
+    fn borrow_payload<'js, 'a, C: 'static>(
         _token: Tok<'js, Self>,
         value: &'a Val<'js, Self>,
-    ) -> Result<Self::Ref<'a, C>, Error> {
-        Payload::typed::<C>(value).and_then(|payload| {
+    ) -> Result<Self::Payload<'a, C>, Error> {
+        PayloadCell::typed::<C>(value).and_then(|payload| {
             payload
                 .cell
                 .try_borrow()
@@ -131,11 +131,11 @@ impl BackendClasses for QuickJs {
         })
     }
 
-    fn borrow_mut<'js, 'a, C: 'static>(
+    fn borrow_payload_mut<'js, 'a, C: 'static>(
         _token: Tok<'js, Self>,
         value: &'a Val<'js, Self>,
-    ) -> Result<Self::RefMut<'a, C>, Error> {
-        Payload::typed::<C>(value).and_then(|payload| {
+    ) -> Result<Self::PayloadMut<'a, C>, Error> {
+        PayloadCell::typed::<C>(value).and_then(|payload| {
             payload
                 .cell
                 .try_borrow_mut()
@@ -184,12 +184,12 @@ mod tests {
                 token,
                 &QuickJs::globals(token),
                 &QuickJs::new_string(token, "Host").unwrap(),
-                QuickJs::constructor(
+                QuickJs::new_constructor(
                     token,
                     "Host",
                     1,
                     Rc::new(|call: RawCall<'_, QuickJs>| {
-                        QuickJs::instantiate(
+                        QuickJs::new_instance(
                             call.token,
                             &QuickJs::get(
                                 call.token,
@@ -223,12 +223,12 @@ mod tests {
             );
             assert_eq!(QuickJs::payload_type(token, &instance), Some(TypeId::of::<Counter>()),);
 
-            QuickJs::borrow_mut::<Counter>(token, &instance)
+            QuickJs::borrow_payload_mut::<Counter>(token, &instance)
                 .unwrap()
                 .0 += 1.0;
 
             assert_eq!(
-                QuickJs::borrow::<Counter>(token, &instance)
+                QuickJs::borrow_payload::<Counter>(token, &instance)
                     .unwrap()
                     .0,
                 4.0,
@@ -237,34 +237,34 @@ mod tests {
     }
 
     #[test]
-    fn borrow_reports_conflicts_and_mismatches() {
+    fn borrow_payload_reports_conflicts_and_mismatches() {
         let engine = QuickJs::engine(Config::default()).unwrap();
         let context = QuickJs::new_context(&engine).unwrap();
 
         QuickJs::enter(&engine, &context, |token| {
             let instance =
-                QuickJs::instantiate(token, &QuickJs::new_object(token).unwrap(), Counter(0.0))
+                QuickJs::new_instance(token, &QuickJs::new_object(token).unwrap(), Counter(0.0))
                     .unwrap();
             let plain = QuickJs::new_object(token).unwrap();
 
             {
-                let _shared = QuickJs::borrow::<Counter>(token, &instance).unwrap();
+                let _shared = QuickJs::borrow_payload::<Counter>(token, &instance).unwrap();
 
                 assert!(matches!(
-                    QuickJs::borrow_mut::<Counter>(token, &instance),
+                    QuickJs::borrow_payload_mut::<Counter>(token, &instance),
                     Err(Error::Borrow { kind: BorrowKind::Shared, .. }),
                 ));
             }
 
             {
-                let _exclusive = QuickJs::borrow_mut::<Counter>(token, &instance).unwrap();
+                let _exclusive = QuickJs::borrow_payload_mut::<Counter>(token, &instance).unwrap();
 
                 assert!(matches!(
-                    QuickJs::borrow::<Counter>(token, &instance),
+                    QuickJs::borrow_payload::<Counter>(token, &instance),
                     Err(Error::Borrow { kind: BorrowKind::Exclusive, .. }),
                 ));
                 assert!(
-                    QuickJs::borrow::<String>(token, &instance)
+                    QuickJs::borrow_payload::<String>(token, &instance)
                         .is_err_and(|error| error.is_conversion()),
                 );
                 assert_eq!(QuickJs::payload_type(token, &instance), Some(TypeId::of::<Counter>()),);
@@ -272,10 +272,11 @@ mod tests {
 
             assert_eq!(QuickJs::payload_type(token, &plain), None);
             assert!(
-                QuickJs::borrow::<Counter>(token, &plain).is_err_and(|error| error.is_conversion()),
+                QuickJs::borrow_payload::<Counter>(token, &plain)
+                    .is_err_and(|error| error.is_conversion()),
             );
             assert!(
-                QuickJs::instantiate(token, &QuickJs::new_number(token, 1.0), Counter(0.0))
+                QuickJs::new_instance(token, &QuickJs::new_number(token, 1.0), Counter(0.0))
                     .is_err_and(|error| error.is_conversion()),
             );
         });

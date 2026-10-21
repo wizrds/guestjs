@@ -95,7 +95,7 @@ impl<B: BackendCallables> Declaration<B> for FunctionDeclaration<B> {
     ) -> Result<Val<'js, B>, Error> {
         self.requirements.check(state)?;
 
-        B::function(
+        B::new_function(
             enter.token(),
             name,
             0,
