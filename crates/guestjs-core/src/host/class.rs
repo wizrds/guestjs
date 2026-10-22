@@ -1,1325 +1,637 @@
-use std::{
-    any::TypeId,
-    future::Future,
-    ops::{Deref, DerefMut},
-    pin::Pin,
-};
-
-use rquickjs::{
-    Array, Atom, CatchResultExt, Class, Constructor, Ctx, Exception, FromJs,
-    Function as JsFunction, JsLifetime, Object as JsObject, Persistent, Symbol,
-    Value as JsValue,
-    class::{JsClass, OwnedBorrow, OwnedBorrowMut, Trace, Tracer, Writable},
-    function::{Async, Rest, This},
-    object::Accessor,
-};
+use std::{any::TypeId, cell::RefCell, collections::HashMap, future::Future, rc::Rc};
 
 use crate::{
-    errors::Error,
-    handle::{BoundInstance, Instance},
-    host::{args::Args, namespace::Namespace},
-    marshal::{FromGuest, FromGuestBound, FromGuestMut, FromGuestRef, ToGuest, ToGuestBound},
-    registry::RegistryHandle,
-    runtime::Scope,
+    backend::{
+        Backend, Val,
+        callables::BackendCallables,
+        classes::BackendClasses,
+        exceptions::BackendExceptions,
+        promises::BackendPromises,
+        values::{BackendValues, Property},
+    },
+    enter::Enter,
+    errors::{Error, GuestErrorKind},
+    guest::Guest,
+    handle::class::{Class, Instance, Payload},
+    host::{
+        context::{CallContext, FromContext},
+        declaration::Declaration,
+        namespace::NamespaceDeclaration,
+        property::{PropertyDeclaration, PropertyKey},
+        requirements::Requirements,
+        state::HostState,
+    },
+    marshal::{FromGuest, ToGuest, args::Args},
 };
 
-/// A Rust class exposed to guest code.
-pub trait HostClass: Sized + 'static {
-    /// The guest-visible class name.
-    const NAME: &'static str;
-
-    /// Constructs an instance.
-    fn construct<'js>(_scope: &Scope<'js>, _args: Args<'js>) -> Result<Self, Error> {
-        Err(Error::unexpected(format!("host class {} cannot be constructed", Self::NAME)))
-    }
-
-    /// Defines the class.
-    fn build(spec: &mut ClassSpec<Self>);
+pub struct ClassPrototype<B: Backend> {
+    prototype: B::Owned,
 }
 
-/// A JavaScript well-known symbol.
-#[derive(Clone, Copy)]
-pub enum WellKnownSymbol {
-    /// `Symbol.iterator`.
-    Iterator,
-    /// `Symbol.asyncIterator`.
-    AsyncIterator,
-    /// `Symbol.toPrimitive`.
-    ToPrimitive,
-    /// `Symbol.hasInstance`.
-    HasInstance,
-}
-
-impl WellKnownSymbol {
-    fn atom<'js>(self, ctx: &Ctx<'js>) -> Atom<'js> {
-        match self {
-            Self::Iterator => Symbol::iterator(ctx.clone()).as_atom(),
-            Self::AsyncIterator => Symbol::async_iterator(ctx.clone()).as_atom(),
-            Self::ToPrimitive => Symbol::to_primitive(ctx.clone()).as_atom(),
-            Self::HasInstance => Symbol::has_instance(ctx.clone()).as_atom(),
-        }
-    }
-}
-
-type MethodResult<'js> = Result<JsValue<'js>, Error>;
-type MethodFuture<'js> = Pin<Box<dyn Future<Output = MethodResult<'js>> + 'js>>;
-type GetterSpec<C> = Box<dyn for<'js> Fn(&C, &Scope<'js>) -> MethodResult<'js>>;
-type SetterSpec<C> = Box<dyn for<'js> Fn(&mut C, &Scope<'js>, JsValue<'js>) -> Result<(), Error>>;
-type RefMethod<C> = Box<dyn for<'js> Fn(&C, &Scope<'js>, Args<'js>) -> MethodResult<'js>>;
-type MutMethod<C> = Box<dyn for<'js> Fn(&mut C, &Scope<'js>, Args<'js>) -> MethodResult<'js>>;
-type AsyncRefMethod<C> =
-    Box<dyn for<'js> Fn(&C, &Scope<'js>, Args<'js>) -> Result<MethodFuture<'js>, Error>>;
-type AsyncMutMethod<C> =
-    Box<dyn for<'js> Fn(&mut C, &Scope<'js>, Args<'js>) -> Result<MethodFuture<'js>, Error>>;
-type AccessorSpec<C> = (String, Option<GetterSpec<C>>, Option<SetterSpec<C>>);
-
-enum MethodSpec<C> {
-    Ref(RefMethod<C>),
-    Mut(MutMethod<C>),
-    AsyncRef(AsyncRefMethod<C>),
-    AsyncMut(AsyncMutMethod<C>),
-}
-
-/// A host class definition.
-pub struct ClassSpec<C> {
-    methods: Vec<(String, MethodSpec<C>)>,
-    accessors: Vec<AccessorSpec<C>>,
-    symbols: Vec<(WellKnownSymbol, MethodSpec<C>)>,
-    statics: Namespace,
-}
-
-struct ClassParts<C> {
-    methods: Vec<(String, MethodSpec<C>)>,
-    accessors: Vec<AccessorSpec<C>>,
-    symbols: Vec<(WellKnownSymbol, MethodSpec<C>)>,
-    statics: Namespace,
-}
-
-impl<C: HostClass> ClassSpec<C> {
-    pub(crate) fn new() -> Self {
+impl<B: Backend> ClassPrototype<B> {
+    pub fn new<'js>(enter: &Enter<'js, B>, prototype: Val<'js, B>) -> Self {
         Self {
-            methods: Vec::new(),
-            accessors: Vec::new(),
-            symbols: Vec::new(),
-            statics: Namespace::new(),
+            prototype: B::detach(enter.token(), prototype),
         }
     }
 
-    /// Defines a shared method.
-    pub fn method<F, R>(&mut self, name: &str, f: F) -> &mut Self
-    where
-        F: for<'js> Fn(&C, &Scope<'js>, Args<'js>) -> Result<R, Error> + 'static,
-        R: ToGuest,
-    {
-        self.methods.push((
-            name.to_owned(),
-            MethodSpec::Ref(Box::new(move |class, scope, args| {
-                f(class, scope, args)?.to_guest(scope)
-            })),
-        ));
-
-        self
-    }
-
-    /// Defines an exclusive method.
-    pub fn method_mut<F, R>(&mut self, name: &str, f: F) -> &mut Self
-    where
-        F: for<'js> Fn(&mut C, &Scope<'js>, Args<'js>) -> Result<R, Error> + 'static,
-        R: ToGuest,
-    {
-        self.methods.push((
-            name.to_owned(),
-            MethodSpec::Mut(Box::new(move |class, scope, args| {
-                f(class, scope, args)?.to_guest(scope)
-            })),
-        ));
-
-        self
-    }
-
-    /// Defines an asynchronous shared method.
-    pub fn async_method<F, Fut, R>(&mut self, name: &str, f: F) -> &mut Self
-    where
-        F: for<'js> Fn(&C, &Scope<'js>, Args<'js>) -> Result<Fut, Error> + 'static,
-        Fut: Future<Output = Result<R, Error>> + 'static,
-        R: ToGuest,
-    {
-        self.methods.push((
-            name.to_owned(),
-            MethodSpec::AsyncRef(Box::new(move |class, scope, args| {
-                let future = f(class, scope, args)?;
-                let scope = scope.clone();
-
-                Ok(Box::pin(async move { future.await?.to_guest(&scope) }))
-            })),
-        ));
-
-        self
-    }
-
-    /// Defines an asynchronous exclusive method.
-    pub fn async_method_mut<F, Fut, R>(&mut self, name: &str, f: F) -> &mut Self
-    where
-        F: for<'js> Fn(&mut C, &Scope<'js>, Args<'js>) -> Result<Fut, Error> + 'static,
-        Fut: Future<Output = Result<R, Error>> + 'static,
-        R: ToGuest,
-    {
-        self.methods.push((
-            name.to_owned(),
-            MethodSpec::AsyncMut(Box::new(move |class, scope, args| {
-                let future = f(class, scope, args)?;
-                let scope = scope.clone();
-
-                Ok(Box::pin(async move { future.await?.to_guest(&scope) }))
-            })),
-        ));
-
-        self
-    }
-
-    /// Defines a getter.
-    pub fn getter<F, R>(&mut self, name: &str, get: F) -> &mut Self
-    where
-        F: for<'js> Fn(&C, &Scope<'js>) -> Result<R, Error> + 'static,
-        R: ToGuest,
-    {
-        self.accessors.push((
-            name.to_owned(),
-            Some(Box::new(move |class, scope| get(class, scope)?.to_guest(scope))),
-            None,
-        ));
-
-        self
-    }
-
-    /// Defines a setter.
-    pub fn setter<F, V>(&mut self, name: &str, set: F) -> &mut Self
-    where
-        F: for<'js> Fn(&mut C, &Scope<'js>, V::Bound<'js>) -> Result<(), Error> + 'static,
-        V: FromGuestBound,
-    {
-        self.accessors.push((
-            name.to_owned(),
-            None,
-            Some(Box::new(move |class, scope, value| {
-                set(class, scope, V::from_guest_bound(scope, value)?)
-            })),
-        ));
-
-        self
-    }
-
-    /// Defines a getter and setter.
-    pub fn accessor<G, S, R, V>(&mut self, name: &str, get: G, set: S) -> &mut Self
-    where
-        G: for<'js> Fn(&C, &Scope<'js>) -> Result<R, Error> + 'static,
-        S: for<'js> Fn(&mut C, &Scope<'js>, V::Bound<'js>) -> Result<(), Error> + 'static,
-        R: ToGuest,
-        V: FromGuestBound,
-    {
-        self.accessors.push((
-            name.to_owned(),
-            Some(Box::new(move |class, scope| get(class, scope)?.to_guest(scope))),
-            Some(Box::new(move |class, scope, value| {
-                set(class, scope, V::from_guest_bound(scope, value)?)
-            })),
-        ));
-
-        self
-    }
-
-    /// Defines a well-known symbol method.
-    pub fn symbol_method<F, R>(&mut self, symbol: WellKnownSymbol, f: F) -> &mut Self
-    where
-        F: for<'js> Fn(&C, &Scope<'js>, Args<'js>) -> Result<R, Error> + 'static,
-        R: ToGuest,
-    {
-        self.symbols.push((
-            symbol,
-            MethodSpec::Ref(Box::new(move |class, scope, args| {
-                f(class, scope, args)?.to_guest(scope)
-            })),
-        ));
-
-        self
-    }
-
-    /// Defines `Symbol.iterator`.
-    pub fn iterable<F, I, T>(&mut self, make: F) -> &mut Self
-    where
-        F: for<'js> Fn(&C, &Scope<'js>) -> Result<I, Error> + 'static,
-        I: IntoIterator<Item = T>,
-        T: ToGuest,
-    {
-        self.symbols.push((
-            WellKnownSymbol::Iterator,
-            MethodSpec::Ref(Box::new(move |class, scope, _args| {
-                let array = Array::new(scope.ctx().clone()).catch(scope.ctx())?;
-
-                for (index, item) in make(class, scope)?
-                    .into_iter()
-                    .enumerate()
-                {
-                    array
-                        .set(index, item.to_guest(scope)?)
-                        .catch(scope.ctx())?;
-                }
-
-                array
-                    .as_object()
-                    .get::<_, JsFunction>(Symbol::iterator(scope.ctx().clone()).as_atom())
-                    .catch(scope.ctx())?
-                    .call::<_, JsValue>((This(array.clone()),))
-                    .catch(scope.ctx())
-                    .map_err(Into::into)
-            })),
-        ));
-
-        self
-    }
-
-    /// Defines static members.
-    pub fn statics<F>(&mut self, build: F) -> &mut Self
-    where
-        F: FnOnce(&mut Namespace),
-    {
-        build(&mut self.statics);
-
-        self
-    }
-
-    fn into_parts(self) -> ClassParts<C> {
-        ClassParts {
-            methods: self.methods,
-            accessors: self.accessors,
-            symbols: self.symbols,
-            statics: self.statics,
-        }
+    pub fn get<'js>(&self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        B::attach(enter.token(), &self.prototype)
     }
 }
 
-impl<C: HostClass> MethodSpec<C> {
-    fn into_function<'js>(self, ctx: &Ctx<'js>) -> rquickjs::Result<JsFunction<'js>> {
-        match self {
-            Self::Ref(thunk) => JsFunction::new(
-                ctx.clone(),
-                move |this: This<Class<'js, HostInstance<C>>>,
-                      args: Rest<JsValue<'js>>|
-                      -> rquickjs::Result<JsValue<'js>> {
-                    let scope = Scope::detached(this.0.ctx().clone());
-                    let guard = this.0.try_borrow()?;
-
-                    thunk(&(*guard).0, &scope, Args::new(args.0))
-                        .map_err(|error| Exception::throw_message(scope.ctx(), &error.to_string()))
-                },
-            ),
-            Self::Mut(thunk) => JsFunction::new(
-                ctx.clone(),
-                move |this: This<Class<'js, HostInstance<C>>>,
-                      args: Rest<JsValue<'js>>|
-                      -> rquickjs::Result<JsValue<'js>> {
-                    let scope = Scope::detached(this.0.ctx().clone());
-                    let mut guard = this.0.try_borrow_mut()?;
-
-                    thunk(&mut (*guard).0, &scope, Args::new(args.0))
-                        .map_err(|error| Exception::throw_message(scope.ctx(), &error.to_string()))
-                },
-            ),
-            Self::AsyncRef(thunk) => JsFunction::new(
-                ctx.clone(),
-                Async(move |this: This<Class<'js, HostInstance<C>>>, args: Rest<JsValue<'js>>| {
-                    let ctx = this.0.ctx().clone();
-
-                    let future = this
-                        .0
-                        .try_borrow()
-                        .map_err(Into::into)
-                        .and_then(|guard| {
-                            thunk(&(*guard).0, &Scope::detached(ctx.clone()), Args::new(args.0))
-                        });
-
-                    async move {
-                        match future {
-                            Ok(future) => future.await,
-                            Err(error) => Err(error),
-                        }
-                        .map_err(|error| Exception::throw_message(&ctx, &error.to_string()))
+impl<B: BackendValues> ClassPrototype<B> {
+    pub fn for_target<'js>(
+        &self,
+        enter: &Enter<'js, B>,
+        new_target: Option<&Val<'js, B>>,
+    ) -> Result<Val<'js, B>, Error> {
+        match new_target {
+            Some(new_target) => B::get(enter.token(), new_target, &"prototype".to_guest(enter)?)
+                .and_then(|prototype| {
+                    if B::kind(enter.token(), &prototype).is_object() {
+                        Ok(prototype)
+                    } else {
+                        self.get(enter)
                     }
                 }),
-            ),
-            Self::AsyncMut(thunk) => JsFunction::new(
-                ctx.clone(),
-                Async(move |this: This<Class<'js, HostInstance<C>>>, args: Rest<JsValue<'js>>| {
-                    let ctx = this.0.ctx().clone();
-
-                    let future = this
-                        .0
-                        .try_borrow_mut()
-                        .map_err(Into::into)
-                        .and_then(|mut guard| {
-                            thunk(&mut (*guard).0, &Scope::detached(ctx.clone()), Args::new(args.0))
-                        });
-
-                    async move {
-                        match future {
-                            Ok(future) => future.await,
-                            Err(error) => Err(error),
-                        }
-                        .map_err(|error| Exception::throw_message(&ctx, &error.to_string()))
-                    }
-                }),
-            ),
+            None => self.get(enter),
         }
     }
 }
 
-#[repr(transparent)]
-pub(crate) struct HostInstance<C: HostClass>(pub(crate) C);
-
-impl<'js, C: HostClass> Trace<'js> for HostInstance<C> {
-    fn trace<'a>(&self, _tracer: Tracer<'a, 'js>) {}
+impl<B: Backend> Clone for ClassPrototype<B> {
+    fn clone(&self) -> Self {
+        Self { prototype: self.prototype.clone() }
+    }
 }
 
-unsafe impl<'js, C: HostClass> JsLifetime<'js> for HostInstance<C> {
-    type Changed<'to> = HostInstance<C>;
+pub struct RealisedClass<B: Backend> {
+    constructor: B::Owned,
+    prototype: ClassPrototype<B>,
 }
 
-impl<'js, C: HostClass> JsClass<'js> for HostInstance<C> {
-    const NAME: &'static str = C::NAME;
-
-    type Mutable = Writable;
-
-    fn prototype(ctx: &Ctx<'js>) -> rquickjs::Result<Option<JsObject<'js>>> {
-        let prototype = JsObject::new(ctx.clone())?;
-        let mut spec = ClassSpec::<C>::new();
-
-        C::build(&mut spec);
-
-        let ClassParts { methods, accessors, symbols, .. } = spec.into_parts();
-
-        for (name, method) in methods {
-            prototype.set(name, method.into_function(ctx)?)?;
+impl<B: Backend> RealisedClass<B> {
+    pub fn new<'js>(
+        enter: &Enter<'js, B>,
+        constructor: Val<'js, B>,
+        prototype: ClassPrototype<B>,
+    ) -> Self {
+        Self {
+            constructor: B::detach(enter.token(), constructor),
+            prototype,
         }
-
-        for (name, get, set) in accessors {
-            match (get, set) {
-                (Some(get), Some(set)) => {
-                    prototype.prop(
-                        name,
-                        Accessor::new(
-                            move |ctx: Ctx<'js>,
-                                  this: This<Class<'js, HostInstance<C>>>|
-                                  -> rquickjs::Result<JsValue<'js>> {
-                                let scope = Scope::detached(ctx.clone());
-                                let guard = this.0.try_borrow()?;
-
-                                get(&(*guard).0, &scope).map_err(|error| {
-                                    Exception::throw_message(&ctx, &error.to_string())
-                                })
-                            },
-                            move |ctx: Ctx<'js>,
-                                  this: This<Class<'js, HostInstance<C>>>,
-                                  value: JsValue<'js>|
-                                  -> rquickjs::Result<()> {
-                                let scope = Scope::detached(ctx.clone());
-                                let mut guard = this.0.try_borrow_mut()?;
-
-                                set(&mut (*guard).0, &scope, value).map_err(|error| {
-                                    Exception::throw_message(&ctx, &error.to_string())
-                                })
-                            },
-                        ),
-                    )?;
-                }
-                (Some(get), None) => {
-                    prototype.prop(
-                        name,
-                        Accessor::from(
-                            move |ctx: Ctx<'js>,
-                                  this: This<Class<'js, HostInstance<C>>>|
-                                  -> rquickjs::Result<JsValue<'js>> {
-                                let scope = Scope::detached(ctx.clone());
-                                let guard = this.0.try_borrow()?;
-
-                                get(&(*guard).0, &scope).map_err(|error| {
-                                    Exception::throw_message(&ctx, &error.to_string())
-                                })
-                            },
-                        ),
-                    )?;
-                }
-                (None, Some(set)) => {
-                    prototype.prop(
-                        name,
-                        Accessor::new_set(
-                            move |ctx: Ctx<'js>,
-                                  this: This<Class<'js, HostInstance<C>>>,
-                                  value: JsValue<'js>|
-                                  -> rquickjs::Result<()> {
-                                let scope = Scope::detached(ctx.clone());
-                                let mut guard = this.0.try_borrow_mut()?;
-
-                                set(&mut (*guard).0, &scope, value).map_err(|error| {
-                                    Exception::throw_message(&ctx, &error.to_string())
-                                })
-                            },
-                        ),
-                    )?;
-                }
-                (None, None) => {}
-            }
-        }
-
-        for (symbol, method) in symbols {
-            prototype.set(symbol.atom(ctx), method.into_function(ctx)?)?;
-        }
-
-        Ok(Some(prototype))
     }
 
-    fn constructor(ctx: &Ctx<'js>) -> rquickjs::Result<Option<Constructor<'js>>> {
-        Constructor::new_class::<HostInstance<C>, _, _>(
-            ctx.clone(),
-            |ctx: Ctx<'js>,
-             args: Rest<JsValue<'js>>|
-             -> rquickjs::Result<Class<'js, HostInstance<C>>> {
-                Class::instance(
-                    ctx.clone(),
-                    HostInstance(
-                        C::construct(&Scope::detached(ctx.clone()), Args::new(args.0))
-                            .map_err(|error| Exception::throw_message(&ctx, &error.to_string()))?,
-                    ),
-                )
+    pub fn link<'js>(
+        enter: &Enter<'js, B>,
+        constructor: Val<'js, B>,
+        prototype: Val<'js, B>,
+    ) -> Result<Self, Error>
+    where
+        B: BackendValues,
+    {
+        B::define(
+            enter.token(),
+            &constructor,
+            &"prototype".to_guest(enter)?,
+            Property::Value {
+                value: prototype.clone(),
+                writable: false,
+                enumerable: false,
+                configurable: false,
             },
-        )
-        .map(Some)
+        )?;
+
+        B::define(
+            enter.token(),
+            &prototype,
+            &"constructor".to_guest(enter)?,
+            Property::Value {
+                value: constructor.clone(),
+                writable: true,
+                enumerable: false,
+                configurable: true,
+            },
+        )?;
+
+        Ok(Self::new(enter, constructor, ClassPrototype::new(enter, prototype)))
+    }
+
+    pub fn constructor<'js>(&self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        B::attach(enter.token(), &self.constructor)
+    }
+
+    pub fn prototype(&self) -> &ClassPrototype<B> {
+        &self.prototype
     }
 }
 
-impl<C: HostClass> HostInstance<C> {
-    fn realise<'js>(scope: &Scope<'js>) -> Result<Constructor<'js>, Error> {
-        let constructor = Class::<HostInstance<C>>::create_constructor(scope.ctx())
-            .catch(scope.ctx())?
-            .ok_or_else(|| Error::unexpected("host class has no constructor"))?;
-
-        let mut spec = ClassSpec::<C>::new();
-
-        C::build(&mut spec);
-
-        spec.into_parts()
-            .statics
-            .apply(scope, &constructor)?;
-
-        Ok(constructor)
-    }
-
-    pub(crate) fn into_guest<'js>(scope: &Scope<'js>, value: C) -> Result<JsValue<'js>, Error> {
-        Ok(Class::instance(scope.ctx().clone(), HostInstance(value))
-            .catch(scope.ctx())?
-            .into_value())
-    }
-
-    /// Returns this guest's class object, realising it on first use.
-    pub(crate) fn constructor<'js>(scope: &Scope<'js>) -> Result<Constructor<'js>, Error> {
-        let registry = scope
-            .ctx()
-            .userdata::<RegistryHandle>()
-            .ok_or_else(|| Error::unexpected("module registry is not installed"))?
-            .registry();
-
-        if let Some(constructor) = registry.realised_class(scope.ctx(), TypeId::of::<C>()) {
-            return constructor
-                .restore(scope.ctx())
-                .catch(scope.ctx())
-                .map_err(Into::into);
+impl<B: Backend> Clone for RealisedClass<B> {
+    fn clone(&self) -> Self {
+        Self {
+            constructor: self.constructor.clone(),
+            prototype: self.prototype.clone(),
         }
-
-        let constructor = Self::realise(scope)?;
-
-        registry.set_realised_class(
-            scope.ctx(),
-            TypeId::of::<C>(),
-            Persistent::save(scope.ctx(), constructor.clone()),
-        );
-
-        Ok(constructor)
-    }
-
-    pub(crate) fn export<'js>(scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        Ok(Self::constructor(scope)?.into_value())
     }
 }
 
-/// A shared host-class borrow.
-pub struct Ref<'js, C: HostClass>(OwnedBorrow<'js, HostInstance<C>>);
+pub struct RealisedClasses<B: Backend> {
+    classes: RefCell<HashMap<TypeId, RealisedClass<B>>>,
+}
 
-impl<'js, C: HostClass> Deref for Ref<'js, C> {
-    type Target = C;
+impl<B: Backend> RealisedClasses<B> {
+    pub fn new() -> Self {
+        Self { classes: RefCell::new(HashMap::new()) }
+    }
 
-    fn deref(&self) -> &C {
-        &(*self.0).0
+    pub fn of(guest: &Guest<B>) -> Rc<Self> {
+        guest
+            .extensions()
+            .get_or_insert_with(Self::new)
+    }
+
+    pub fn get<T: 'static>(&self) -> Option<RealisedClass<B>> {
+        self.classes
+            .borrow()
+            .get(&TypeId::of::<T>())
+            .cloned()
+    }
+
+    pub fn insert<T: 'static>(&self, class: RealisedClass<B>) -> RealisedClass<B> {
+        self.classes
+            .borrow_mut()
+            .insert(TypeId::of::<T>(), class.clone());
+
+        class
+    }
+
+    pub fn get_or_realise<T, F>(&self, realise: F) -> Result<RealisedClass<B>, Error>
+    where
+        T: 'static,
+        F: FnOnce() -> Result<RealisedClass<B>, Error>,
+    {
+        match self.get::<T>() {
+            Some(class) => Ok(class),
+            None => realise().map(|class| self.insert::<T>(class)),
+        }
     }
 }
 
-/// An exclusive host-class borrow.
-pub struct RefMut<'js, C: HostClass>(OwnedBorrowMut<'js, HostInstance<C>>);
-
-impl<'js, C: HostClass> Deref for RefMut<'js, C> {
-    type Target = C;
-
-    fn deref(&self) -> &C {
-        &(*self.0).0
+impl<B: Backend> Default for RealisedClasses<B> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-impl<'js, C: HostClass> DerefMut for RefMut<'js, C> {
-    fn deref_mut(&mut self) -> &mut C {
-        &mut (*self.0).0
+pub trait HostClass<B: Backend>: Payload + Sized {
+    fn declaration() -> ClassDeclaration<B, Self>;
+
+    fn class<'js>(enter: &Enter<'js, B>) -> Result<Class<B, Instance<B, Self>>, Error>
+    where
+        B: BackendClasses + BackendExceptions,
+    {
+        Class::from_guest(
+            enter,
+            Self::declaration()
+                .realised(enter, &HostState::empty())?
+                .constructor(enter)?,
+        )
     }
 }
 
-impl<'js, C: HostClass> FromGuestRef<'js> for C {
-    type Ref = Ref<'js, C>;
-
-    fn from_guest_ref(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Ref, Error> {
-        Ok(Ref(OwnedBorrow::from_js(scope.ctx(), value)?))
-    }
-}
-
-impl<'js, C: HostClass> FromGuestMut<'js> for C {
-    type Mut = RefMut<'js, C>;
-
-    fn from_guest_mut(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Mut, Error> {
-        Ok(RefMut(OwnedBorrowMut::from_js(scope.ctx(), value)?))
-    }
-}
-
-impl<C> ToGuest for C
+impl<B, C> ToGuest<B> for C
 where
-    C: HostClass,
+    B: BackendClasses,
+    C: Payload,
 {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        HostInstance::<C>::into_guest(scope, self)
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        B::new_instance(
+            enter.token(),
+            &RealisedClasses::of(enter.guest())
+                .get::<C>()
+                .ok_or_else(|| {
+                    Error::unexpected(format!(
+                        "host class {} is not realised in this guest",
+                        C::NAME,
+                    ))
+                })?
+                .prototype()
+                .get(enter)?,
+            self,
+        )
     }
 }
 
-impl<'js, C> ToGuestBound<'js> for C
-where
-    C: HostClass,
-{
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        HostInstance::<C>::into_guest(scope, self)
+pub struct ClassDeclaration<B: Backend, C: Payload> {
+    constructor: Option<
+        Rc<dyn for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<C, Error>>,
+    >,
+    prototype: NamespaceDeclaration<B>,
+    statics: NamespaceDeclaration<B>,
+    requirements: Requirements,
+}
+
+impl<B: Backend, C: Payload> ClassDeclaration<B, C> {
+    pub fn new() -> Self {
+        Self {
+            constructor: None,
+            prototype: NamespaceDeclaration::new(),
+            statics: NamespaceDeclaration::new(),
+            requirements: Requirements::new(),
+        }
+    }
+
+    pub fn require<T>(mut self) -> Self
+    where
+        T: FromContext<B>,
+    {
+        T::declare(&mut self.requirements);
+
+        self
+    }
+
+    pub fn constructor<F>(mut self, constructor: F) -> Self
+    where
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<C, Error> + 'static,
+    {
+        self.constructor = Some(Rc::new(constructor));
+
+        self
+    }
+
+    pub fn property<K>(mut self, key: K, property: PropertyDeclaration<B>) -> Self
+    where
+        K: Into<PropertyKey>,
+    {
+        self.prototype.property(key, property);
+
+        self
+    }
+
+    pub fn value<K, T>(mut self, key: K, value: T) -> Self
+    where
+        K: Into<PropertyKey>,
+        T: ToGuest<B> + Clone + 'static,
+    {
+        self.prototype.value(key, value);
+
+        self
+    }
+
+    pub fn constant<K, T>(mut self, key: K, value: T) -> Self
+    where
+        K: Into<PropertyKey>,
+        T: ToGuest<B> + Clone + 'static,
+    {
+        self.prototype.constant(key, value);
+
+        self
+    }
+
+    pub fn statics(mut self, statics: NamespaceDeclaration<B>) -> Self {
+        self.statics = statics;
+
+        self
     }
 }
 
-impl<C> FromGuest for C
-where
-    C: HostClass,
-{
-    type Owned = Instance<C>;
+impl<B: BackendCallables, C: Payload> ClassDeclaration<B, C> {
+    pub fn method<K, F, R>(mut self, key: K, method: F) -> Self
+    where
+        K: Into<PropertyKey>,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<R, Error> + 'static,
+        R: ToGuest<B>,
+    {
+        self.prototype.function(key, method);
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
-        // Use `from_guest_ref` to ensure that the value is a valid instance of the host class,
-        // but we don't need to keep the borrow around, so we drop it immediately.
-        drop(C::from_guest_ref(scope, value.clone())?);
+        self
+    }
 
-        Instance::<C>::from_guest(scope, value)
+    pub fn getter<K, F, R>(mut self, key: K, get: F) -> Self
+    where
+        K: Into<PropertyKey>,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<R, Error> + 'static,
+        R: ToGuest<B>,
+    {
+        self.prototype.getter(key, get);
+
+        self
+    }
+
+    pub fn setter<K, F, R>(mut self, key: K, set: F) -> Self
+    where
+        K: Into<PropertyKey>,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<R, Error> + 'static,
+        R: ToGuest<B>,
+    {
+        self.prototype.setter(key, set);
+
+        self
     }
 }
 
-impl<C> FromGuestBound for C
+impl<B, C> ClassDeclaration<B, C>
 where
-    C: HostClass,
+    B: BackendCallables + BackendPromises + BackendExceptions,
+    C: Payload,
 {
-    type Bound<'js> = BoundInstance<'js, C>;
+    pub fn method_async<K, F, Fut, R>(mut self, key: K, method: F) -> Self
+    where
+        K: Into<PropertyKey>,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<Fut, Error> + 'static,
+        Fut: Future<Output = Result<R, Error>> + 'static,
+        R: ToGuest<B> + 'static,
+    {
+        self.prototype
+            .function_async(key, method);
 
-    fn from_guest_bound<'js>(
-        scope: &Scope<'js>,
-        value: JsValue<'js>,
-    ) -> Result<Self::Bound<'js>, Error> {
-        // Use `from_guest_ref` to ensure that the value is a valid instance of the host class,
-        // but we don't need to keep the borrow around, so we drop it immediately.
-        drop(C::from_guest_ref(scope, value.clone())?);
+        self
+    }
+}
 
-        Instance::<C>::from_guest_bound(scope, value)
+impl<B, C> ClassDeclaration<B, C>
+where
+    B: BackendClasses + BackendExceptions,
+    C: Payload,
+{
+    pub fn realised<'js>(
+        &self,
+        enter: &Enter<'js, B>,
+        state: &HostState,
+    ) -> Result<RealisedClass<B>, Error> {
+        self.requirements.check(state)?;
+
+        RealisedClasses::of(enter.guest()).get_or_realise::<C, _>(|| {
+            let prototype = B::new_object(enter.token())?;
+
+            self.prototype
+                .install(enter, state, &prototype)?;
+
+            let constructor = B::new_constructor(
+                enter.token(),
+                C::NAME,
+                0,
+                enter.guest().raw_body({
+                    let construct = self.constructor.clone();
+                    let state = state.clone();
+                    let prototype = ClassPrototype::new(enter, prototype.clone());
+
+                    move |enter, call| match (&construct, call.new_target.clone()) {
+                        (Some(construct), Some(new_target)) => B::new_instance(
+                            enter.token(),
+                            &prototype.for_target(enter, Some(&new_target))?,
+                            construct(&CallContext::new(enter, &state), &Args::new(call))?,
+                        ),
+                        (_, new_target) => Err(B::throw(
+                            enter.token(),
+                            B::new_error(
+                                enter.token(),
+                                GuestErrorKind::TypeError,
+                                &match new_target {
+                                    Some(_) => "Illegal constructor".to_owned(),
+                                    None => format!(
+                                        "Class constructor {} cannot be invoked without 'new'",
+                                        C::NAME,
+                                    ),
+                                },
+                            )?,
+                        )),
+                    }
+                }),
+            )?;
+
+            self.statics
+                .install(enter, state, &constructor)?;
+
+            RealisedClass::link(enter, constructor, prototype)
+        })
+    }
+}
+
+impl<B: Backend, C: Payload> Default for ClassDeclaration<B, C> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<B, C> Declaration<B> for ClassDeclaration<B, C>
+where
+    B: BackendClasses + BackendExceptions,
+    C: Payload,
+{
+    fn realise<'js>(
+        &self,
+        enter: &Enter<'js, B>,
+        state: &HostState,
+        _name: &str,
+    ) -> Result<Val<'js, B>, Error> {
+        self.realised(enter, state)?
+            .constructor(enter)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use crate::{
+        backend::{
+            Backend, classes::BackendClasses, exceptions::BackendExceptions,
+            promises::BackendPromises, tests::Stub, values::WellKnown,
+        },
+        enter::Enter,
         errors::Error,
+        guest::Guest,
         handle::{
-            BoundCallableProtocol, BoundConstructor, BoundObjectProtocol, CallableProtocol,
-            ConstructorProtocol, Module, ObjectProtocol, Promise,
+            class::{Class, Instance, Payload},
+            value::Value,
         },
         host::{
-            args::Args,
-            callable::HostFn,
-            class::{ClassSpec, HostClass},
-            module::{Exports, HostModule},
-            object::HostObject,
+            class::{ClassDeclaration, ClassPrototype, HostClass, RealisedClass, RealisedClasses},
+            declaration::Declaration,
+            namespace::NamespaceDeclaration,
+            property::PropertyDeclaration,
+            value::ValueDeclaration,
         },
-        marshal::GuestType,
-        runtime::{Runtime, Scope},
+        marshal::ToGuest,
+        runtime::Runtime,
     };
 
-    struct GuestTypeContract;
-
-    impl GuestTypeContract {
-        fn accepts<T>()
-        where
-            T: GuestType,
-        {
-        }
+    struct Counter {
+        count: f64,
     }
 
-    struct Vector2 {
-        x: f64,
-        y: f64,
+    impl Payload for Counter {
+        const NAME: &'static str = "Counter";
     }
 
-    impl HostClass for Vector2 {
-        const NAME: &'static str = "Vector2";
+    impl<B> HostClass<B> for Counter
+    where
+        B: BackendClasses + BackendExceptions,
+    {
+        fn declaration() -> ClassDeclaration<B, Self> {
+            ClassDeclaration::new()
+                .constructor(|context, args| {
+                    Ok(Counter {
+                        count: args.next::<f64>(context.enter())?,
+                    })
+                })
+                .method("increment", |context, args| {
+                    let mut counter = args.this_mut::<Counter>(context.enter())?;
 
-        fn construct<'js>(scope: &Scope<'js>, args: Args<'js>) -> Result<Self, Error> {
-            Ok(Self {
-                x: args.get::<f64>(scope, 0)?,
-                y: args.get::<f64>(scope, 1)?,
-            })
-        }
+                    counter.count += 1.0;
 
-        fn build(spec: &mut ClassSpec<Self>) {
-            spec.accessor::<_, _, _, f64>(
-                "x",
-                |vector, _scope| Ok(vector.x),
-                |vector, _scope, value: f64| {
-                    vector.x = value;
+                    Ok(counter.count)
+                })
+                .getter("count", |context, args| {
+                    Ok(args
+                        .this_ref::<Counter>(context.enter())?
+                        .count)
+                })
+                .setter("count", |context, args| {
+                    args.this_mut::<Counter>(context.enter())?
+                        .count = args.next::<f64>(context.enter())?;
 
                     Ok(())
-                },
-            );
-            spec.method("length", |vector, _scope, _args| {
-                Ok((vector.x * vector.x + vector.y * vector.y).sqrt())
-            });
-            spec.async_method("lengthAsync", |vector, _scope, _args| {
-                let (x, y) = (vector.x, vector.y);
+                })
+                .constant("step", 1.0)
+                .statics({
+                    let mut namespace = NamespaceDeclaration::new();
 
-                Ok(async move { Ok((x * x + y * y).sqrt()) })
-            });
-            spec.method("callback", |vector, _scope, _args| {
-                let sum = vector.x + vector.y;
+                    namespace.value("zero", 0.0);
 
-                Ok(HostFn::new(move |_scope, _args| Ok(sum)))
-            });
-            spec.iterable(|vector, _scope| Ok([vector.x, vector.y]));
-            spec.statics(|statics| {
-                statics.constant("DIMENSIONS", 2_i32);
-            });
+                    namespace
+                })
         }
     }
 
-    struct Counter {
-        n: i32,
+    struct Labelled<B: Backend> {
+        label: Value<B>,
     }
 
-    impl HostClass for Counter {
-        const NAME: &'static str = "Counter";
-
-        fn construct<'js>(scope: &Scope<'js>, args: Args<'js>) -> Result<Self, Error> {
-            Ok(Self { n: args.get::<i32>(scope, 0)? })
-        }
-
-        fn build(spec: &mut ClassSpec<Self>) {
-            spec.method_mut("add", |counter, scope, args| {
-                counter.n += args.get::<i32>(scope, 0)?;
-
-                Ok(counter.n)
-            });
-            spec.method("value", |counter, _scope, _args| Ok(counter.n));
-            spec.async_method_mut("addAsync", |counter, scope, args| {
-                counter.n += args.get::<i32>(scope, 0)?;
-
-                let value = counter.n;
-
-                Ok(async move { Ok(value) })
-            });
-        }
+    impl<B: Backend> Payload for Labelled<B> {
+        const NAME: &'static str = "Labelled";
     }
 
-    struct HostOnly;
-
-    impl HostClass for HostOnly {
-        const NAME: &'static str = "HostOnly";
-
-        fn build(_spec: &mut ClassSpec<Self>) {}
-    }
-
-    struct MathHost;
-
-    impl MathHost {
-        async fn module(source: &str) -> Module {
-            let runtime = Runtime::builder()
-                .bind(Self)
-                .build()
-                .await
-                .unwrap();
-
-            runtime
-                .guest()
-                .build()
-                .await
-                .unwrap()
-                .guest_module("t.js", source)
-                .await
-                .unwrap()
+    impl<B> HostClass<B> for Labelled<B>
+    where
+        B: BackendClasses + BackendExceptions,
+    {
+        fn declaration() -> ClassDeclaration<B, Self> {
+            ClassDeclaration::new()
+                .constructor(|context, args| {
+                    Ok(Labelled {
+                        label: args.next::<Value<B>>(context.enter())?,
+                    })
+                })
+                .getter("label", |context, args| {
+                    Ok(args
+                        .this_ref::<Labelled<B>>(context.enter())?
+                        .label
+                        .clone())
+                })
         }
     }
 
-    impl HostModule for MathHost {
-        fn name(&self) -> &str {
-            "@host/math"
-        }
+    struct First;
 
-        fn build(&self, exports: &mut Exports) {
-            exports.class::<Vector2>();
-            exports.class::<Counter>();
-            exports.class::<HostOnly>();
-            exports.function("magnitude", |scope, args| {
-                let vector = args.get_borrow::<Vector2>(scope, 0)?;
+    struct Second;
 
-                Ok((vector.x * vector.x + vector.y * vector.y).sqrt())
-            });
-            exports.function("settings", |_scope, _args| {
-                Ok(HostObject::build(|settings| {
-                    settings.constant("unit", "px");
-                }))
-            });
-        }
-    }
+    #[test]
+    fn a_class_is_realised_once_per_type() {
+        let realisations = Cell::new(0);
 
-    struct Coord {
-        value: f64,
-    }
+        Guest::new(&Runtime::<Stub>::new(()).unwrap())
+            .unwrap()
+            .enter(|enter| {
+                for _ in 0..2 {
+                    RealisedClasses::of(enter.guest()).get_or_realise::<First, _>(|| {
+                        realisations.set(realisations.get() + 1);
 
-    impl HostClass for Coord {
-        const NAME: &'static str = "Coord";
-
-        fn construct<'js>(scope: &Scope<'js>, args: Args<'js>) -> Result<Self, Error> {
-            Ok(Self { value: args.get::<f64>(scope, 0)? })
-        }
-
-        fn build(spec: &mut ClassSpec<Self>) {
-            spec.method("get", |coord, _scope, _args| Ok(coord.value));
-        }
-    }
-
-    struct Bag;
-
-    impl HostModule for Bag {
-        fn name(&self) -> &str {
-            "@host/bag"
-        }
-
-        fn build(&self, exports: &mut Exports) {
-            exports.class::<Coord>();
-            exports.function("make", |scope, args| Ok(Coord { value: args.get::<f64>(scope, 0)? }));
-            exports.function("total", |scope, args| {
-                let mut total = 0.0;
-
-                for coord in args.get::<Vec<Coord>>(scope, 0)? {
-                    total += coord.borrow()?.value;
+                        Ok(RealisedClass::new(enter, (), ClassPrototype::new(enter, ())))
+                    })?;
                 }
 
-                Ok(total)
-            });
-        }
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(realisations.get(), 1);
     }
 
     #[test]
-    fn host_classes_are_guest_types() {
-        GuestTypeContract::accepts::<Coord>();
-    }
-
-    #[tokio::test]
-    async fn host_class_method() {
-        assert_eq!(
-            MathHost::module(
-                "import { Vector2 } from \"@host/math\";\n\
-                 export function run() { return new Vector2(3, 4).length(); }",
-            )
-            .await
-            .function("run")
-            .await
+    fn each_type_is_realised_separately() {
+        Guest::new(&Runtime::<Stub>::new(()).unwrap())
             .unwrap()
-            .call::<_, f64>(())
-            .await
-            .unwrap(),
-            5.0,
-        );
-    }
+            .enter(|enter| {
+                RealisedClasses::of(enter.guest()).get_or_realise::<First, _>(|| {
+                    Ok(RealisedClass::new(enter, (), ClassPrototype::new(enter, ())))
+                })?;
 
-    #[tokio::test]
-    async fn host_class_without_constructor_rejects_construction() {
-        assert!(
-            MathHost::module(
-                "import { HostOnly } from \"@host/math\";\n\
-                 export function run() { return new HostOnly(); }",
-            )
-            .await
-            .function("run")
-            .await
-            .unwrap()
-            .call::<_, ()>(())
-            .await
-            .is_err(),
-        );
-    }
-
-    #[tokio::test]
-    async fn host_class_mutable_state() {
-        assert_eq!(
-            MathHost::module(
-                "import { Counter } from \"@host/math\";\n\
-                 export function run() { const c = new Counter(10); c.add(5); return c.value(); }",
-            )
-            .await
-            .function("run")
-            .await
-            .unwrap()
-            .call::<_, i32>(())
-            .await
-            .unwrap(),
-            15,
-        );
-    }
-
-    #[tokio::test]
-    async fn host_class_async_method() {
-        assert_eq!(
-            MathHost::module(
-                "import { Vector2 } from \"@host/math\";\n\
-                 export async function run() { return await new Vector2(3, 4).lengthAsync(); }",
-            )
-            .await
-            .function("run")
-            .await
-            .unwrap()
-            .call::<_, Promise<f64>>(())
-            .await
-            .unwrap()
-            .await
-            .unwrap(),
-            5.0,
-        );
-    }
-
-    #[tokio::test]
-    async fn host_class_async_mutable_method() {
-        assert_eq!(
-            MathHost::module(
-                "import { Counter } from \"@host/math\";\n\
-                 export async function run() {\n\
-                     const counter = new Counter(10);\n\
-                     return await counter.addAsync(5);\n\
-                 }",
-            )
-            .await
-            .function("run")
-            .await
-            .unwrap()
-            .call::<_, Promise<i32>>(())
-            .await
-            .unwrap()
-            .await
-            .unwrap(),
-            15,
-        );
-    }
-
-    #[tokio::test]
-    async fn host_class_accessor_reads_and_writes() {
-        assert_eq!(
-            MathHost::module(
-                "import { Vector2 } from \"@host/math\";\n\
-                 export function run() {\n\
-                     const vector = new Vector2(3, 4);\n\
-                     vector.x = 6;\n\
-                     return vector.x;\n\
-                 }",
-            )
-            .await
-            .function("run")
-            .await
-            .unwrap()
-            .call::<_, f64>(())
-            .await
-            .unwrap(),
-            6.0,
-        );
-    }
-
-    #[tokio::test]
-    async fn host_class_static_constant() {
-        assert_eq!(
-            MathHost::module(
-                "import { Vector2 } from \"@host/math\";\n\
-                 export function run() { return Vector2.DIMENSIONS; }",
-            )
-            .await
-            .function("run")
-            .await
-            .unwrap()
-            .call::<_, i32>(())
-            .await
-            .unwrap(),
-            2,
-        );
-    }
-
-    #[tokio::test]
-    async fn host_class_iterable() {
-        assert_eq!(
-            MathHost::module(
-                "import { Vector2 } from \"@host/math\";\n\
-                 export function run() { return [...new Vector2(3, 4)]; }",
-            )
-            .await
-            .function("run")
-            .await
-            .unwrap()
-            .call::<_, Vec<f64>>(())
-            .await
-            .unwrap(),
-            vec![3.0, 4.0],
-        );
-    }
-
-    #[tokio::test]
-    async fn host_function_returned_to_guest() {
-        assert_eq!(
-            MathHost::module(
-                "import { Vector2 } from \"@host/math\";\n\
-                 export function run() { return new Vector2(3, 4).callback()(); }",
-            )
-            .await
-            .function("run")
-            .await
-            .unwrap()
-            .call::<_, f64>(())
-            .await
-            .unwrap(),
-            7.0,
-        );
-    }
-
-    #[tokio::test]
-    async fn host_object_returned_to_guest() {
-        assert_eq!(
-            MathHost::module(
-                "import { settings } from \"@host/math\";\n\
-                 export function run() { return settings().unit; }",
-            )
-            .await
-            .function("run")
-            .await
-            .unwrap()
-            .call::<_, String>(())
-            .await
-            .unwrap(),
-            "px",
-        );
-    }
-
-    #[tokio::test]
-    async fn host_class_guest_to_host_borrow() {
-        assert_eq!(
-            MathHost::module(
-                "import { Vector2, magnitude } from \"@host/math\";\n\
-                 export function run() { return magnitude(new Vector2(3, 4)); }",
-            )
-            .await
-            .function("run")
-            .await
-            .unwrap()
-            .call::<_, f64>(())
-            .await
-            .unwrap(),
-            5.0,
-        );
-    }
-
-    #[tokio::test]
-    async fn host_module_construct() {
-        let runtime = Runtime::builder()
-            .bind(MathHost)
-            .build()
-            .await
-            .unwrap();
-
-        assert_eq!(
-            runtime
-                .guest()
-                .build()
-                .await
-                .unwrap()
-                .host_module("@host/math")
-                .await
-                .unwrap()
-                .class("Vector2")
-                .await
-                .unwrap()
-                .construct((3.0, 4.0))
-                .await
-                .unwrap()
-                .call_method::<_, f64>("length", ())
-                .await
-                .unwrap(),
-            5.0,
-        );
-    }
-
-    #[tokio::test]
-    async fn instance_passed_as_argument() {
-        let runtime = Runtime::builder()
-            .bind(MathHost)
-            .build()
-            .await
-            .unwrap();
-
-        let guest = runtime.guest().build().await.unwrap();
-
-        assert_eq!(
-            guest
-                .guest_module(
-                    "t.js",
-                    "export function measure(vector) { return vector.length(); }",
-                )
-                .await
-                .unwrap()
-                .function("measure")
-                .await
-                .unwrap()
-                .call::<_, f64>((
-                    guest
-                        .host_module("@host/math")
-                        .await
-                        .unwrap()
-                        .class("Vector2")
-                        .await
-                        .unwrap()
-                        .construct((3.0, 4.0))
-                        .await
-                        .unwrap(),
-                ))
-                .await
-                .unwrap(),
-            5.0,
-        );
-    }
-
-    #[tokio::test]
-    async fn host_class_returns_and_receives_by_value() {
-        let runtime = Runtime::builder()
-            .bind(Bag)
-            .build()
-            .await
-            .unwrap();
-
-        assert_eq!(
-            runtime
-                .guest()
-                .build()
-                .await
-                .unwrap()
-                .guest_module(
-                    "bag.js",
-                    "import { Coord, make, total } from \"@host/bag\";\n\
-                     export function run() {\n\
-                         return total([make(1), make(2), new Coord(3)]);\n\
-                     }",
-                )
-                .await
-                .unwrap()
-                .function("run")
-                .await
-                .unwrap()
-                .call::<_, f64>(())
-                .await
-                .unwrap(),
-            6.0,
-        );
-    }
-
-    #[tokio::test]
-    async fn host_class_value_conversions_are_automatic() {
-        let runtime = Runtime::builder()
-            .bind(Bag)
-            .build()
-            .await
-            .unwrap();
-        let guest = runtime.guest().build().await.unwrap();
-
-        assert_eq!(
-            guest
-                .host_module("@host/bag")
-                .await
-                .unwrap()
-                .function("make")
-                .await
-                .unwrap()
-                .call::<_, Coord>((42.0,))
-                .await
-                .unwrap()
-                .borrow_with(|coord| coord.value)
-                .await
-                .unwrap(),
-            42.0,
-        );
-        assert_eq!(
-            guest
-                .scope(async move |scope| {
-                    scope
-                        .host_module("@host/bag")?
-                        .function("total")?
-                        .call::<_, f64>((vec![Coord { value: 1.0 }, Coord { value: 2.0 }],))
-                })
-                .await
-                .unwrap(),
-            3.0,
-        );
-    }
-
-    #[tokio::test]
-    async fn host_class_conversion_stays_attached_to_the_guest_object() {
-        let counter = Runtime::builder()
-            .bind(MathHost)
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap()
-            .host_module("@host/math")
-            .await
-            .unwrap()
-            .class_as::<Counter>("Counter")
-            .await
-            .unwrap()
-            .construct((5,))
-            .await
-            .unwrap();
-
-        assert_eq!(
-            counter
-                .call_method::<_, i32>("add", (3,))
-                .await
-                .unwrap(),
-            8
-        );
-        assert_eq!(
-            counter
-                .borrow_with(|counter| counter.n)
-                .await
-                .unwrap(),
-            8
-        );
-
-        counter
-            .borrow_with_mut(|counter| counter.n = 40)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            counter
-                .call_method::<_, i32>("add", (2,))
-                .await
-                .unwrap(),
-            42
-        );
-    }
-
-    #[tokio::test]
-    async fn host_class_export_is_cached() {
-        let guest = Runtime::builder()
-            .bind(MathHost)
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap();
-
-        guest
-            .scope(async move |scope| {
-                assert_eq!(
-                    scope
-                        .host_module("@host/math")?
-                        .class("Vector2")?
-                        .js_constructor()
-                        .as_value(),
-                    scope
-                        .host_module("@host/math")?
-                        .class("Vector2")?
-                        .js_constructor()
-                        .as_value(),
+                assert!(
+                    RealisedClasses::of(enter.guest())
+                        .get::<Second>()
+                        .is_none()
                 );
 
                 Ok(())
             })
-            .await
             .unwrap();
     }
 
-    #[tokio::test]
-    async fn host_class_statics_survive_repeated_export() {
-        let guest = Runtime::builder()
-            .bind(MathHost)
-            .build()
-            .await
+    #[test]
+    fn realised_classes_are_kept_per_guest() {
+        let runtime = Runtime::<Stub>::new(()).unwrap();
+
+        Guest::new(&runtime)
             .unwrap()
-            .guest()
-            .build()
-            .await
+            .enter(|enter| {
+                RealisedClasses::of(enter.guest()).get_or_realise::<First, _>(|| {
+                    Ok(RealisedClass::new(enter, (), ClassPrototype::new(enter, ())))
+                })?;
+
+                Ok(())
+            })
             .unwrap();
 
-        guest
-            .scope(async move |scope| {
-                scope
-                    .host_module("@host/math")?
-                    .class("Vector2")?;
-
-                assert_eq!(
-                    scope
-                        .host_module("@host/math")?
-                        .class("Vector2")?
-                        .get::<i32>("DIMENSIONS")?,
-                    2,
+        Guest::new(&runtime)
+            .unwrap()
+            .enter(|enter| {
+                assert!(
+                    RealisedClasses::of(enter.guest())
+                        .get::<First>()
+                        .is_none()
                 );
 
                 Ok(())
             })
-            .await
             .unwrap();
     }
 
-    #[tokio::test]
-    async fn host_instance_constructor_matches_export() {
-        assert!(
-            MathHost::module(
-                r#"
-import { Vector2 } from "@host/math";
-export function run() { return new Vector2(3, 4).constructor === Vector2; }"#,
-            )
-            .await
-            .function("run")
-            .await
-            .unwrap()
-            .call::<_, bool>(())
-            .await
-            .unwrap(),
-        );
+    #[allow(dead_code)]
+    fn capabilities<B>()
+    where
+        B: BackendClasses + BackendPromises + BackendExceptions,
+    {
+        fn declaration<B: BackendClasses + BackendExceptions, T: Declaration<B>>() {}
+        fn to<B: BackendClasses, T: ToGuest<B>>() {}
+        fn class<B>(enter: &Enter<'_, B>) -> Result<Class<B, Instance<B, Counter>>, Error>
+        where
+            B: BackendClasses + BackendExceptions,
+        {
+            Counter::class(enter)
+        }
+
+        let _ = ClassDeclaration::<B, Counter>::new()
+            .method(WellKnown::Iterator, |_, _| Ok::<_, Error>(()))
+            .method_async("wait", |_, _| Ok::<_, Error>(async { Ok::<_, Error>(()) }))
+            .value("tag", "counter")
+            .property("raw", PropertyDeclaration::constant(ValueDeclaration::new(1.0)));
+
+        declaration::<B, ClassDeclaration<B, Counter>>();
+        declaration::<B, ClassDeclaration<B, Labelled<B>>>();
+        to::<B, Counter>();
+        to::<B, Labelled<B>>();
     }
 }

@@ -1,681 +1,516 @@
-use std::{marker::PhantomData, rc::Rc};
-
-use rquickjs::{
-    CatchResultExt, Constructor as JsConstructor, Object as JsObject, Persistent, Value as JsValue,
+use std::{
+    any::TypeId,
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
 };
 
 use crate::{
+    backend::{
+        Backend, Val,
+        classes::BackendClasses,
+        values::{BackendValues, Kind},
+    },
+    enter::Enter,
     errors::Error,
     handle::{
-        BoundConstructor, BoundHandle, BoundObjectProtocol, Instance, Object, OwnedConstructor,
-        OwnedHandle,
+        HasHandle,
+        base::Handle,
+        object::Object,
+        protocol::{ConstructorProtocol, ObjectProtocol, ValueProtocol},
     },
-    host::class::{HostClass, HostInstance},
-    marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
-    runtime::{Guest, GuestContext, Scope},
+    marshal::{
+        FromGuest, FromGuestMut, FromGuestRef, ToGuest, ToGuestArgs,
+        describe::{Describe, Expected},
+    },
 };
 
-/// An owned guest class.
-pub struct Class<R = Instance> {
-    value: Persistent<JsConstructor<'static>>,
-    context: Rc<GuestContext>,
-    _result: PhantomData<fn() -> R>,
+pub struct Class<B: Backend, R = Instance<B>> {
+    handle: Handle<B>,
+    marker: PhantomData<fn() -> R>,
 }
 
-impl<R> Class<R> {
-    pub(crate) fn new(
-        value: Persistent<JsConstructor<'static>>,
-        context: Rc<GuestContext>,
-    ) -> Self {
-        Self { value, context, _result: PhantomData }
+impl<B: Backend, R> Class<B, R> {
+    fn from_handle(handle: Handle<B>) -> Self {
+        Self { handle, marker: PhantomData }
     }
 
-    /// Binds the class to a scope.
-    pub fn bind<'js>(&self, scope: &Scope<'js>) -> Result<BoundClass<'js, R>, Error> {
-        Ok(BoundClass::new(
-            self.value
-                .clone()
-                .restore(scope.ctx())
-                .catch(scope.ctx())?,
-            scope.clone(),
-        ))
+    pub fn with_result<O>(&self) -> Class<B, O> {
+        Class::from_handle(self.handle.clone())
     }
 
-    pub fn with_result<O>(&self) -> Class<O> {
-        Class::new(self.value.clone(), self.context.clone())
-    }
-
-    pub fn into_result<O>(self) -> Class<O> {
-        Class::new(self.value, self.context)
-    }
-
-    /// Reports whether the class is a strict subclass of another class.
-    pub async fn is_subclass_of<O>(&self, class: &Class<O>) -> Result<bool, Error> {
-        Scope::with(&self.context, async move |scope| {
-            self.bind(&scope)?
-                .is_subclass_of(&class.bind(&scope)?)
-        })
-        .await
+    pub fn into_result<O>(self) -> Class<B, O> {
+        Class::from_handle(self.handle)
     }
 }
 
-impl Class<Instance> {
-    /// Returns this guest's class for a [`HostClass`](crate::host::class::HostClass).
-    pub async fn of<C>(guest: &Guest) -> Result<Class<Instance<C>>, Error>
+impl<B: BackendValues, R> Class<B, R> {
+    pub fn construct<A>(&self, args: A) -> Result<R::Owned, Error>
     where
-        C: HostClass,
+        A: ToGuestArgs<B>,
+        R: FromGuest<B>,
     {
-        guest
-            .scope(async move |scope| BoundClass::of::<C>(&scope)?.into_owned())
-            .await
+        self.construct_as::<A, R>(args)
+    }
+
+    pub fn construct_as<A, O>(&self, args: A) -> Result<O::Owned, Error>
+    where
+        A: ToGuestArgs<B>,
+        O: FromGuest<B>,
+    {
+        ConstructorProtocol::construct::<A, O>(self, args)
     }
 }
 
-impl<R> OwnedHandle for Class<R> {
-    fn guest_context(&self) -> &Rc<GuestContext> {
-        &self.context
-    }
-
-    fn bind_object<'js>(&self, scope: &Scope<'js>) -> Result<JsObject<'js>, Error> {
-        Ok(self
-            .value
-            .clone()
-            .restore(scope.ctx())
-            .catch(scope.ctx())?
-            .into_inner()
-            .into_inner())
-    }
-}
-
-impl<R> OwnedConstructor for Class<R> {
-    type Result = R;
-
-    fn bind_constructor<'js>(&self, scope: &Scope<'js>) -> Result<JsConstructor<'js>, Error> {
-        self.value
-            .clone()
-            .restore(scope.ctx())
-            .catch(scope.ctx())
-            .map_err(Into::into)
+impl<B: BackendClasses, C: Payload> Class<B, Instance<B, C>> {
+    pub fn instantiate(&self, payload: C) -> Result<Instance<B, C>, Error> {
+        self.handle.with_enter(|enter, class| {
+            Instance::<B, C>::from_guest(
+                enter,
+                B::new_instance(
+                    enter.token(),
+                    &B::get(enter.token(), class, &"prototype".to_guest(enter)?)?,
+                    payload,
+                )?,
+            )
+        })
     }
 }
 
-impl<R> Clone for Class<R> {
+impl<B: Backend, R> Clone for Class<B, R> {
     fn clone(&self) -> Self {
-        Self::new(self.value.clone(), self.context.clone())
+        Self::from_handle(self.handle.clone())
     }
 }
 
-impl<R> ToGuest for Class<R> {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        Ok(JsValue::from(
-            self.value
-                .restore(scope.ctx())
-                .catch(scope.ctx())?,
-        ))
+impl<B: Backend, R> HasHandle<B> for Class<B, R> {
+    fn handle(&self) -> &Handle<B> {
+        &self.handle
     }
 }
 
-impl<'js, R> ToGuestBound<'js> for Class<R> {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        self.to_guest(scope)
+impl<B: BackendValues, R> ObjectProtocol<B> for Class<B, R> {}
+
+impl<B: BackendValues, R> ConstructorProtocol<B> for Class<B, R> {}
+
+impl<B: Backend, R> Describe for Class<B, R> {
+    fn describe(expected: &mut Expected) {
+        expected.push("class");
     }
 }
 
-impl<R> FromGuest for Class<R>
-where
-    R: 'static,
-{
+impl<B: BackendValues, R: 'static> FromGuest<B> for Class<B, R> {
     type Owned = Self;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
-        Ok(Class::new(
-            Persistent::save(
-                scope.ctx(),
-                value
-                    .into_constructor()
-                    .ok_or_else(|| Error::conversion("expected a class"))?,
-            ),
-            scope
-                .parent()
-                .ok_or_else(Error::detached_scope)?
-                .clone(),
-        ))
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
+        match B::kind(enter.token(), &value) {
+            Kind::Function => Ok(Self::from_handle(Handle::from_value(enter, value))),
+            kind => Err(Expected::of::<Self>().mismatch(kind)),
+        }
     }
 }
 
-impl<R> FromGuestBound for Class<R> {
-    type Bound<'js> = BoundClass<'js, R>;
-
-    fn from_guest_bound<'js>(
-        scope: &Scope<'js>,
-        value: JsValue<'js>,
-    ) -> Result<Self::Bound<'js>, Error> {
-        Ok(BoundClass::new(
-            value
-                .into_constructor()
-                .ok_or_else(|| Error::conversion("expected a class"))?,
-            scope.clone(),
-        ))
+impl<B: Backend, R> ToGuest<B> for Class<B, R> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        self.handle.attach(enter)
     }
 }
 
-/// A guest class bound to a scope.
-pub struct BoundClass<'js, R = Instance> {
-    value: JsConstructor<'js>,
-    scope: Scope<'js>,
-    _result: PhantomData<fn() -> R>,
-}
-
-impl<'js, R> BoundClass<'js, R> {
-    pub(crate) fn new(value: JsConstructor<'js>, scope: Scope<'js>) -> Self {
-        Self { value, scope, _result: PhantomData }
-    }
-
-    pub fn with_result<O>(&self) -> BoundClass<'js, O> {
-        BoundClass::new(self.value.clone(), self.scope.clone())
-    }
-
-    pub fn into_result<O>(self) -> BoundClass<'js, O> {
-        BoundClass::new(self.value, self.scope)
-    }
-
-    /// Converts the class into an owned handle.
-    pub fn into_owned(self) -> Result<Class<R>, Error> {
-        Ok(Class::new(
-            Persistent::save(self.scope.ctx(), self.value),
-            self.scope
-                .parent()
-                .ok_or_else(Error::detached_scope)?
-                .clone(),
-        ))
-    }
-
-    /// Reports whether the class is a strict subclass of another class.
-    pub fn is_subclass_of<O>(&self, class: &BoundClass<'js, O>) -> Result<bool, Error> {
-        Ok(self
-            .get::<Object>("prototype")?
-            .is_instance_of(class))
+impl<B: Backend, R> ToGuest<B> for &Class<B, R> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        self.handle.attach(enter)
     }
 }
 
-impl<'js> BoundClass<'js, Instance> {
-    /// Returns this guest's class for a [`HostClass`](crate::host::class::HostClass).
-    pub fn of<C>(scope: &Scope<'js>) -> Result<BoundClass<'js, Instance<C>>, Error>
+pub trait Payload: 'static {
+    const NAME: &'static str;
+}
+
+impl<C: Payload> Describe for C {
+    fn describe(expected: &mut Expected) {
+        expected.push(C::NAME);
+    }
+}
+
+impl<B: BackendClasses, C: Payload> FromGuest<B> for C {
+    type Owned = Instance<B, C>;
+
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
+        Instance::<B, C>::from_guest(enter, value)
+    }
+}
+
+pub struct PayloadRef<'a, B: BackendClasses, C: Payload>(B::Payload<'a, C>);
+
+impl<B: BackendClasses, C: Payload> Deref for PayloadRef<'_, B, C> {
+    type Target = C;
+
+    fn deref(&self) -> &C {
+        &self.0
+    }
+}
+
+impl<B: BackendClasses, C: Payload> FromGuestRef<B> for C {
+    type Ref<'a> = PayloadRef<'a, B, C>;
+
+    fn from_guest_ref<'js, 'a>(
+        enter: &Enter<'js, B>,
+        value: &'a Val<'js, B>,
+    ) -> Result<Self::Ref<'a>, Error> {
+        B::borrow_payload::<C>(enter.token(), value).map(PayloadRef)
+    }
+}
+
+pub struct PayloadMut<'a, B: BackendClasses, C: Payload>(B::PayloadMut<'a, C>);
+
+impl<B: BackendClasses, C: Payload> Deref for PayloadMut<'_, B, C> {
+    type Target = C;
+
+    fn deref(&self) -> &C {
+        &self.0
+    }
+}
+
+impl<B: BackendClasses, C: Payload> DerefMut for PayloadMut<'_, B, C> {
+    fn deref_mut(&mut self) -> &mut C {
+        &mut self.0
+    }
+}
+
+impl<B: BackendClasses, C: Payload> FromGuestMut<B> for C {
+    type Mut<'a> = PayloadMut<'a, B, C>;
+
+    fn from_guest_mut<'js, 'a>(
+        enter: &Enter<'js, B>,
+        value: &'a Val<'js, B>,
+    ) -> Result<Self::Mut<'a>, Error> {
+        B::borrow_payload_mut::<C>(enter.token(), value).map(PayloadMut)
+    }
+}
+
+pub struct Instance<B: Backend, T = Object<B>> {
+    object: Object<B>,
+    marker: PhantomData<fn() -> T>,
+}
+
+impl<B: Backend, T> Instance<B, T> {
+    fn from_object(object: Object<B>) -> Self {
+        Self { object, marker: PhantomData }
+    }
+
+    pub fn as_untyped(&self) -> Instance<B> {
+        Instance::from_object(self.object.clone())
+    }
+
+    pub fn into_untyped(self) -> Instance<B> {
+        Instance::from_object(self.object)
+    }
+}
+
+impl<B: BackendClasses, T> Instance<B, T> {
+    pub fn as_typed<C>(&self) -> Result<Instance<B, C>, Error>
     where
-        C: HostClass,
+        C: Payload,
     {
-        Ok(BoundClass::new(
-            HostInstance::<C>::constructor(scope)?,
-            scope.clone(),
-        ))
+        self.object.cast::<Instance<B, C>>()
+    }
+
+    pub fn into_typed<C>(self) -> Result<Instance<B, C>, Error>
+    where
+        C: Payload,
+    {
+        self.handle()
+            .with_enter(|enter, value| Instance::<B, C>::check_payload(enter, value))?;
+
+        Ok(Instance::from_object(self.object))
     }
 }
 
-impl<'js, R> BoundHandle<'js> for BoundClass<'js, R> {
-    fn js_object(&self) -> &JsObject<'js> {
-        &self.value
+impl<B: BackendClasses, C: Payload> Instance<B, C> {
+    fn check_payload<'js>(enter: &Enter<'js, B>, value: &Val<'js, B>) -> Result<(), Error> {
+        match B::payload_type(enter.token(), value) == Some(TypeId::of::<C>()) {
+            true => Ok(()),
+            false => Err(Expected::of::<C>().mismatch(B::kind(enter.token(), value))),
+        }
     }
 
-    fn js_scope(&self) -> &Scope<'js> {
-        &self.scope
+    pub fn borrow_with<F, R>(&self, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&C) -> R,
+    {
+        self.borrow_as_with::<C, F, R>(f)
+    }
+
+    pub fn borrow_with_mut<F, R>(&self, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&mut C) -> R,
+    {
+        self.borrow_as_with_mut::<C, F, R>(f)
     }
 }
 
-impl<'js, R> BoundConstructor<'js> for BoundClass<'js, R> {
-    type Result = R;
-
-    fn js_constructor(&self) -> &JsConstructor<'js> {
-        &self.value
+impl<B: Backend, T> Clone for Instance<B, T> {
+    fn clone(&self) -> Self {
+        Self::from_object(self.object.clone())
     }
 }
 
-impl<'js, R> ToGuestBound<'js> for BoundClass<'js, R> {
-    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        Ok(JsValue::from(self.value))
+impl<B: Backend, T> HasHandle<B> for Instance<B, T> {
+    fn handle(&self) -> &Handle<B> {
+        self.object.handle()
+    }
+}
+
+impl<B: Backend, T> Deref for Instance<B, T> {
+    type Target = Object<B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.object
+    }
+}
+
+impl<B: BackendValues, T> ObjectProtocol<B> for Instance<B, T> {}
+
+impl<B: Backend> Describe for Instance<B> {
+    fn describe(expected: &mut Expected) {
+        Object::<B>::describe(expected);
+    }
+}
+
+impl<B: Backend, C: Payload> Describe for Instance<B, C> {
+    fn describe(expected: &mut Expected) {
+        C::describe(expected);
+    }
+}
+
+impl<B: BackendValues> FromGuest<B> for Instance<B> {
+    type Owned = Self;
+
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
+        Object::from_guest(enter, value).map(Self::from_object)
+    }
+}
+
+impl<B: BackendClasses, C: Payload> FromGuest<B> for Instance<B, C> {
+    type Owned = Self;
+
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
+        Self::check_payload(enter, &value)?;
+
+        Object::from_guest(enter, value).map(Self::from_object)
+    }
+}
+
+impl<B: Backend, T> ToGuest<B> for Instance<B, T> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        self.object.to_guest(enter)
+    }
+}
+
+impl<B: Backend, T> ToGuest<B> for &Instance<B, T> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        (&self.object).to_guest(enter)
+    }
+}
+
+pub struct Detached<C> {
+    payload: PhantomData<fn() -> C>,
+}
+
+impl<B, C> FromGuest<B> for Detached<C>
+where
+    B: BackendClasses,
+    C: Payload + Clone,
+{
+    type Owned = C;
+
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
+        Instance::<B, C>::from_guest(enter, value)?.borrow_with(Clone::clone)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{any::TypeId, ops::Deref};
+
     use crate::{
+        backend::{Backend, classes::BackendClasses, tests::Stub, values::BackendValues},
         errors::Error,
         handle::{
-            BoundConstructor, BoundConstructorProtocol, BoundObjectProtocol, ConstructorProtocol,
-            Object, ObjectProtocol,
+            HasHandle,
+            class::{Class, Instance, Payload},
+            object::Object,
+            protocol::{ConstructorProtocol, ObjectProtocol, ValueProtocol},
         },
-        host::{
-            args::Args,
-            class::{ClassSpec, HostClass},
-            module::{Exports, HostModule},
-        },
-        runtime::{Runtime, Scope},
+        marshal::{FromGuest, FromGuestMut, FromGuestRef, ToGuest, describe::Expected},
     };
 
-    const CLASS_SOURCE: &str = r#"
-        export class Counter {
-            constructor(value) {
-                this.value = value;
-            }
+    #[allow(dead_code)]
+    struct Counter;
 
-            increment() {
-                return ++this.value;
-            }
+    impl Payload for Counter {
+        const NAME: &'static str = "Counter";
+    }
+
+    #[allow(dead_code)]
+    fn class_capabilities<B: BackendValues>() {
+        fn object<B: BackendValues, T: ObjectProtocol<B>>() {}
+        fn constructor<B: BackendValues, T: ConstructorProtocol<B>>() {}
+        fn from<B: BackendValues, T: FromGuest<B>>() {}
+        fn to<B: BackendValues, T: ToGuest<B>>() {}
+
+        object::<B, Class<B>>();
+        constructor::<B, Class<B>>();
+        from::<B, Class<B>>();
+        to::<B, Class<B>>();
+        to::<B, &Class<B>>();
+    }
+
+    #[allow(dead_code)]
+    fn class_result_capabilities<B: BackendValues, R: 'static>() {
+        fn handle<B: Backend, T: HasHandle<B> + Clone>() {}
+        fn object<B: BackendValues, T: ObjectProtocol<B>>() {}
+        fn constructor<B: BackendValues, T: ConstructorProtocol<B>>() {}
+        fn from<B: BackendValues, T: FromGuest<B>>() {}
+        fn to<B: Backend, T: ToGuest<B>>() {}
+
+        handle::<B, Class<B, R>>();
+        object::<B, Class<B, R>>();
+        constructor::<B, Class<B, R>>();
+        from::<B, Class<B, R>>();
+        to::<B, Class<B, R>>();
+        to::<B, &Class<B, R>>();
+    }
+
+    #[allow(dead_code)]
+    fn class_result_methods<B, R>(class: &Class<B, R>) -> Result<R::Owned, Error>
+    where
+        B: BackendValues,
+        R: FromGuest<B>,
+    {
+        class.with_result::<Object<B>>();
+        class.clone().into_result::<Object<B>>();
+        class.construct_as::<_, Object<B>>(())?;
+
+        class.construct(())
+    }
+
+    #[allow(dead_code)]
+    fn typed_class_methods<B: BackendClasses>(
+        class: &Class<B, Instance<B, Counter>>,
+    ) -> Result<Instance<B, Counter>, Error> {
+        class.instantiate(Counter)
+    }
+
+    #[allow(dead_code)]
+    fn class_checks<B: BackendValues>(
+        class: &Class<B>,
+        instance: &Instance<B>,
+    ) -> Result<bool, Error> {
+        Ok(instance.is_instance_of(class)? && class.is_subclass_of(class)?)
+    }
+
+    #[allow(dead_code)]
+    fn payload_capabilities<B: BackendClasses>() {
+        fn object<B: BackendClasses, T: ObjectProtocol<B>>() {}
+        fn from<B, T>()
+        where
+            B: BackendClasses,
+            T: FromGuest<B, Owned = Instance<B, Counter>>,
+        {
         }
-    "#;
+        fn from_ref<B: BackendClasses, T: FromGuestRef<B>>() {}
+        fn from_mut<B: BackendClasses, T: FromGuestMut<B>>() {}
+        fn to<B: BackendClasses, T: ToGuest<B>>() {}
 
-    const HIERARCHY_SOURCE: &str = r#"
-        export class Shape {
-            static kind = "shape";
+        object::<B, Instance<B, Counter>>();
+        from::<B, Counter>();
+        from::<B, Instance<B, Counter>>();
+        from_ref::<B, Counter>();
+        from_mut::<B, Counter>();
+        to::<B, Instance<B, Counter>>();
+        to::<B, &Instance<B, Counter>>();
+    }
 
-            static describe() {
-                return this.kind;
-            }
+    #[allow(dead_code)]
+    fn instance_capabilities<B: Backend, T>() {
+        fn handle<B: Backend, T: HasHandle<B> + Clone>() {}
+        fn to<B: Backend, T: ToGuest<B>>() {}
+        fn object<B: Backend, T: Deref<Target = Object<B>>>() {}
+
+        handle::<B, Instance<B, T>>();
+        to::<B, Instance<B, T>>();
+        to::<B, &Instance<B, T>>();
+        object::<B, Instance<B, T>>();
+    }
+
+    #[allow(dead_code)]
+    fn untyped_instance_capabilities<B: BackendValues>() {
+        fn object<B: BackendValues, T: ObjectProtocol<B>>() {}
+        fn from<B, T>()
+        where
+            B: BackendValues,
+            T: FromGuest<B, Owned = Instance<B>>,
+        {
         }
 
-        export class Circle extends Shape {
-            static kind = "circle";
-        }
-
-        export class Unrelated {}
-    "#;
-
-    struct Base {
-        value: i32,
+        object::<B, Instance<B>>();
+        from::<B, Instance<B>>();
     }
 
-    impl HostClass for Base {
-        const NAME: &'static str = "Base";
+    #[allow(dead_code)]
+    fn instance_methods<B: BackendClasses>(
+        instance: &Instance<B>,
+        typed: &Instance<B, Counter>,
+    ) -> Result<(), Error> {
+        instance.as_untyped();
+        instance.clone().into_untyped();
+        instance.as_typed::<Counter>()?;
+        instance
+            .clone()
+            .into_typed::<Counter>()?;
+        instance.borrow_as_with::<Counter, _, _>(|_| ())?;
+        instance.borrow_as_with_mut::<Counter, _, _>(|_| ())?;
+        typed.borrow_with(|_| ())?;
+        typed.borrow_with_mut(|_| ())?;
+        instance.cast::<Instance<B>>()?;
+        instance.cast::<Instance<B, Counter>>()?;
+        instance.cast::<Counter>()?;
 
-        fn construct<'js>(scope: &Scope<'js>, args: Args<'js>) -> Result<Self, Error> {
-            Ok(Self { value: args.get::<i32>(scope, 0)? })
-        }
-
-        fn build(spec: &mut ClassSpec<Self>) {
-            spec.method("value", |base, _scope, _args| Ok(base.value));
-        }
+        Ok(())
     }
 
-    struct Shapes;
-
-    impl HostModule for Shapes {
-        fn name(&self) -> &str {
-            "@host/shapes"
-        }
-
-        fn build(&self, exports: &mut Exports) {
-            exports.class::<Base>();
-        }
+    #[test]
+    fn class_description_names_a_class() {
+        assert_eq!(Expected::of::<Class<Stub>>().to_string(), "class");
     }
 
-    #[tokio::test]
-    async fn promoted_class_constructs_owned_instances() {
-        let guest = Runtime::builder()
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap();
-        let module = guest
-            .guest_module("classes.js", CLASS_SOURCE)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            module
-                .class("Counter")
-                .await
-                .unwrap()
-                .construct((1,))
-                .await
-                .unwrap()
-                .call_method::<_, i32>("increment", ())
-                .await
-                .unwrap(),
-            2,
-        );
-        assert_eq!(
-            guest
-                .scope(async move |scope| {
-                    module
-                        .bind(&scope)?
-                        .class("Counter")?
-                        .into_owned()
-                })
-                .await
-                .unwrap()
-                .construct((9,))
-                .await
-                .unwrap()
-                .call_method::<_, i32>("increment", ())
-                .await
-                .unwrap(),
-            10,
-        );
+    #[test]
+    fn class_defaults_to_the_untyped_instance_result() {
+        assert_eq!(TypeId::of::<Class<Stub>>(), TypeId::of::<Class<Stub, Instance<Stub>>>(),);
     }
 
-    #[tokio::test]
-    async fn class_result_type_can_be_retyped_and_overridden() {
-        let guest = Runtime::builder()
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap();
-        let module = guest
-            .guest_module("classes.js", CLASS_SOURCE)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            module
-                .class("Counter")
-                .await
-                .unwrap()
-                .construct_as::<_, Object>((3,))
-                .await
-                .unwrap()
-                .get::<i32>("value")
-                .await
-                .unwrap(),
-            3,
-        );
-        assert_eq!(
-            module
-                .class("Counter")
-                .await
-                .unwrap()
-                .into_result::<Object>()
-                .construct((4,))
-                .await
-                .unwrap()
-                .get::<i32>("value")
-                .await
-                .unwrap(),
-            4,
-        );
-        assert_eq!(
-            guest
-                .scope(async move |scope| {
-                    let class = module.bind(&scope)?.class("Counter")?;
-
-                    assert!(
-                        class
-                            .construct((5,))?
-                            .is_instance_of(&class)
-                    );
-
-                    class
-                        .with_result::<Object>()
-                        .construct((6,))?
-                        .get::<i32>("value")
-                })
-                .await
-                .unwrap(),
-            6,
-        );
+    #[test]
+    fn class_description_does_not_depend_on_the_result() {
+        assert_eq!(Expected::of::<Class<Stub, Counter>>().to_string(), "class",);
     }
 
-    #[tokio::test]
-    async fn module_returns_a_typed_class() {
-        assert_eq!(
-            Runtime::builder()
-                .build()
-                .await
-                .unwrap()
-                .guest()
-                .build()
-                .await
-                .unwrap()
-                .guest_module("classes.js", CLASS_SOURCE)
-                .await
-                .unwrap()
-                .class_as::<Object>("Counter")
-                .await
-                .unwrap()
-                .construct((8,))
-                .await
-                .unwrap()
-                .get::<i32>("value")
-                .await
-                .unwrap(),
-            8,
-        );
+    #[test]
+    fn payload_description_names_the_payload() {
+        assert_eq!(Expected::of::<Counter>().to_string(), "Counter");
     }
 
-    #[tokio::test]
-    async fn class_reads_static_members() {
-        let guest = Runtime::builder()
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap();
-        let module = guest
-            .guest_module("hierarchy.js", HIERARCHY_SOURCE)
-            .await
-            .unwrap();
-        let circle = module.class("Circle").await.unwrap();
-
-        assert_eq!(
-            circle
-                .get::<String>("kind")
-                .await
-                .unwrap(),
-            "circle"
-        );
-        assert!(circle.has("describe").await.unwrap());
-        assert_eq!(
-            circle
-                .call_method::<_, String>("describe", ())
-                .await
-                .unwrap(),
-            "circle",
-        );
-        assert!(
-            circle
-                .keys()
-                .await
-                .unwrap()
-                .contains(&String::from("kind"))
-        );
-
-        guest
-            .scope(async move |scope| {
-                let circle = module.bind(&scope)?.class("Circle")?;
-
-                assert_eq!(circle.get::<String>("kind")?, "circle");
-                assert_eq!(circle.call_method::<_, String>("describe", ())?, "circle");
-
-                Ok(())
-            })
-            .await
-            .unwrap();
+    #[test]
+    fn untyped_instance_defaults_to_the_object_marker() {
+        assert_eq!(TypeId::of::<Instance<Stub>>(), TypeId::of::<Instance<Stub, Object<Stub>>>(),);
     }
 
-    #[tokio::test]
-    async fn class_reports_strict_subclasses() {
-        let guest = Runtime::builder()
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap();
-        let module = guest
-            .guest_module("hierarchy.js", HIERARCHY_SOURCE)
-            .await
-            .unwrap();
-        let shape = module.class("Shape").await.unwrap();
-        let circle = module.class("Circle").await.unwrap();
-        let unrelated = module.class("Unrelated").await.unwrap();
-
-        assert!(
-            circle
-                .is_subclass_of(&shape)
-                .await
-                .unwrap()
-        );
-        assert!(
-            !shape
-                .is_subclass_of(&circle)
-                .await
-                .unwrap()
-        );
-        assert!(
-            !shape
-                .is_subclass_of(&shape)
-                .await
-                .unwrap()
-        );
-        assert!(
-            !unrelated
-                .is_subclass_of(&shape)
-                .await
-                .unwrap()
-        );
-
-        guest
-            .scope(async move |scope| {
-                let module = module.bind(&scope)?;
-
-                assert!(
-                    module
-                        .class("Circle")?
-                        .is_subclass_of(&module.class("Shape")?)?
-                );
-                assert!(
-                    !module
-                        .class("Shape")?
-                        .is_subclass_of(&module.class("Circle")?)?
-                );
-
-                Ok(())
-            })
-            .await
-            .unwrap();
+    #[test]
+    fn untyped_instance_description_names_an_object() {
+        assert_eq!(Expected::of::<Instance<Stub>>().to_string(), "object",);
     }
 
-    #[tokio::test]
-    async fn class_of_returns_the_exported_host_class() {
-        let guest = Runtime::builder()
-            .bind(Shapes)
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap();
-
-        guest
-            .scope(async move |scope| {
-                assert_eq!(
-                    BoundClass::of::<Base>(&scope)?
-                        .js_constructor()
-                        .as_value(),
-                    scope
-                        .host_module("@host/shapes")?
-                        .class("Base")?
-                        .js_constructor()
-                        .as_value(),
-                );
-
-                Ok(())
-            })
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn class_of_constructs_typed_instances() {
-        assert_eq!(
-            Class::of::<Base>(
-                &Runtime::builder()
-                    .bind(Shapes)
-                    .build()
-                    .await
-                    .unwrap()
-                    .guest()
-                    .build()
-                    .await
-                    .unwrap(),
-            )
-            .await
-            .unwrap()
-            .construct((7,))
-            .await
-            .unwrap()
-            .borrow_with(|base| base.value)
-            .await
-            .unwrap(),
-            7,
-        );
-    }
-
-    #[tokio::test]
-    async fn class_of_works_without_registration() {
-        assert_eq!(
-            Class::of::<Base>(
-                &Runtime::builder()
-                    .build()
-                    .await
-                    .unwrap()
-                    .guest()
-                    .build()
-                    .await
-                    .unwrap(),
-            )
-            .await
-            .unwrap()
-            .construct((3,))
-            .await
-            .unwrap()
-            .borrow_with(|base| base.value)
-            .await
-            .unwrap(),
-            3,
-        );
-    }
-
-    #[tokio::test]
-    async fn class_of_is_isolated_between_guests() {
-        let runtime = Runtime::builder()
-            .build()
-            .await
-            .unwrap();
-        let first = runtime
-            .guest()
-            .build()
-            .await
-            .unwrap();
-        let second = runtime
-            .guest()
-            .build()
-            .await
-            .unwrap();
-
-        Class::of::<Base>(&first)
-            .await
-            .unwrap()
-            .set("marker", 1_i32)
-            .await
-            .unwrap();
-
-        assert!(
-            !Class::of::<Base>(&second)
-                .await
-                .unwrap()
-                .has("marker")
-                .await
-                .unwrap(),
-        );
+    #[test]
+    fn typed_instance_description_names_the_payload() {
+        assert_eq!(Expected::of::<Instance<Stub, Counter>>().to_string(), "Counter",);
     }
 }

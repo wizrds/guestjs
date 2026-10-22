@@ -24,6 +24,8 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
 
       - name: Lint commit message
         run: |
@@ -53,7 +55,9 @@ jobs:
           version: 3.43.3
 
       - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1  
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
 
       - name: Unit tests
         run: task rust:test

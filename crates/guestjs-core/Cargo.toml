@@ -9,19 +9,18 @@ readme.workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
+bytemuck = { workspace = true }
 futures = { workspace = true }
-tokio-util = { version = "0.7", default-features = false, optional = true }
+bytes = { workspace = true, optional = true }
+include_dir = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["fs"] }
+tokio-util = { workspace = true, optional = true }
 
-serde = { workspace = true }
-serde_json = { workspace = true }
+serde = { workspace = true, optional = true }
 
 thiserror = { workspace = true }
 
-bytes = { workspace = true, optional = true }
-
-rquickjs = { workspace = true }
-rquickjs-serde = { workspace = true }
-oxc = { workspace = true, optional = true }
+oxc = { version = "0.154", features = ["transformer", "codegen", "semantic"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
@@ -29,5 +28,6 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 [features]
 default = []
 bytes = ["dep:bytes"]
-tokio = ["dep:tokio-util"]
-typescript = ["oxc"]
+embedded = ["dep:include_dir"]
+tokio = ["dep:tokio", "dep:tokio-util"]
+serde = ["dep:serde"]

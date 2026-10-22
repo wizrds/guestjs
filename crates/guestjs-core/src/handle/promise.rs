@@ -2,403 +2,160 @@ use std::{
     future::{Future, IntoFuture},
     marker::PhantomData,
     pin::Pin,
-    rc::Rc,
 };
-
-use rquickjs::{CatchResultExt, Persistent, Promise as JsPromise, Value as JsValue};
 
 use crate::{
+    backend::{
+        Backend, Val,
+        exceptions::BackendExceptions,
+        promises::BackendPromises,
+        values::{BackendValues, Kind},
+    },
+    driver::promise::PromiseFuture,
+    enter::Enter,
     errors::Error,
-    marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
-    runtime::{GuestContext, Scope},
+    handle::{HasHandle, base::Handle, protocol::ObjectProtocol},
+    marshal::{
+        FromGuest, ToGuest,
+        describe::{Describe, Expected},
+    },
 };
 
-/// An owned guest promise awaited outside a scope.
-pub struct Promise<T> {
-    value: Persistent<JsPromise<'static>>,
-    context: Rc<GuestContext>,
-    _result: PhantomData<fn() -> T>,
+pub struct Promise<B: Backend, T> {
+    handle: Handle<B>,
+    target: PhantomData<fn() -> T>,
 }
 
-impl<T> Promise<T> {
-    pub(crate) fn new(value: Persistent<JsPromise<'static>>, context: Rc<GuestContext>) -> Self {
-        Self { value, context, _result: PhantomData }
+impl<B: BackendPromises, T: 'static> Promise<B, T> {
+    pub fn resolve_value<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self, Error> {
+        Self::from_guest(enter, B::resolve(enter.token(), value)?)
     }
 
-    /// Binds the promise to a scope.
-    pub fn bind<'js>(&self, scope: &Scope<'js>) -> Result<BoundPromise<'js, T>, Error> {
-        Ok(BoundPromise::new(
-            self.value
-                .clone()
-                .restore(scope.ctx())
-                .catch(scope.ctx())?,
-            scope.clone(),
-        ))
+    pub fn resolve<V>(enter: &Enter<'_, B>, value: V) -> Result<Self, Error>
+    where
+        V: ToGuest<B>,
+    {
+        Self::resolve_value(enter, value.to_guest(enter)?)
     }
 }
 
-impl<T: 'static> FromGuest for Promise<T> {
-    type Owned = Self;
-
-    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
-        Ok(Self::new(
-            Persistent::save(
-                scope.ctx(),
-                value
-                    .into_promise()
-                    .ok_or_else(|| Error::conversion("expected a promise"))?,
-            ),
-            scope
-                .parent()
-                .ok_or_else(Error::detached_scope)?
-                .clone(),
-        ))
+impl<B: Backend, T> Clone for Promise<B, T> {
+    fn clone(&self) -> Self {
+        Self {
+            handle: self.handle.clone(),
+            target: PhantomData,
+        }
     }
 }
 
-impl<T> FromGuestBound for Promise<T> {
-    type Bound<'js> = BoundPromise<'js, T>;
-
-    fn from_guest_bound<'js>(
-        scope: &Scope<'js>,
-        value: JsValue<'js>,
-    ) -> Result<Self::Bound<'js>, Error> {
-        Ok(BoundPromise::new(
-            value
-                .into_promise()
-                .ok_or_else(|| Error::conversion("expected a promise"))?,
-            scope.clone(),
-        ))
+impl<B: Backend, T> HasHandle<B> for Promise<B, T> {
+    fn handle(&self) -> &Handle<B> {
+        &self.handle
     }
 }
 
-impl<T> ToGuest for Promise<T> {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        Ok(JsValue::from(
-            self.value
-                .restore(scope.ctx())
-                .catch(scope.ctx())?,
-        ))
-    }
-}
+impl<B: BackendValues, T> ObjectProtocol<B> for Promise<B, T> {}
 
-impl<'js, T> ToGuestBound<'js> for Promise<T> {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        self.to_guest(scope)
-    }
-}
-
-impl<T> IntoFuture for Promise<T>
+impl<B, T> IntoFuture for Promise<B, T>
 where
-    T: FromGuest + 'static,
+    B: BackendPromises + BackendExceptions,
+    T: FromGuest<B> + 'static,
 {
     type Output = Result<T::Owned, Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output>>>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            Scope::with(&self.context, async |scope| {
-                T::from_guest(
-                    &scope,
-                    self.bind(&scope)?
-                        .resolve_value()
-                        .await?,
-                )
-            })
-            .await
+            self.handle
+                .with_enter(|enter, promise| PromiseFuture::new(enter, promise.clone()))?
+                .await
+                .and_then(|owned| {
+                    self.handle
+                        .guest()
+                        .enter(|enter| T::from_guest(enter, B::attach(enter.token(), &owned)?))
+                })
         })
     }
 }
 
-/// A guest promise awaited within its scope.
-pub struct BoundPromise<'js, T> {
-    value: JsPromise<'js>,
-    scope: Scope<'js>,
-    _result: PhantomData<fn() -> T>,
-}
-
-impl<'js, T> BoundPromise<'js, T> {
-    pub(crate) fn new(value: JsPromise<'js>, scope: Scope<'js>) -> Self {
-        Self { value, scope, _result: PhantomData }
-    }
-
-    /// Converts the promise into an owned handle.
-    pub fn into_owned(self) -> Result<Promise<T>, Error> {
-        Ok(Promise::new(
-            Persistent::save(self.scope.ctx(), self.value),
-            self.scope
-                .parent()
-                .ok_or_else(Error::detached_scope)?
-                .clone(),
-        ))
-    }
-
-    async fn resolve_value(&self) -> Result<JsValue<'js>, Error> {
-        self.value
-            .clone()
-            .into_future()
-            .await
-            .catch(self.scope.ctx())
-            .map_err(Into::into)
+impl<B: Backend, T> Describe for Promise<B, T> {
+    fn describe(expected: &mut Expected) {
+        expected.push("promise");
     }
 }
 
-impl<'js, T> IntoFuture for BoundPromise<'js, T>
+impl<B, T> FromGuest<B> for Promise<B, T>
 where
-    T: FromGuestBound + 'js,
+    B: BackendValues,
+    T: 'static,
 {
-    type Output = Result<T::Bound<'js>, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + 'js>>;
+    type Owned = Self;
 
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move { T::from_guest_bound(&self.scope, self.resolve_value().await?) })
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
+        match B::kind(enter.token(), &value) {
+            Kind::Promise => Ok(Self {
+                handle: Handle::from_value(enter, value),
+                target: PhantomData,
+            }),
+            kind => Err(Expected::of::<Self>().mismatch(kind)),
+        }
     }
 }
 
-impl<'js, T> ToGuestBound<'js> for BoundPromise<'js, T> {
-    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        Ok(JsValue::from(self.value))
+impl<B: Backend, T> ToGuest<B> for Promise<B, T> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        self.handle.attach(enter)
+    }
+}
+
+impl<B: Backend, T> ToGuest<B> for &Promise<B, T> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        self.handle.attach(enter)
+    }
+}
+
+pub struct Awaitable<T>(PhantomData<fn() -> T>);
+
+impl<T> Describe for Awaitable<T> {
+    fn describe(expected: &mut Expected) {
+        expected.push("awaitable");
+    }
+}
+
+impl<B: BackendPromises, T: 'static> FromGuest<B> for Awaitable<T> {
+    type Owned = Promise<B, T>;
+
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
+        Promise::resolve_value(enter, value)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::future::IntoFuture;
+
     use crate::{
-        handle::{
-            BoundCallableProtocol, BoundConstructorProtocol, BoundObjectProtocol, CallableProtocol,
-            Class, ConstructorProtocol, Function, Object, ObjectProtocol, Promise,
-        },
-        marshal::Nullish,
-        runtime::Runtime,
+        backend::{exceptions::BackendExceptions, promises::BackendPromises, tests::Stub},
+        handle::{promise::Promise, protocol::ObjectProtocol},
+        marshal::{FromGuest, ToGuest, describe::Expected},
     };
 
-    const PROMISE_SOURCE: &str = r#"
-        export async function functions() {
-            return [
-                (value) => value + 1,
-                (value) => value * 2,
-            ];
-        }
+    #[allow(dead_code)]
+    fn capabilities<B: BackendPromises + BackendExceptions>() {
+        fn object<B: BackendPromises, T: ObjectProtocol<B>>() {}
+        fn from<B: BackendPromises, T: FromGuest<B>>() {}
+        fn to<B: BackendPromises, T: ToGuest<B>>() {}
+        fn awaitable<T: IntoFuture>() {}
 
-        export async function optionalObject(present) {
-            return present
-                ? { value: 7 }
-                : null;
-        }
-
-        export async function nullableClass(kind) {
-            class Counter {
-                constructor(value) {
-                    this.value = value;
-                }
-            }
-
-            if (kind === "undefined") {
-                return undefined;
-            }
-
-            if (kind === "null") {
-                return null;
-            }
-
-            return Counter;
-        }
-    "#;
-
-    #[tokio::test]
-    async fn await_guest_promise() {
-        let guest = Runtime::builder()
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap();
-
-        guest
-            .eval::<()>("globalThis.slow = (x) => Promise.resolve(x * 2)")
-            .await
-            .unwrap();
-
-        assert_eq!(
-            guest
-                .globals()
-                .await
-                .unwrap()
-                .get::<Function>("slow")
-                .await
-                .unwrap()
-                .call::<_, Promise<i32>>((21,))
-                .await
-                .unwrap()
-                .await
-                .unwrap(),
-            42,
-        );
+        object::<B, Promise<B, String>>();
+        from::<B, Promise<B, String>>();
+        to::<B, Promise<B, String>>();
+        to::<B, &Promise<B, String>>();
+        awaitable::<Promise<B, String>>();
     }
 
-    #[tokio::test]
-    async fn owned_promises_materialize_recursive_handles() {
-        let module = Runtime::builder()
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap()
-            .guest_module("owned-promises.js", PROMISE_SOURCE)
-            .await
-            .unwrap();
-        let functions = module
-            .function("functions")
-            .await
-            .unwrap()
-            .call::<_, Promise<Vec<Function>>>(())
-            .await
-            .unwrap()
-            .await
-            .unwrap();
-
-        assert_eq!(
-            functions[0]
-                .call::<_, i32>((4,))
-                .await
-                .unwrap(),
-            5
-        );
-        assert_eq!(
-            functions[1]
-                .call::<_, i32>((4,))
-                .await
-                .unwrap(),
-            8
-        );
-        assert_eq!(
-            module
-                .function("optionalObject")
-                .await
-                .unwrap()
-                .call::<_, Promise<Option<Object>>>((true,))
-                .await
-                .unwrap()
-                .await
-                .unwrap()
-                .unwrap()
-                .get::<i32>("value")
-                .await
-                .unwrap(),
-            7,
-        );
-
-        match module
-            .function("nullableClass")
-            .await
-            .unwrap()
-            .call::<_, Promise<Nullish<Class>>>(("class",))
-            .await
-            .unwrap()
-            .await
-            .unwrap()
-        {
-            Nullish::Some(class) => {
-                assert_eq!(
-                    class
-                        .construct((9,))
-                        .await
-                        .unwrap()
-                        .get::<i32>("value")
-                        .await
-                        .unwrap(),
-                    9,
-                );
-            }
-            _ => panic!("expected a class"),
-        }
-    }
-
-    #[tokio::test]
-    async fn bound_promises_materialize_and_promote_recursive_handles() {
-        let guest = Runtime::builder()
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap();
-        let module = guest
-            .guest_module("bound-promises.js", PROMISE_SOURCE)
-            .await
-            .unwrap();
-
-        assert!(
-            module
-                .function("optionalObject")
-                .await
-                .unwrap()
-                .call::<_, Promise<Option<Object>>>((false,))
-                .await
-                .unwrap()
-                .await
-                .unwrap()
-                .is_none(),
-        );
-
-        assert_eq!(
-            guest
-                .scope(async move |scope| {
-                    let module = module.bind(&scope)?;
-                    let functions = module
-                        .function("functions")?
-                        .call::<_, Promise<Vec<Function>>>(())?
-                        .await?;
-
-                    assert_eq!(functions[0].call::<_, i32>((2,))?, 3);
-                    assert_eq!(functions[1].call::<_, i32>((2,))?, 4);
-                    assert_eq!(
-                        module
-                            .function("optionalObject")?
-                            .call::<_, Promise<Option<Object>>>((true,))?
-                            .await?
-                            .unwrap()
-                            .get::<i32>("value")?,
-                        7,
-                    );
-
-                    match module
-                        .function("nullableClass")?
-                        .call::<_, Promise<Nullish<Class>>>(("class",))?
-                        .await?
-                    {
-                        Nullish::Some(class) => {
-                            assert_eq!(
-                                class
-                                    .construct((6,))?
-                                    .get::<i32>("value")?,
-                                6,
-                            );
-                        }
-                        _ => panic!("expected a class"),
-                    }
-
-                    module
-                        .function("functions")?
-                        .call::<_, Promise<Vec<Function>>>(())?
-                        .into_owned()
-                })
-                .await
-                .unwrap()
-                .await
-                .unwrap()
-                .into_iter()
-                .next()
-                .unwrap()
-                .call::<_, i32>((10,))
-                .await
-                .unwrap(),
-            11,
-        );
+    #[test]
+    fn description_names_a_promise() {
+        assert_eq!(Expected::of::<Promise<Stub, String>>().to_string(), "promise",);
     }
 }

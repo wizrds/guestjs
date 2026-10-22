@@ -1,291 +1,150 @@
-use std::rc::Rc;
-
-use rquickjs::{
-    CatchResultExt, Constructor as JsConstructor, Function as JsFunction, Object as JsObject,
-    Persistent, Value as JsValue,
+use std::{
+    future::{Future, IntoFuture},
+    pin::Pin,
 };
 
 use crate::{
-    errors::Error,
-    handle::{
-        BoundClass, BoundFunction, BoundHandle, BoundObject, Class, Function, Instance, Object,
-        OwnedHandle,
+    backend::{
+        Backend, Val,
+        exceptions::BackendExceptions,
+        promises::BackendPromises,
+        values::{BackendValues, Kind, WellKnown},
     },
-    marshal::ToGuestBound,
-    runtime::{GuestContext, Scope},
+    driver::promise::PromiseFuture,
+    enter::Enter,
+    errors::Error,
+    handle::{HasHandle, base::Handle, protocol::ObjectProtocol},
+    marshal::{
+        FromGuest, ToGuest,
+        describe::{Describe, Expected},
+    },
 };
 
-/// An owned guest module.
-#[derive(Clone)]
-pub struct Module {
-    namespace: Persistent<JsObject<'static>>,
-    context: Rc<GuestContext>,
+pub struct Module<B: Backend> {
+    handle: Handle<B>,
+    evaluation: Option<Handle<B>>,
 }
 
-impl Module {
-    pub(crate) fn new(namespace: Persistent<JsObject<'static>>, context: Rc<GuestContext>) -> Self {
-        Self { namespace, context }
-    }
-
-    /// Binds the module to a scope.
-    pub fn bind<'js>(&self, scope: &Scope<'js>) -> Result<BoundModule<'js>, Error> {
-        Ok(BoundModule::new(
-            self.namespace
-                .clone()
-                .restore(scope.ctx())
-                .catch(scope.ctx())?,
-            scope.clone(),
-        ))
-    }
-
-    /// Returns an exported function.
-    pub async fn function(&self, name: &str) -> Result<Function, Error> {
-        Scope::with(&self.context, async move |scope| {
-            self.bind(&scope)?
-                .function(name)?
-                .into_owned()
+impl<B: BackendValues> Module<B> {
+    pub fn evaluating<'js>(
+        enter: &Enter<'js, B>,
+        namespace: Val<'js, B>,
+        evaluation: Val<'js, B>,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            evaluation: Some(Handle::from_value(enter, evaluation)),
+            ..Self::from_guest(enter, namespace)?
         })
-        .await
     }
+}
 
-    /// Returns an exported object.
-    pub async fn object(&self, name: &str) -> Result<Object, Error> {
-        Scope::with(&self.context, async move |scope| {
-            self.bind(&scope)?
-                .object(name)?
-                .into_owned()
+impl<B: Backend> Clone for Module<B> {
+    fn clone(&self) -> Self {
+        Self {
+            handle: self.handle.clone(),
+            evaluation: self.evaluation.clone(),
+        }
+    }
+}
+
+impl<B: Backend> HasHandle<B> for Module<B> {
+    fn handle(&self) -> &Handle<B> {
+        &self.handle
+    }
+}
+
+impl<B: BackendValues> ObjectProtocol<B> for Module<B> {}
+
+impl<B> IntoFuture for Module<B>
+where
+    B: BackendPromises + BackendExceptions,
+{
+    type Output = Result<Self, Error>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output>>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            if let Some(evaluation) = self.evaluation {
+                evaluation
+                    .with_enter(|enter, promise| PromiseFuture::new(enter, promise.clone()))?
+                    .await?;
+            }
+
+            Ok(Self { handle: self.handle, evaluation: None })
         })
-        .await
-    }
-
-    /// Returns an exported class.
-    pub async fn class(&self, name: &str) -> Result<Class, Error> {
-        self.class_as::<Instance>(name).await
-    }
-
-    pub async fn class_as<R>(&self, name: &str) -> Result<Class<R>, Error>
-    where
-        R: 'static,
-    {
-        Scope::with(&self.context, async move |scope| {
-            self.bind(&scope)?
-                .class_as::<R>(name)?
-                .into_owned()
-        })
-        .await
     }
 }
 
-impl OwnedHandle for Module {
-    fn guest_context(&self) -> &Rc<GuestContext> {
-        &self.context
-    }
-
-    fn bind_object<'js>(&self, scope: &Scope<'js>) -> Result<JsObject<'js>, Error> {
-        self.namespace
-            .clone()
-            .restore(scope.ctx())
-            .catch(scope.ctx())
-            .map_err(Into::into)
+impl<B: Backend> Describe for Module<B> {
+    fn describe(expected: &mut Expected) {
+        expected.push("module namespace");
     }
 }
 
-/// A guest module bound to a scope.
-pub struct BoundModule<'js> {
-    namespace: JsObject<'js>,
-    scope: Scope<'js>,
-}
+impl<B: BackendValues> FromGuest<B> for Module<B> {
+    type Owned = Self;
 
-impl<'js> BoundModule<'js> {
-    pub(crate) fn new(namespace: JsObject<'js>, scope: Scope<'js>) -> Self {
-        Self { namespace, scope }
-    }
-
-    /// Returns an exported function.
-    pub fn function(&self, name: &str) -> Result<BoundFunction<'js>, Error> {
-        Ok(BoundFunction::new(
-            self.namespace
-                .get::<_, JsFunction>(name)
-                .catch(self.scope.ctx())?,
-            self.scope.clone(),
-        ))
-    }
-
-    /// Returns an exported object.
-    pub fn object(&self, name: &str) -> Result<BoundObject<'js>, Error> {
-        Ok(BoundObject::new(
-            self.namespace
-                .get::<_, JsObject>(name)
-                .catch(self.scope.ctx())?,
-            self.scope.clone(),
-        ))
-    }
-
-    /// Returns an exported class.
-    pub fn class(&self, name: &str) -> Result<BoundClass<'js>, Error> {
-        self.class_as::<Instance>(name)
-    }
-
-    pub fn class_as<R>(&self, name: &str) -> Result<BoundClass<'js, R>, Error> {
-        Ok(BoundClass::new(
-            self.namespace
-                .get::<_, JsConstructor>(name)
-                .catch(self.scope.ctx())?,
-            self.scope.clone(),
-        ))
-    }
-
-    /// Converts the module into an owned handle.
-    pub fn into_owned(self) -> Result<Module, Error> {
-        Ok(Module::new(
-            Persistent::save(self.scope.ctx(), self.namespace),
-            self.scope
-                .parent()
-                .ok_or_else(Error::detached_scope)?
-                .clone(),
-        ))
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
+        match B::kind(enter.token(), &value) {
+            Kind::Object => match Option::<String>::from_guest(
+                enter,
+                B::get(
+                    enter.token(),
+                    &value,
+                    &B::well_known(enter.token(), WellKnown::ToStringTag),
+                )?,
+            )?
+            .as_deref()
+            {
+                Some("Module") => Ok(Self {
+                    handle: Handle::from_value(enter, value),
+                    evaluation: None,
+                }),
+                _ => Err(Expected::of::<Self>().mismatch(Kind::Object)),
+            },
+            kind => Err(Expected::of::<Self>().mismatch(kind)),
+        }
     }
 }
 
-impl<'js> BoundHandle<'js> for BoundModule<'js> {
-    fn js_object(&self) -> &JsObject<'js> {
-        &self.namespace
-    }
-
-    fn js_scope(&self) -> &Scope<'js> {
-        &self.scope
+impl<B: Backend> ToGuest<B> for Module<B> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        self.handle.attach(enter)
     }
 }
 
-impl<'js> ToGuestBound<'js> for BoundModule<'js> {
-    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        Ok(JsValue::from(self.namespace))
+impl<B: Backend> ToGuest<B> for &Module<B> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        self.handle.attach(enter)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::future::IntoFuture;
+
     use crate::{
-        handle::{
-            BoundCallableProtocol, BoundConstructorProtocol, BoundObjectProtocol, CallableProtocol,
-            Function, ObjectProtocol,
-        },
-        runtime::Runtime,
+        backend::{exceptions::BackendExceptions, promises::BackendPromises, tests::Stub},
+        handle::{module::Module, protocol::ObjectProtocol},
+        marshal::{FromGuest, ToGuest, describe::Expected},
     };
 
-    const MODULE_SOURCE: &str = r#"
-        export function add(a, b) {
-            return a + b;
-        }
+    #[allow(dead_code)]
+    fn capabilities<B: BackendPromises + BackendExceptions>() {
+        fn object<B: BackendPromises, T: ObjectProtocol<B>>() {}
+        fn from<B: BackendPromises, T: FromGuest<B>>() {}
+        fn to<B: BackendPromises, T: ToGuest<B>>() {}
+        fn awaitable<T: IntoFuture>() {}
 
-        export const settings = {
-            unit: "px",
-        };
-
-        export class Counter {
-            constructor(value) {
-                this.value = value;
-            }
-
-            increment() {
-                return ++this.value;
-            }
-        }
-    "#;
-
-    #[tokio::test]
-    async fn bound_exports_remain_in_scope() {
-        let guest = Runtime::builder()
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap();
-        let module = guest
-            .guest_module("exports.js", MODULE_SOURCE)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            module
-                .function("add")
-                .await
-                .unwrap()
-                .call::<_, i32>((1, 1))
-                .await
-                .unwrap(),
-            2,
-        );
-
-        guest
-            .scope(async move |scope| {
-                let module = module.bind(&scope)?;
-
-                assert_eq!(
-                    module
-                        .function("add")?
-                        .call::<_, i32>((2, 3))?,
-                    5
-                );
-                assert_eq!(
-                    module
-                        .object("settings")?
-                        .get::<String>("unit")?,
-                    "px"
-                );
-                assert_eq!(
-                    module
-                        .class("Counter")?
-                        .construct((4,))?
-                        .call_method::<_, i32>("increment", ())?,
-                    5,
-                );
-
-                Ok(())
-            })
-            .await
-            .unwrap();
+        object::<B, Module<B>>();
+        from::<B, Module<B>>();
+        to::<B, Module<B>>();
+        to::<B, &Module<B>>();
+        awaitable::<Module<B>>();
     }
 
-    #[tokio::test]
-    async fn promoted_module_remains_operational() {
-        let guest = Runtime::builder()
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap();
-        let module = guest
-            .guest_module("promotion.js", MODULE_SOURCE)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            module
-                .get::<Function>("add")
-                .await
-                .unwrap()
-                .call::<_, i32>((1, 2))
-                .await
-                .unwrap(),
-            3,
-        );
-        assert_eq!(
-            guest
-                .scope(async move |scope| { module.bind(&scope)?.into_owned() })
-                .await
-                .unwrap()
-                .function("add")
-                .await
-                .unwrap()
-                .call::<_, i32>((5, 7))
-                .await
-                .unwrap(),
-            12,
-        );
+    #[test]
+    fn description_names_a_module_namespace() {
+        assert_eq!(Expected::of::<Module<Stub>>().to_string(), "module namespace",);
     }
 }

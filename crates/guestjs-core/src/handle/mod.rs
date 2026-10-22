@@ -1,21 +1,18 @@
 pub mod array;
-pub mod awaitable;
+pub mod base;
+pub mod buffer;
 pub mod class;
 pub mod function;
-pub mod instance;
+pub mod iter;
 pub mod module;
 pub mod object;
 pub mod promise;
-pub mod traits;
+pub mod protocol;
+pub mod stream;
 pub mod value;
 
-pub use array::*;
-pub use awaitable::*;
-pub use class::*;
-pub use function::*;
-pub use instance::*;
-pub use module::*;
-pub use object::*;
-pub use promise::*;
-pub use traits::*;
-pub use value::*;
+use crate::{backend::Backend, handle::base::Handle};
+
+pub trait HasHandle<B: Backend> {
+    fn handle(&self) -> &Handle<B>;
+}

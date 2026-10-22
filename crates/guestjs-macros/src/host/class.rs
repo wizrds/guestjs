@@ -1,568 +1,568 @@
-use std::collections::HashMap;
-
 use darling::{FromMeta, ast::NestedMeta, util::Flag};
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{Generics, Ident, ImplItem, ImplItemConst, ItemImpl, Path, Type, spanned::Spanned};
+use syn::{
+    Attribute, FnArg, GenericParam, Ident, ImplItem, ImplItemFn, ItemImpl, Path, ReturnType,
+    Safety, Type, parse_quote,
+};
 
 use crate::{
+    attributes::HelperAttributes,
+    backend::{BackendBounds, BackendOption, BackendParameter},
+    diagnostics::MacroError,
     host::{
-        HostMacroError,
-        attributes::HelperAttributes,
-        callable::{Callable, CallableKind, ClassMethod, StaticsHook, WellKnownSymbol},
-        naming::{Naming, RenameRule},
+        HostSyntax, MemberKey, MemberRegistry, Registration, StateRequirements, callable::Callable,
     },
+    naming::{Naming, RenameRule},
     path::CratePath,
 };
 
-#[derive(FromMeta)]
+#[derive(Default, FromMeta)]
+#[darling(default)]
 struct ClassOptions {
     name: Option<String>,
     rename_all: Option<RenameRule>,
+    backend: Option<BackendOption>,
     crate_path: Option<Path>,
+}
+
+impl ClassOptions {
+    fn into_parts(
+        self,
+    ) -> (Option<String>, Option<RenameRule>, Option<BackendOption>, Option<Path>) {
+        (self.name, self.rename_all, self.backend, self.crate_path)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ClassRole {
+    Constructor,
+    Method,
+    AsyncMethod,
+    Get,
+    Set,
+    StaticMethod,
+    Statics,
+    Constant,
 }
 
 #[derive(Default, FromMeta)]
 #[darling(default)]
-struct ConstantOptions {
+struct ClassItemOptions {
+    constructor: Flag,
+    method: Flag,
+    async_method: Flag,
+    get: Flag,
+    set: Flag,
+    static_method: Flag,
+    statics: Flag,
     constant: Flag,
     name: Option<String>,
+    symbol: Option<String>,
 }
 
-struct StaticConstant {
-    span: Span,
-    ident: Ident,
-    name: String,
-    value_type: Type,
-}
+impl ClassItemOptions {
+    fn role(&self, ident: &Ident) -> syn::Result<ClassRole> {
+        let roles = [
+            (self.constructor.is_present(), ClassRole::Constructor),
+            (self.method.is_present(), ClassRole::Method),
+            (self.async_method.is_present(), ClassRole::AsyncMethod),
+            (self.get.is_present(), ClassRole::Get),
+            (self.set.is_present(), ClassRole::Set),
+            (self.static_method.is_present(), ClassRole::StaticMethod),
+            (self.statics.is_present(), ClassRole::Statics),
+            (self.constant.is_present(), ClassRole::Constant),
+        ];
 
-impl StaticConstant {
-    fn new(
-        constant: &mut ImplItemConst,
-        rename_all: Option<RenameRule>,
-    ) -> Result<Option<Self>, HostMacroError> {
-        let helpers = HelperAttributes::take(&mut constant.attrs)?;
-
-        if helpers.is_empty() {
-            return Ok(None);
+        if roles
+            .iter()
+            .filter(|(present, _)| *present)
+            .count()
+            != 1
+        {
+            return Err(syn::Error::new(
+                ident.span(),
+                "a class member requires exactly one guestjs role",
+            ));
         }
 
-        let options = ConstantOptions::from_list(&helpers)?;
+        Ok(roles
+            .into_iter()
+            .find_map(|(present, role)| present.then_some(role))
+            .ok_or_else(|| syn::Error::new(ident.span(), "missing class member role"))?)
+    }
 
-        if !options.constant.is_present() {
-            return Err(syn::Error::new(
-                constant.ident.span(),
-                "an exported associated constant requires the constant role",
+    fn key(&self, ident: &Ident, rename: Option<RenameRule>) -> syn::Result<MemberKey> {
+        MemberKey::new(ident, self.name.clone(), self.symbol.as_deref(), rename)
+    }
+}
+
+struct NamespaceHook {
+    ident: Ident,
+}
+
+impl NamespaceHook {
+    fn new(method: &mut ImplItemFn) -> Result<Self, MacroError> {
+        if method.sig.receiver().is_some()
+            || method.sig.asyncness.is_some()
+            || method.sig.abi.is_some()
+            || matches!(method.sig.safety, Safety::Unsafe(_))
+            || method.sig.variadic.is_some()
+            || method.sig.inputs.len() != 1
+            || method
+                .sig
+                .generics
+                .params
+                .iter()
+                .any(|parameter| !matches!(parameter, GenericParam::Lifetime(_)))
+        {
+            return Err(syn::Error::new_spanned(
+                &method.sig,
+                "statics requires one mutable namespace argument and no receiver",
             )
             .into());
         }
 
-        Ok(Some(Self {
-            span: constant.ident.span(),
-            ident: constant.ident.clone(),
-            name: Naming::member(&constant.ident, options.name, rename_all),
-            value_type: constant.ty.clone(),
-        }))
-    }
-
-    fn add_predicates(&self, generics: &mut Generics, crate_path: &Path, target: &Type) {
-        let value_type = &self.value_type;
-
-        if value_type == target {
-            generics
-                .make_where_clause()
-                .predicates
-                .push(syn::parse_quote!(#value_type: Clone + 'static));
-        } else {
-            generics
-                .make_where_clause()
-                .predicates
-                .push(syn::parse_quote!(
-                    #value_type: #crate_path::marshal::ToGuest + Clone + 'static
-                ));
+        match &method.sig.output {
+            ReturnType::Default => {}
+            ReturnType::Type(_, ty) if matches!(ty.as_ref(), Type::Tuple(tuple) if tuple.elems.is_empty()) =>
+                {}
+            _ => {
+                return Err(
+                    syn::Error::new_spanned(&method.sig.output, "statics must return ()").into()
+                );
+            }
         }
-    }
 
-    fn registration(&self) -> TokenStream {
-        let ident = &self.ident;
-        let name = &self.name;
-
-        quote! {
-            statics.constant(#name, Self::#ident);
-        }
-    }
-}
-
-struct Accessor {
-    name: String,
-    getter: Option<Callable>,
-    setter: Option<Callable>,
-}
-
-impl Accessor {
-    fn new(callable: Callable) -> Self {
-        let name = callable.name().to_owned();
-
-        match callable.kind() {
-            CallableKind::Getter => Self {
-                name,
-                getter: Some(callable),
-                setter: None,
-            },
-            CallableKind::Setter => Self {
-                name,
-                getter: None,
-                setter: Some(callable),
-            },
-            _ => unreachable!(),
-        }
-    }
-
-    fn insert(&mut self, callable: Callable) -> Result<(), HostMacroError> {
-        let (slot, kind) = match callable.kind() {
-            CallableKind::Getter => (&mut self.getter, "getter"),
-            CallableKind::Setter => (&mut self.setter, "setter"),
-            _ => unreachable!(),
+        let Some(FnArg::Typed(argument)) = method.sig.inputs.first_mut() else {
+            return Err(syn::Error::new_spanned(
+                &method.sig,
+                "statics requires a namespace argument",
+            )
+            .into());
         };
 
-        if let Some(previous) = slot {
-            let mut error = syn::Error::new(
-                callable.span(),
-                format!("duplicate {kind} for accessor {:?}", self.name),
-            );
-
-            error.combine(syn::Error::new(
-                previous.span(),
-                format!("the first {kind} for this accessor is here"),
-            ));
-
-            return Err(error.into());
+        if !matches!(
+            argument.ty.as_ref(),
+            Type::Reference(reference) if reference.mutability.is_some()
+        ) || !HelperAttributes::take(&mut argument.attrs)?.is_empty()
+        {
+            return Err(syn::Error::new_spanned(
+                &*argument,
+                "statics takes &mut NamespaceDeclaration<B> without injection",
+            )
+            .into());
         }
 
-        *slot = Some(callable);
-
-        Ok(())
+        Ok(Self { ident: method.sig.ident.clone() })
     }
 
-    fn add_predicates(&self, generics: &mut Generics, crate_path: &Path, target: &Type) {
-        if let Some(getter) = &self.getter {
-            getter.add_predicates(generics, crate_path, target);
-        }
-
-        if let Some(setter) = &self.setter {
-            setter.add_predicates(generics, crate_path, target);
-        }
+    fn ident(&self) -> &Ident {
+        &self.ident
     }
 
-    fn registration(&self, crate_path: &Path) -> TokenStream {
-        let name = &self.name;
+    fn render(&self, backend: &BackendParameter, namespace: &Ident) -> TokenStream {
+        let ident = &self.ident;
+        let turbofish = backend.turbofish();
 
-        match (&self.getter, &self.setter) {
-            (Some(getter), Some(setter)) => {
-                let getter = getter.getter_closure();
-                let setter_closure = setter.setter_closure();
-                let setter_descriptor = setter.setter_descriptor(crate_path);
-
-                quote! {
-                    spec.accessor::<_, _, _, #setter_descriptor>(
-                        #name,
-                        #getter,
-                        #setter_closure,
-                    );
-                }
-            }
-            (Some(getter), None) => {
-                let getter = getter.getter_closure();
-
-                quote! {
-                    spec.getter(#name, #getter);
-                }
-            }
-            (None, Some(setter)) => {
-                let setter_closure = setter.setter_closure();
-                let setter_descriptor = setter.setter_descriptor(crate_path);
-
-                quote! {
-                    spec.setter::<_, #setter_descriptor>(
-                        #name,
-                        #setter_closure,
-                    );
-                }
-            }
-            (None, None) => unreachable!(),
-        }
+        quote!(Self::#ident #turbofish (&mut #namespace);)
     }
 }
 
-enum StaticMember {
-    Constant(Box<StaticConstant>),
-    Method(Box<Callable>),
-    Hook(StaticsHook),
+enum ClassMember {
+    Callable {
+        role: ClassRole,
+        callable: Callable,
+        key: MemberKey,
+        attributes: Vec<Attribute>,
+    },
+    Hook {
+        hook: NamespaceHook,
+        attributes: Vec<Attribute>,
+    },
+    Constant {
+        ident: Ident,
+        key: MemberKey,
+        attributes: Vec<Attribute>,
+    },
 }
 
-impl StaticMember {
-    fn add_predicates(&self, generics: &mut Generics, crate_path: &Path, target: &Type) {
+impl ClassMember {
+    fn ident(&self) -> &Ident {
         match self {
-            Self::Constant(constant) => {
-                constant.add_predicates(generics, crate_path, target);
-            }
-            Self::Method(method) => {
-                method.add_predicates(generics, crate_path, target);
-            }
-            Self::Hook(_) => {}
+            Self::Callable { callable, .. } => callable.ident(),
+            Self::Hook { hook, .. } => hook.ident(),
+            Self::Constant { ident, .. } => ident,
         }
     }
 
-    fn registration(&self, crate_path: &Path) -> TokenStream {
+    fn attributes(&self) -> &[Attribute] {
         match self {
-            Self::Constant(constant) => constant.registration(),
-            Self::Method(method) => method.registration(crate_path),
-            Self::Hook(hook) => hook.registration(),
+            Self::Callable { attributes, .. }
+            | Self::Hook { attributes, .. }
+            | Self::Constant { attributes, .. } => attributes,
         }
     }
-}
 
-pub(crate) struct HostClassMacro {
-    item: ItemImpl,
-    name: String,
-    crate_path: Path,
-    constructor: Option<Callable>,
-    methods: Vec<Callable>,
-    accessors: Vec<Accessor>,
-    statics: Vec<StaticMember>,
-}
+    fn state_types(&self) -> Vec<Type> {
+        match self {
+            Self::Callable { callable, .. } => callable.state_types(),
+            _ => Vec::new(),
+        }
+    }
 
-impl HostClassMacro {
-    pub(crate) fn new(args: TokenStream, mut item: ItemImpl) -> Result<Self, HostMacroError> {
-        Self::validate_impl(&item)?;
+    fn is_static(&self) -> bool {
+        matches!(
+            self,
+            Self::Hook { .. }
+                | Self::Constant { .. }
+                | Self::Callable { role: ClassRole::StaticMethod, .. }
+        )
+    }
 
-        let options = ClassOptions::from_list(&NestedMeta::parse_meta_list(args)?)?;
-        let mut constructor = None;
-        let mut methods = Vec::new();
-        let mut accessors = Vec::<Accessor>::new();
-        let mut statics = Vec::new();
-        let mut accessor_indices = HashMap::<String, usize>::new();
-        let mut prototype_names = HashMap::new();
-        let mut static_names = HashMap::new();
-        let mut symbols = HashMap::new();
-        let mut statics_hook = None;
+    fn promises(&self) -> bool {
+        match self {
+            Self::Callable { role, callable, .. } => {
+                *role == ClassRole::AsyncMethod || callable.is_async()
+            }
+            _ => false,
+        }
+    }
 
-        for item in &mut item.items {
-            match item {
-                ImplItem::Fn(method) => {
-                    let Some(member) = ClassMethod::new(method, options.rename_all)? else {
-                        continue;
-                    };
+    fn render(
+        &self,
+        krate: &Path,
+        backend: &BackendParameter,
+        declaration: &Ident,
+        namespace: &Ident,
+    ) -> TokenStream {
+        let attributes = HelperAttributes::conditions(self.attributes());
+        let statement = match self {
+            Self::Hook { hook, .. } => hook.render(backend, namespace),
+            Self::Constant { ident, key, .. } => {
+                let key = key.render(krate);
 
-                    match member {
-                        ClassMethod::Callable(callable) => match callable.kind() {
-                            CallableKind::Constructor => {
-                                if constructor.is_some() {
-                                    return Err(syn::Error::new(
-                                        callable.span(),
-                                        "a host class may have only one constructor",
-                                    )
-                                    .into());
-                                }
+                quote!(#namespace.constant(#key, Self::#ident);)
+            }
+            Self::Callable { role, callable, key, .. } => {
+                let callback = callable.class_callback(backend);
+                let key = key.render(krate);
 
-                                constructor = Some(*callable);
-                            }
-                            CallableKind::Getter | CallableKind::Setter => {
-                                if let Some(index) = accessor_indices.get(callable.name()) {
-                                    accessors[*index].insert(*callable)?;
-                                } else {
-                                    Self::insert_name(
-                                        &mut prototype_names,
-                                        callable.name(),
-                                        callable.span(),
-                                        "prototype member",
-                                    )?;
-
-                                    accessor_indices
-                                        .insert(callable.name().to_owned(), accessors.len());
-                                    accessors.push(Accessor::new(*callable));
-                                }
-                            }
-                            CallableKind::AsyncMethod | CallableKind::Method => {
-                                Self::insert_name(
-                                    &mut prototype_names,
-                                    callable.name(),
-                                    callable.span(),
-                                    "prototype member",
-                                )?;
-
-                                methods.push(*callable);
-                            }
-                            CallableKind::Iterable => {
-                                Self::insert_symbol(
-                                    &mut symbols,
-                                    WellKnownSymbol::Iterator,
-                                    callable.span(),
-                                )?;
-
-                                methods.push(*callable);
-                            }
-                            CallableKind::Symbol(symbol) => {
-                                Self::insert_symbol(&mut symbols, symbol, callable.span())?;
-
-                                methods.push(*callable);
-                            }
-                            CallableKind::StaticMethod => {
-                                Self::insert_name(
-                                    &mut static_names,
-                                    callable.name(),
-                                    callable.span(),
-                                    "static member",
-                                )?;
-
-                                statics.push(StaticMember::Method(callable));
-                            }
-                        },
-                        ClassMethod::Statics(hook) => {
-                            if let Some(previous) = statics_hook {
-                                let mut error = syn::Error::new(
-                                    hook.span(),
-                                    "a host class may have only one statics hook",
-                                );
-
-                                error.combine(syn::Error::new(
-                                    previous,
-                                    "the first statics hook is here",
-                                ));
-
-                                return Err(error.into());
-                            }
-
-                            statics_hook = Some(hook.span());
-                            statics.push(StaticMember::Hook(hook));
+                match role {
+                    ClassRole::Constructor => {
+                        quote!(#declaration = #declaration.constructor(#callback);)
+                    }
+                    ClassRole::StaticMethod => {
+                        if callable.is_async() {
+                            quote!(#namespace.function_async(#key, #callback);)
+                        } else {
+                            quote!(#namespace.function(#key, #callback);)
                         }
                     }
+                    ClassRole::Method => {
+                        quote!(#declaration = #declaration.method(#key, #callback);)
+                    }
+                    ClassRole::AsyncMethod => {
+                        quote!(#declaration = #declaration.method_async(#key, #callback);)
+                    }
+                    ClassRole::Get => {
+                        quote!(#declaration = #declaration.getter(#key, #callback);)
+                    }
+                    ClassRole::Set => {
+                        quote!(#declaration = #declaration.setter(#key, #callback);)
+                    }
+                    ClassRole::Statics | ClassRole::Constant => TokenStream::new(),
+                }
+            }
+        };
+
+        quote! {
+            #(#attributes)*
+            { #statement }
+        }
+    }
+}
+
+struct HostClassDefinition {
+    name: String,
+    krate: Path,
+    backend: BackendParameter,
+    bounds: BackendBounds,
+    members: Vec<ClassMember>,
+    requirements: StateRequirements,
+}
+
+impl HostClassDefinition {
+    fn new(args: TokenStream, item: &mut ItemImpl) -> Result<Self, MacroError> {
+        let target = HostSyntax::target(item)?;
+        let method_generics = HostSyntax::exported_generics(item);
+        let (name, rename, backend, path) =
+            ClassOptions::from_list(&NestedMeta::parse_meta_list(args)?)?.into_parts();
+        let krate = CratePath::new(path).resolve()?;
+        let mut members = Vec::new();
+        let mut prototype = MemberRegistry::default();
+        let mut statics = MemberRegistry::default();
+        let mut constructor = false;
+
+        for member in &mut item.items {
+            match member {
+                ImplItem::Fn(method) => {
+                    let helpers = HelperAttributes::take(&mut method.attrs)?;
+
+                    if helpers.is_empty() {
+                        continue;
+                    }
+
+                    let options = ClassItemOptions::from_list(&helpers)?;
+                    let role = options.role(&method.sig.ident)?;
+
+                    if role == ClassRole::Statics {
+                        members.push(ClassMember::Hook {
+                            hook: NamespaceHook::new(method)?,
+                            attributes: method.attrs.clone(),
+                        });
+
+                        continue;
+                    }
+
+                    if role == ClassRole::Constant {
+                        return Err(syn::Error::new_spanned(
+                            &method.sig,
+                            "constant requires an associated const",
+                        )
+                        .into());
+                    }
+
+                    let key = options.key(&method.sig.ident, rename)?;
+                    let callable = Callable::new(&mut method.sig)?;
+
+                    callable.validate_async(false)?;
+
+                    match role {
+                        ClassRole::Constructor => {
+                            callable.validate_constructor()?;
+
+                            if constructor {
+                                return Err(syn::Error::new(
+                                    callable.ident().span(),
+                                    "only one constructor is permitted",
+                                )
+                                .into());
+                            }
+
+                            constructor = true;
+                        }
+                        ClassRole::Get => callable.validate_getter()?,
+                        ClassRole::Set => callable.validate_setter()?,
+                        ClassRole::StaticMethod => callable.validate_static()?,
+                        ClassRole::Method | ClassRole::AsyncMethod => {
+                            callable.validate_instance()?;
+
+                            if callable.is_async() {
+                                return Err(syn::Error::new(
+                                    callable.ident().span(),
+                                    "instance members use a synchronous function or future factory",
+                                )
+                                .into());
+                            }
+                        }
+                        _ => {}
+                    }
+
+                    if role != ClassRole::Constructor {
+                        match role {
+                            ClassRole::StaticMethod => &mut statics,
+                            _ => &mut prototype,
+                        }
+                        .insert(
+                            key.clone(),
+                            match role {
+                                ClassRole::Get => Registration::Get,
+                                ClassRole::Set => Registration::Set,
+                                _ => Registration::Data,
+                            },
+                            callable.ident(),
+                        )?;
+                    }
+
+                    members.push(ClassMember::Callable {
+                        role,
+                        callable,
+                        key,
+                        attributes: method.attrs.clone(),
+                    });
                 }
                 ImplItem::Const(constant) => {
-                    let Some(constant) = StaticConstant::new(constant, options.rename_all)? else {
+                    let helpers = HelperAttributes::take(&mut constant.attrs)?;
+
+                    if helpers.is_empty() {
                         continue;
-                    };
+                    }
 
-                    Self::insert_name(
-                        &mut static_names,
-                        &constant.name,
-                        constant.span,
-                        "static member",
-                    )?;
+                    let options = ClassItemOptions::from_list(&helpers)?;
 
-                    statics.push(StaticMember::Constant(Box::new(constant)));
+                    if options.role(&constant.ident)? != ClassRole::Constant {
+                        return Err(syn::Error::new_spanned(
+                            &*constant,
+                            "an exported const requires the constant role",
+                        )
+                        .into());
+                    }
+
+                    let key = options.key(&constant.ident, rename)?;
+
+                    statics.insert(key.clone(), Registration::Data, &constant.ident)?;
+
+                    members.push(ClassMember::Constant {
+                        ident: constant.ident.clone(),
+                        key,
+                        attributes: constant.attrs.clone(),
+                    });
                 }
                 _ => {}
             }
         }
 
-        Ok(Self {
-            constructor,
-            name: match options.name {
-                Some(name) => name,
-                None => Self::default_name(&item)?,
-            },
+        let backend = BackendParameter::resolve(backend, &item.generics, &method_generics)?;
+        let mut bounds = BackendBounds::new(
+            &backend,
+            vec![
+                parse_quote!(#krate::backend::classes::BackendClasses),
+                parse_quote!(#krate::backend::exceptions::BackendExceptions),
+            ],
+        );
+
+        if members
+            .iter()
+            .any(ClassMember::promises)
+        {
+            bounds.push(parse_quote!(
+                #krate::backend::promises::BackendPromises
+            ));
+        }
+
+        HostSyntax::rewrite(
             item,
-            crate_path: CratePath::new(options.crate_path).resolve()?,
-            methods,
-            accessors,
-            statics,
+            &members
+                .iter()
+                .map(|member| member.ident().clone())
+                .collect::<Vec<_>>(),
+            &backend,
+            &mut bounds,
+            &krate,
+        );
+
+        let mut requirements = StateRequirements::default();
+
+        for member in &members {
+            requirements.extend(member.state_types());
+        }
+
+        Ok(Self {
+            name: Naming::member(&target, name, None),
+            krate,
+            backend,
+            bounds,
+            members,
+            requirements,
         })
     }
 
-    fn validate_impl(item: &ItemImpl) -> Result<(), HostMacroError> {
-        if item.trait_.is_some() {
-            return Err(syn::Error::new(
-                item.impl_token.span(),
-                "host_class applies only to inherent implementations",
-            )
-            .into());
-        }
-
-        if item.unsafety.is_some() {
-            return Err(syn::Error::new(
-                item.unsafety.span(),
-                "unsafe host class implementations are not supported",
-            )
-            .into());
-        }
-
-        if item.defaultness.is_some() {
-            return Err(syn::Error::new(
-                item.defaultness.span(),
-                "specialized host class implementations are not supported",
-            )
-            .into());
-        }
-
-        Self::target_ident(item).map(|_| ())
-    }
-
-    fn default_name(item: &ItemImpl) -> Result<String, HostMacroError> {
-        Ok(Self::target_ident(item)?.to_string())
-    }
-
-    fn target_ident(item: &ItemImpl) -> Result<&Ident, HostMacroError> {
-        let Type::Path(target) = item.self_ty.as_ref() else {
-            return Err(syn::Error::new_spanned(
-                item.self_ty.as_ref(),
-                "host_class requires a nominal type target",
-            )
-            .into());
-        };
-        if target.qself.is_some() {
-            return Err(syn::Error::new_spanned(
-                target,
-                "host_class requires a nominal type target",
-            )
-            .into());
-        }
-        let Some(segment) = target.path.segments.last() else {
-            return Err(
-                syn::Error::new_spanned(target, "host_class requires a named type target").into()
-            );
-        };
-
-        Ok(&segment.ident)
-    }
-
-    fn insert_name(
-        names: &mut HashMap<String, Span>,
-        name: &str,
-        span: Span,
-        kind: &str,
-    ) -> Result<(), HostMacroError> {
-        let Some(previous) = names.insert(name.to_owned(), span) else {
-            return Ok(());
-        };
-        let mut error =
-            syn::Error::new(span, format!("duplicate guest-visible {kind} name {name:?}"));
-
-        error.combine(syn::Error::new(
-            previous,
-            format!("the first {kind} with this guest-visible name is here"),
-        ));
-
-        Err(error.into())
-    }
-
-    fn insert_symbol(
-        symbols: &mut HashMap<WellKnownSymbol, Span>,
-        symbol: WellKnownSymbol,
-        span: Span,
-    ) -> Result<(), HostMacroError> {
-        let Some(previous) = symbols.insert(symbol, span) else {
-            return Ok(());
-        };
-        let mut error = syn::Error::new(span, "duplicate guest-visible well-known symbol");
-
-        error.combine(syn::Error::new(
-            previous,
-            "the first method for this well-known symbol is here",
-        ));
-
-        Err(error.into())
-    }
-
-    pub(crate) fn expand(self) -> TokenStream {
-        let Self {
-            item,
-            name,
-            crate_path,
-            constructor,
-            methods,
-            accessors,
-            statics,
-        } = self;
+    fn render(&self, item: &ItemImpl) -> TokenStream {
+        let krate = &self.krate;
+        let name = &self.name;
         let target = item.self_ty.as_ref();
-        let mut generics = item.generics.clone();
-
-        generics
-            .make_where_clause()
-            .predicates
-            .push(syn::parse_quote!(#target: 'static));
-
-        if let Some(constructor) = &constructor {
-            constructor.add_predicates(&mut generics, &crate_path, target);
-        }
-
-        for method in &methods {
-            method.add_predicates(&mut generics, &crate_path, target);
-        }
-
-        for accessor in &accessors {
-            accessor.add_predicates(&mut generics, &crate_path, target);
-        }
-
-        for member in &statics {
-            member.add_predicates(&mut generics, &crate_path, target);
-        }
-
-        let (impl_generics, _, where_clause) = generics.split_for_impl();
-        let constructor = constructor.map(|constructor| {
-            let scope = if constructor.uses_scope() {
-                quote!(scope)
-            } else {
-                quote!(_scope)
-            };
-            let args = if constructor.uses_args() {
-                quote!(args)
-            } else {
-                quote!(_args)
-            };
-            let construct = constructor.construct(&crate_path);
-
+        let backend = self.backend.ty();
+        let payload_generics = HostSyntax::payload_generics(item);
+        let (payload_impl, _, payload_where) = payload_generics.split_for_impl();
+        let class_generics = self
+            .backend
+            .definition_generics(&payload_generics, &self.bounds);
+        let (class_impl, _, class_where) = class_generics.split_for_impl();
+        let conditions = HelperAttributes::conditions(&item.attrs);
+        let declaration = Ident::new("__guestjs_declaration", Span::mixed_site());
+        let namespace = Ident::new("__guestjs_namespace", Span::mixed_site());
+        let requirements = self.requirements.render();
+        let mutable = self
+            .members
+            .iter()
+            .any(|member| !member.is_static())
+            .then(|| quote!(mut));
+        let has_statics = self
+            .members
+            .iter()
+            .any(ClassMember::is_static);
+        let namespace_setup = has_statics.then(|| {
             quote! {
-                fn construct<'js>(
-                    #scope: &#crate_path::runtime::Scope<'js>,
-                    #args: #crate_path::host::Args<'js>,
-                ) -> Result<Self, #crate_path::errors::Error> {
-                    #construct
-                }
+                let mut #namespace = #krate::host::namespace::NamespaceDeclaration::new();
             }
         });
-        let registrations = methods
+        let prototype = self
+            .members
             .iter()
-            .map(|method| method.registration(&crate_path));
-        let accessor_registrations = accessors
+            .filter(|member| !member.is_static())
+            .map(|member| member.render(krate, &self.backend, &declaration, &namespace));
+        let statics = self
+            .members
             .iter()
-            .map(|accessor| accessor.registration(&crate_path));
-        let static_registrations = statics
-            .iter()
-            .map(|member| member.registration(&crate_path));
-        let static_registration = if statics.is_empty() {
-            quote!()
+            .filter(|member| member.is_static())
+            .map(|member| member.render(krate, &self.backend, &declaration, &namespace));
+        let result = if has_statics {
+            quote!(#declaration.statics(#namespace))
         } else {
-            quote! {
-                spec.statics(|statics| {
-                    #(#static_registrations)*
-                });
-            }
-        };
-        let spec = if methods.is_empty() && accessors.is_empty() && statics.is_empty() {
-            quote!(_spec)
-        } else {
-            quote!(spec)
+            quote!(#declaration)
         };
 
         quote! {
-            #item
-
-            impl #impl_generics #crate_path::host::HostClass for #target
-                #where_clause
+            #(#conditions)*
+            impl #payload_impl #krate::handle::class::Payload
+                for #target #payload_where
             {
                 const NAME: &'static str = #name;
+            }
 
-                #constructor
+            #(#conditions)*
+            impl #class_impl #krate::host::class::HostClass<#backend>
+                for #target #class_where
+            {
+                fn declaration()
+                    -> #krate::host::class::ClassDeclaration<#backend, Self>
+                {
+                    let #mutable #declaration =
+                        #krate::host::class::ClassDeclaration::new()
+                            #(#requirements)*;
 
-                fn build(
-                    #spec: &mut #crate_path::host::ClassSpec<Self>,
-                ) {
-                    #(#registrations)*
-                    #(#accessor_registrations)*
-                    #static_registration
+                    #(#prototype)*
+                    #namespace_setup
+                    #(#statics)*
+
+                    #result
                 }
             }
+        }
+    }
+}
+
+pub struct HostClassMacro {
+    item: ItemImpl,
+    definition: HostClassDefinition,
+}
+
+impl HostClassMacro {
+    pub fn new(args: TokenStream, mut item: ItemImpl) -> Result<Self, MacroError> {
+        Ok(Self {
+            definition: HostClassDefinition::new(args, &mut item)?,
+            item,
+        })
+    }
+
+    pub fn expand(self) -> TokenStream {
+        let definition = self.definition.render(&self.item);
+        let item = self.item;
+
+        quote! {
+            #item
+            #definition
         }
     }
 }
@@ -570,413 +570,84 @@ impl HostClassMacro {
 #[cfg(test)]
 mod tests {
     use quote::quote;
-    use syn::parse_quote;
+    use syn::{File, parse_quote, parse2};
 
     use crate::host::class::HostClassMacro;
 
     #[test]
-    fn generates_class_without_constructor() {
-        let output = HostClassMacro::new(
-            quote!(crate_path = crate),
-            parse_quote! {
-                impl Session {
-                    #[guestjs(method)]
-                    fn id(&self) -> Result<String, Error> {
-                        Ok(self.id.clone())
-                    }
-                }
-            },
-        )
-        .unwrap()
-        .expand()
-        .to_string();
+    fn preserves_source_and_emits_payload_and_class_impls() {
+        assert_eq!(
+            parse2::<File>(
+                HostClassMacro::new(
+                    quote!(crate_path = crate),
+                    parse_quote!(impl Counter {
+                        fn internal() {}
 
-        assert!(output.contains("impl crate :: host :: HostClass for Session"));
-        assert!(output.contains("spec . method (\"id\""));
-        assert!(!output.contains("fn construct"));
+                        #[guestjs(constructor)]
+                        fn new() -> Result<Self, Error> {
+                            Ok(Self)
+                        }
+                    }),
+                )
+                .unwrap_or_else(|error| panic!("{}", error.into_tokens()))
+                .expand(),
+            )
+            .unwrap()
+            .items
+            .len(),
+            3,
+        );
     }
 
     #[test]
-    fn generates_constructor_and_receiver_specific_registrations() {
-        let output = HostClassMacro::new(
-            quote!(rename_all = "camelCase", crate_path = crate),
-            parse_quote! {
-                impl Counter {
-                    #[guestjs(constructor)]
-                    fn new(value: i32) -> Result<Self, DomainError> {
-                        Ok(Self(value))
-                    }
-
-                    #[guestjs(method)]
-                    fn read_value(&self) -> Result<i32, DomainError> {
-                        Ok(self.0)
-                    }
-
-                    #[guestjs(method, name = "increment")]
-                    fn add(&mut self, value: i32) -> Result<i32, DomainError> {
-                        self.0 += value;
-
-                        Ok(self.0)
-                    }
-                }
-            },
-        )
-        .unwrap()
-        .expand()
-        .to_string();
-
-        assert!(output.contains("const NAME : & 'static str = \"Counter\""));
-        assert!(output.contains("spec . method (\"readValue\""));
-        assert!(output.contains("spec . method_mut (\"increment\""));
-        assert!(output.contains("map_err (Into :: into)"));
-    }
-
-    #[test]
-    fn generates_accessors_symbols_and_iteration() {
-        let accessors = HostClassMacro::new(
-            quote!(name = "Counter", crate_path = crate),
-            parse_quote! {
-                impl Counter {
-                    #[guestjs(constructor)]
-                    fn new() -> Result<Self, Error> {
-                        Ok(Self)
-                    }
-
-                    #[guestjs(get)]
-                    fn value(&self) -> Result<i32, Error> {
-                        Ok(1)
-                    }
-
-                    #[guestjs(set, name = "value")]
-                    fn set_value(&mut self, value: i32) -> Result<(), Error> {
-                        Ok(())
-                    }
-
-                    #[guestjs(get)]
-                    fn readable(&self) -> Result<i32, Error> {
-                        Ok(1)
-                    }
-
-                    #[guestjs(set)]
-                    fn writable(&mut self, value: i32) -> Result<(), Error> {
-                        Ok(())
-                    }
-                }
-            },
-        )
-        .unwrap()
-        .expand()
-        .to_string();
-
-        assert!(accessors.contains("spec . accessor :: < _ , _ , _ , i32 >"));
-        assert!(accessors.contains("spec . getter (\"readable\""));
-        assert!(accessors.contains("spec . setter :: < _ , i32 >"));
-
-        let symbols = HostClassMacro::new(
-            quote!(name = "Symbols", crate_path = crate),
-            parse_quote! {
-                impl Symbols {
-                    #[guestjs(constructor)]
-                    fn new() -> Result<Self, Error> {
-                        Ok(Self)
-                    }
-
-                    #[guestjs(symbol = "iterator")]
-                    fn iterator(&self) -> Result<i32, Error> {
-                        Ok(1)
-                    }
-
-                    #[guestjs(symbol = "asyncIterator")]
-                    fn async_iterator(&self) -> Result<i32, Error> {
-                        Ok(1)
-                    }
-
-                    #[guestjs(symbol = "toPrimitive")]
-                    fn to_primitive(&self) -> Result<i32, Error> {
-                        Ok(1)
-                    }
-
-                    #[guestjs(symbol = "hasInstance")]
-                    fn has_instance(&self) -> Result<i32, Error> {
-                        Ok(1)
-                    }
-                }
-            },
-        )
-        .unwrap()
-        .expand()
-        .to_string();
-
-        assert!(symbols.contains("WellKnownSymbol :: Iterator"));
-        assert!(symbols.contains("WellKnownSymbol :: AsyncIterator"));
-        assert!(symbols.contains("WellKnownSymbol :: ToPrimitive"));
-        assert!(symbols.contains("WellKnownSymbol :: HasInstance"));
-
-        let iterable = HostClassMacro::new(
-            quote!(name = "Iterable", crate_path = crate),
-            parse_quote! {
-                impl Iterable {
-                    #[guestjs(constructor)]
-                    fn new() -> Result<Self, Error> {
-                        Ok(Self)
-                    }
-
-                    #[guestjs(iterable)]
-                    fn values(&self) -> Result<Vec<i32>, Error> {
-                        Ok(vec![1, 2])
-                    }
-                }
-            },
-        )
-        .unwrap()
-        .expand()
-        .to_string();
-
-        assert!(iterable.contains("spec . iterable"));
-        assert!(iterable.contains("Vec < i32 > : IntoIterator"));
-    }
-
-    #[test]
-    fn preserves_static_member_order() {
-        let output = HostClassMacro::new(
-            quote!(name = "Counter", crate_path = crate),
-            parse_quote! {
-                impl Counter {
-                    #[guestjs(constructor)]
-                    fn new() -> Result<Self, Error> {
-                        Ok(Self)
-                    }
+    fn accepts_annotated_constants_and_mutable_unit_statics_hooks() {
+        assert!(
+            HostClassMacro::new(
+                quote!(crate_path = crate, backend = B),
+                parse_quote!(impl Counter {
+                    const RUST_ONLY: u8 = 1;
 
                     #[guestjs(constant)]
-                    const BEFORE: i32 = 1;
-
-                    #[guestjs(static_method)]
-                    fn from_method() -> Result<i32, Error> {
-                        Ok(2)
-                    }
+                    const CATEGORY: &'static str = "counter";
 
                     #[guestjs(statics)]
-                    fn add_statics(statics: &mut Namespace) {
-                        statics.constant("hook", 3);
+                    fn configure(namespace: &mut NamespaceDeclaration<B>) {
+                        namespace.constant("version", "1");
                     }
-
-                    #[guestjs(constant)]
-                    const AFTER: i32 = 4;
-                }
-            },
-        )
-        .unwrap()
-        .expand()
-        .to_string();
-
-        assert!(output.contains("spec . statics"));
-        assert!(output.find("BEFORE").unwrap() < output.find("from_method").unwrap(),);
-        assert!(output.find("from_method").unwrap() < output.find("add_statics").unwrap(),);
-        assert!(output.find("add_statics").unwrap() < output.find("AFTER").unwrap(),);
+                }),
+            )
+            .is_ok()
+        );
     }
 
     #[test]
-    fn generates_shared_and_exclusive_owned_futures() {
-        let output = HostClassMacro::new(
-            quote!(name = "Counter", crate_path = crate),
-            parse_quote! {
-                impl Counter {
-                    #[guestjs(constructor)]
-                    fn new() -> Result<Self, Error> {
-                        Ok(Self)
-                    }
-
-                    #[guestjs(async_method)]
-                    fn read(
-                        &self,
-                    ) -> Result<
-                        impl Future<Output = Result<i32, InnerError>> + 'static,
-                        OuterError,
-                    > {
-                        Ok(async move { Ok(1) })
-                    }
-
-                    #[guestjs(async_method)]
-                    fn write(
-                        &mut self,
-                    ) -> Result<
-                        impl Future<Output = Result<i32, InnerError>> + 'static,
-                        OuterError,
-                    > {
-                        Ok(async move { Ok(1) })
-                    }
-                }
-            },
-        )
-        .unwrap()
-        .expand()
-        .to_string();
-
-        assert!(output.contains("spec . async_method (\"read\""));
-        assert!(output.contains("spec . async_method_mut (\"write\""));
-        assert!(output.contains("future . await . map_err (Into :: into)"));
-        assert!(output.contains("std :: pin :: Pin"));
-        assert!(output.contains("dyn :: std :: future :: Future"));
-        assert!(output.contains("InnerError : Into < crate :: errors :: Error >"));
-    }
-
-    #[test]
-    fn preserves_unannotated_methods_and_unrelated_attributes() {
-        let output = HostClassMacro::new(
-            quote!(name = "Counter", crate_path = crate),
-            parse_quote! {
-                impl Counter {
-                    #[guestjs(constructor)]
-                    fn new() -> Result<Self, Error> {
-                        Ok(Self)
-                    }
-
-                    #[allow(dead_code)]
-                    fn helper(&self) {}
-                }
-            },
-        )
-        .unwrap()
-        .expand()
-        .to_string();
-
-        assert!(output.contains("allow (dead_code)"));
-        assert!(output.contains("fn helper"));
-    }
-
-    #[test]
-    fn preserves_outer_generics_and_bounds() {
-        let output = HostClassMacro::new(
-            quote!(name = "Wrapper", crate_path = crate),
-            parse_quote! {
-                impl<T> Wrapper<T>
-                where
-                    T: Clone,
-                {
-                    #[guestjs(constructor)]
-                    fn new(value: T) -> Result<Self, Error> {
-                        Ok(Self(value))
-                    }
-                }
-            },
-        )
-        .unwrap()
-        .expand()
-        .to_string();
-
-        assert!(output.contains("impl < T > crate :: host :: HostClass"));
-        assert!(output.contains("T : Clone"));
-        assert!(output.contains("T : crate :: marshal :: FromGuestBound"));
-        assert!(output.contains("Wrapper < T > : 'static"));
-    }
-
-    #[test]
-    fn rejects_invalid_class_definitions() {
+    fn rejects_duplicate_keys_and_owned_statics_hooks() {
         assert!(
             HostClassMacro::new(
-                quote!(name = "Duplicate", crate_path = crate),
-                parse_quote! {
-                    impl Duplicate {
-                        #[guestjs(constructor)]
-                        fn first() -> Result<Self, Error> {
-                            Ok(Self)
-                        }
+                quote!(crate_path = crate),
+                parse_quote!(impl Counter {
+                    #[guestjs(method)]
+                    fn read(&self) -> Result<(), Error> { Ok(()) }
 
-                        #[guestjs(constructor)]
-                        fn second() -> Result<Self, Error> {
-                            Ok(Self)
-                        }
-                    }
-                },
+                    #[guestjs(get, name = "read")]
+                    fn other(&self) -> Result<(), Error> { Ok(()) }
+                }),
             )
-            .is_err(),
+            .is_err()
         );
         assert!(
             HostClassMacro::new(
-                quote!(name = "Duplicate", crate_path = crate),
-                parse_quote! {
-                    impl Duplicate {
-                        #[guestjs(constructor)]
-                        fn new() -> Result<Self, Error> {
-                            Ok(Self)
-                        }
-
-                        #[guestjs(method, name = "same")]
-                        fn first(&self) -> Result<(), Error> {
-                            Ok(())
-                        }
-
-                        #[guestjs(method, name = "same")]
-                        fn second(&self) -> Result<(), Error> {
-                            Ok(())
-                        }
+                quote!(crate_path = crate),
+                parse_quote!(impl Counter {
+                    #[guestjs(statics)]
+                    fn configure(namespace: NamespaceDeclaration<B>)
+                        -> NamespaceDeclaration<B>
+                    {
+                        namespace
                     }
-                },
+                }),
             )
-            .is_err(),
-        );
-        assert!(
-            HostClassMacro::new(
-                quote!(name = "Duplicate", crate_path = crate),
-                parse_quote! {
-                    impl Duplicate {
-                        #[guestjs(constructor)]
-                        fn new() -> Result<Self, Error> {
-                            Ok(Self)
-                        }
-
-                        #[guestjs(get, name = "value")]
-                        fn first(&self) -> Result<i32, Error> {
-                            Ok(1)
-                        }
-
-                        #[guestjs(get, name = "value")]
-                        fn second(&self) -> Result<i32, Error> {
-                            Ok(2)
-                        }
-                    }
-                },
-            )
-            .is_err(),
-        );
-        assert!(
-            HostClassMacro::new(
-                quote!(name = "Duplicate", crate_path = crate),
-                parse_quote! {
-                    impl Duplicate {
-                        #[guestjs(constructor)]
-                        fn new() -> Result<Self, Error> {
-                            Ok(Self)
-                        }
-
-                        #[guestjs(statics)]
-                        fn first(statics: &mut Namespace) {}
-
-                        #[guestjs(statics)]
-                        fn second(statics: &mut Namespace) {}
-                    }
-                },
-            )
-            .is_err(),
-        );
-        assert!(
-            HostClassMacro::new(
-                quote!(name = "Async", crate_path = crate),
-                parse_quote! {
-                    impl Async {
-                        #[guestjs(constructor)]
-                        fn new() -> Result<Self, Error> {
-                            Ok(Self)
-                        }
-
-                        #[guestjs(async_method)]
-                        async fn value(&self) -> Result<i32, Error> {
-                            Ok(1)
-                        }
-                    }
-                },
-            )
-            .is_err(),
+            .is_err()
         );
     }
 }

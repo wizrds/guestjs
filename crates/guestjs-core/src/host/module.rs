@@ -1,336 +1,375 @@
-use std::{
-    ops::{Deref, DerefMut},
-    rc::Rc,
-};
-
-use rquickjs::{
-    Ctx, Exception, Result as JsResult,
-    module::{Declarations, Exports as ModuleExports, ModuleDef},
-};
+use std::{future::Future, rc::Rc};
 
 use crate::{
+    backend::{
+        Backend, Val, callables::BackendCallables, classes::BackendClasses,
+        exceptions::BackendExceptions, promises::BackendPromises,
+    },
+    enter::Enter,
     errors::Error,
-    host::namespace::Namespace,
-    marshal::ToGuest,
-    registry::{ModuleRegistry, RegistryHandle},
-    runtime::Scope,
+    host::{
+        class::HostClass,
+        context::{CallContext, FromContext},
+        declaration::Declaration,
+        exception::{ExceptionDeclaration, HostException},
+        function::FunctionDeclaration,
+        library::HostInitializer,
+        namespace::NamespaceDeclaration,
+        requirements::Requirements,
+        state::HostState,
+        value::ValueDeclaration,
+    },
+    marshal::{ToGuest, args::Args},
 };
 
-/// A Rust module exposed to guest code.
-pub trait HostModule {
-    /// Returns the module specifier.
-    fn name(&self) -> &str;
-
-    /// Initializes one guest context.
-    fn initialize<'js>(&self, _scope: &Scope<'js>) -> Result<(), Error> {
-        Ok(())
-    }
-
-    /// Defines the module exports.
-    fn build(&self, exports: &mut Exports);
+pub struct ModuleDeclaration<B: Backend> {
+    name: String,
+    requirements: Requirements,
+    members: Vec<(String, Rc<dyn Declaration<B>>)>,
+    state: Box<dyn for<'js> Fn(&Enter<'js, B>) -> Result<HostState, Error>>,
+    initializer: Option<HostInitializer<B>>,
 }
 
-/// The exports of a host module.
-pub struct Exports {
-    namespace: Namespace,
-}
-
-impl Exports {
-    pub(crate) fn new() -> Self {
-        Self { namespace: Namespace::new() }
-    }
-
-    pub(crate) fn into_namespace(self) -> Namespace {
-        self.namespace
-    }
-
-    /// Defines the default export.
-    pub fn default<V>(&mut self, value: V) -> &mut Self
+impl<B: Backend> ModuleDeclaration<B> {
+    pub fn new<N>(name: N) -> Self
     where
-        V: ToGuest + Clone + 'static,
+        N: Into<String>,
     {
-        self.namespace
-            .constant("default", value);
+        Self {
+            name: name.into(),
+            requirements: Requirements::new(),
+            members: Vec::new(),
+            state: Box::new(|_| Ok(HostState::empty())),
+            initializer: None,
+        }
+    }
+
+    pub fn require<T>(mut self) -> Self
+    where
+        T: FromContext<B>,
+    {
+        T::declare(&mut self.requirements);
 
         self
     }
-}
 
-impl Deref for Exports {
-    type Target = Namespace;
+    pub fn member<N, D>(mut self, name: N, declaration: D) -> Self
+    where
+        N: Into<String>,
+        D: Declaration<B> + 'static,
+    {
+        self.members
+            .push((name.into(), Rc::new(declaration)));
 
-    fn deref(&self) -> &Namespace {
-        &self.namespace
+        self
+    }
+
+    pub fn value<N, T>(self, name: N, value: T) -> Self
+    where
+        N: Into<String>,
+        T: ToGuest<B> + Clone + 'static,
+    {
+        self.member(name, ValueDeclaration::new(value))
+    }
+
+    pub fn state<S, F>(mut self, state: F) -> Self
+    where
+        S: 'static,
+        F: for<'js> Fn(&Enter<'js, B>) -> Result<S, Error> + 'static,
+    {
+        self.state = Box::new(move |enter| state(enter).map(HostState::new));
+
+        self
+    }
+
+    pub fn initialize<F>(mut self, initialize: F) -> Self
+    where
+        F: for<'js> Fn(&Enter<'js, B>) -> Result<(), Error> + 'static,
+    {
+        self.initializer = Some(HostInitializer::new(initialize));
+
+        self
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn initializer(&self) -> Option<&HostInitializer<B>> {
+        self.initializer.as_ref()
+    }
+
+    pub fn exports<'js>(&self, enter: &Enter<'js, B>) -> Result<Vec<(String, Val<'js, B>)>, Error> {
+        let state = (self.state)(enter)?;
+
+        self.requirements.check(&state)?;
+
+        self.members
+            .iter()
+            .map(|(name, declaration)| {
+                Ok((name.clone(), declaration.realise(enter, &state, name)?))
+            })
+            .collect()
     }
 }
 
-impl DerefMut for Exports {
-    fn deref_mut(&mut self) -> &mut Namespace {
-        &mut self.namespace
+impl<B: BackendCallables> ModuleDeclaration<B> {
+    pub fn function<N, F, R>(self, name: N, function: F) -> Self
+    where
+        N: Into<String>,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<R, Error> + 'static,
+        R: ToGuest<B>,
+    {
+        self.member(name, FunctionDeclaration::new(function))
+    }
+
+    pub fn namespace<N>(self, name: N, namespace: NamespaceDeclaration<B>) -> Self
+    where
+        N: Into<String>,
+    {
+        self.member(name, namespace)
     }
 }
 
-pub(crate) struct HostModuleAdapter;
-
-impl HostModuleAdapter {
-    fn registry(ctx: &Ctx<'_>) -> JsResult<Rc<ModuleRegistry>> {
-        Ok(ctx
-            .userdata::<RegistryHandle>()
-            .ok_or_else(|| Exception::throw_message(ctx, "module registry is not installed"))?
-            .registry())
+impl<B> ModuleDeclaration<B>
+where
+    B: BackendCallables + BackendPromises + BackendExceptions,
+{
+    pub fn function_async<N, F, Fut, R>(self, name: N, function: F) -> Self
+    where
+        N: Into<String>,
+        F: for<'e, 'js> Fn(&CallContext<'e, 'js, B>, &Args<'js, B>) -> Result<Fut, Error> + 'static,
+        Fut: Future<Output = Result<R, Error>> + 'static,
+        R: ToGuest<B> + 'static,
+    {
+        self.member(name, FunctionDeclaration::new_async(function))
     }
 }
 
-impl ModuleDef for HostModuleAdapter {
-    fn declare<'js>(declarations: &Declarations<'js>) -> JsResult<()> {
-        let ctx = declarations.module().ctx().clone();
-        let route = declarations.module().name::<String>()?;
-        let mut exports = Exports::new();
-        let registry = Self::registry(&ctx)?;
-
-        registry
-            .host_module(&ctx, &route)
-            .ok_or_else(|| {
-                Exception::throw_message(
-                    &ctx,
-                    &format!("no host module registered for route {route:?}"),
-                )
-            })?
-            .build(&mut exports);
-
-        let namespace = exports.into_namespace();
-
-        for (export, _member) in namespace.members() {
-            declarations.declare(export.as_str())?;
-        }
-
-        registry.stage(&ctx, route, namespace);
-
-        Ok(())
+impl<B> ModuleDeclaration<B>
+where
+    B: BackendClasses + BackendExceptions,
+{
+    pub fn class<C>(self) -> Self
+    where
+        C: HostClass<B>,
+    {
+        self.member(C::NAME, C::declaration())
     }
 
-    fn evaluate<'js>(ctx: &Ctx<'js>, exports: &ModuleExports<'js>) -> JsResult<()> {
-        let route = exports.module().name::<String>()?;
-        let namespace = Self::registry(ctx)?
-            .take_staged(ctx, &route)
-            .ok_or_else(|| {
-                Exception::throw_message(
-                    ctx,
-                    &format!("no staged exports for host module route {route:?}"),
-                )
-            })?;
-        let scope = Scope::detached(ctx.clone());
-
-        for (export, member) in namespace.into_members() {
-            exports.export(
-                export.as_str(),
-                member
-                    .into_export_value(&scope)
-                    .map_err(|error| Exception::throw_message(ctx, &error.to_string()))?,
-            )?;
-        }
-
-        Ok(())
+    pub fn exception<E>(self) -> Self
+    where
+        E: HostException,
+    {
+        self.member(E::NAME, ExceptionDeclaration::<E>::new())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{rc::Rc, sync::Arc};
+    use std::{cell::Cell, rc::Rc};
 
-    use rquickjs::{
-        Context as JsContext, Runtime as JsRuntime,
-        loader::{Loader, Resolver},
-    };
-
-    use super::{Exports, HostModule};
     use crate::{
-        handle::{CallableProtocol, Promise},
-        registry::{LibraryBinding, ModuleLoader, ModuleRegistry, ModuleResolver, RegistryHandle},
+        backend::{
+            Val, classes::BackendClasses, exceptions::BackendExceptions, promises::BackendPromises,
+            tests::Stub,
+        },
+        enter::Enter,
+        errors::Error,
+        guest::Guest,
+        handle::class::Payload,
+        host::{
+            class::{ClassDeclaration, HostClass},
+            declaration::Declaration,
+            exception::HostException,
+            module::ModuleDeclaration,
+            namespace::NamespaceDeclaration,
+            state::HostState,
+        },
         runtime::Runtime,
     };
 
-    struct TimeHost {
-        is_monday: bool,
+    #[derive(Default)]
+    struct Seen {
+        state: Rc<Cell<Option<u8>>>,
     }
 
-    impl HostModule for TimeHost {
-        fn name(&self) -> &str {
-            "@host/time"
-        }
+    impl Declaration<Stub> for Seen {
+        fn realise<'js>(
+            &self,
+            _enter: &Enter<'js, Stub>,
+            state: &HostState,
+            _name: &str,
+        ) -> Result<Val<'js, Stub>, Error> {
+            self.state
+                .set(state.get::<u8>().map(|state| *state));
 
-        fn build(&self, exports: &mut Exports) {
-            exports.function("hypot", |scope, args| {
-                let (x, y) = (args.get::<f64>(scope, 0)?, args.get::<f64>(scope, 1)?);
-
-                Ok((x * x + y * y).sqrt())
-            });
-
-            if self.is_monday {
-                exports.function("monday", |_scope, _args| Ok("monday!".to_owned()));
-            }
+            Ok(())
         }
     }
 
-    struct ClockHost;
+    struct Counter;
 
-    impl HostModule for ClockHost {
-        fn name(&self) -> &str {
-            "@host/clock"
-        }
+    impl Payload for Counter {
+        const NAME: &'static str = "Counter";
+    }
 
-        fn build(&self, exports: &mut Exports) {
-            exports.object("clock", |clock| {
-                clock.constant("tz", "utc");
-                clock.function("now", |_scope, _args| Ok(42_i64));
-                clock.async_function("later", |_scope, _args| Ok(async { Ok(7_i64) }));
-            });
+    impl<B> HostClass<B> for Counter
+    where
+        B: BackendClasses + BackendExceptions,
+    {
+        fn declaration() -> ClassDeclaration<B, Self> {
+            ClassDeclaration::new()
         }
     }
 
-    struct ValueHost;
+    struct NetworkError;
 
-    impl HostModule for ValueHost {
-        fn name(&self) -> &str {
-            "host:value"
-        }
-
-        fn build(&self, exports: &mut Exports) {
-            exports.constant("value", 42_i32);
-        }
+    impl HostException for NetworkError {
+        const NAME: &'static str = "NetworkError";
     }
 
     #[test]
-    fn host_adapter_builds_registered_exports() {
-        let registry =
-            Rc::new(ModuleRegistry::new(vec![LibraryBinding::Host(Arc::new(ValueHost))]));
-        let runtime = JsRuntime::new().unwrap();
-        let context = JsContext::full(&runtime).unwrap();
+    fn exports_follow_declaration_order() {
+        Guest::new(&Runtime::<Stub>::new(()).unwrap())
+            .unwrap()
+            .enter(|enter| {
+                assert_eq!(
+                    ModuleDeclaration::new("pair")
+                        .member("b", Seen::default())
+                        .member("a", Seen::default())
+                        .exports(enter)?
+                        .into_iter()
+                        .map(|(name, _)| name)
+                        .collect::<Vec<_>>(),
+                    ["b", "a"],
+                );
 
-        context.with(|ctx| {
-            ctx.store_userdata(RegistryHandle::new(registry.clone()))
-                .unwrap();
-            registry
-                .register_guest(&ctx, Vec::new())
-                .unwrap();
+                Ok(())
+            })
+            .unwrap();
+    }
 
-            let (module, promise) = ModuleLoader::new(registry.clone())
-                .load(
-                    &ctx,
-                    &ModuleResolver::new(registry.clone())
-                        .resolve(&ctx, "entry", "host:value", None)
-                        .unwrap(),
-                    None,
-                )
-                .unwrap()
-                .eval()
-                .unwrap();
+    #[test]
+    fn members_receive_the_module_state() {
+        let seen = Rc::new(Cell::new(None));
 
-            promise.finish::<()>().unwrap();
+        Guest::new(&Runtime::<Stub>::new(()).unwrap())
+            .unwrap()
+            .enter(|enter| {
+                ModuleDeclaration::new("stateful")
+                    .state(|_| Ok(7_u8))
+                    .member("a", Seen { state: seen.clone() })
+                    .exports(enter)
+            })
+            .unwrap();
 
-            assert_eq!(
-                module
-                    .namespace()
+        assert_eq!(seen.get(), Some(7));
+    }
+
+    #[test]
+    fn a_module_without_state_gives_empty_state() {
+        let seen = Rc::new(Cell::new(Some(0)));
+
+        Guest::new(&Runtime::<Stub>::new(()).unwrap())
+            .unwrap()
+            .enter(|enter| {
+                ModuleDeclaration::new("stateless")
+                    .member("a", Seen { state: seen.clone() })
+                    .exports(enter)
+            })
+            .unwrap();
+
+        assert_eq!(seen.get(), None);
+    }
+
+    #[test]
+    fn state_is_built_for_each_realisation() {
+        let builds = Rc::new(Cell::new(0_u8));
+
+        Guest::new(&Runtime::<Stub>::new(()).unwrap())
+            .unwrap()
+            .enter(|enter| {
+                let module = ModuleDeclaration::<Stub>::new("counted").state({
+                    let builds = builds.clone();
+
+                    move |_| {
+                        builds.set(builds.get() + 1);
+
+                        Ok(builds.get())
+                    }
+                });
+
+                module.exports(enter)?;
+                module.exports(enter)
+            })
+            .unwrap();
+
+        assert_eq!(builds.get(), 2);
+    }
+
+    #[test]
+    fn a_module_without_an_initializer_has_none() {
+        assert!(
+            ModuleDeclaration::<Stub>::new("plain")
+                .initializer()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn initialize_replaces_the_initializer() {
+        let runs = Rc::new(Cell::new(0_u8));
+
+        Guest::new(&Runtime::<Stub>::new(()).unwrap())
+            .unwrap()
+            .enter(|enter| {
+                ModuleDeclaration::<Stub>::new("initialized")
+                    .initialize({
+                        let runs = runs.clone();
+
+                        move |_| {
+                            runs.set(1);
+
+                            Ok(())
+                        }
+                    })
+                    .initialize({
+                        let runs = runs.clone();
+
+                        move |_| {
+                            runs.set(2);
+
+                            Ok(())
+                        }
+                    })
+                    .initializer()
                     .unwrap()
-                    .get::<_, i32>("value")
-                    .unwrap(),
-                42,
-            );
-        });
-    }
-
-    #[tokio::test]
-    async fn import_host_binding() {
-        let runtime = Runtime::builder()
-            .bind(TimeHost { is_monday: true })
-            .build()
-            .await
+                    .run(enter)
+            })
             .unwrap();
 
-        assert_eq!(
-            runtime
-                .guest()
-                .build()
-                .await
-                .unwrap()
-                .guest_module(
-                    "uses_host.js",
-                    "import { hypot, monday } from \"@host/time\";\n\
-                     export function run() { return `${hypot(3, 4)}:${monday()}`; }",
-                )
-                .await
-                .unwrap()
-                .function("run")
-                .await
-                .unwrap()
-                .call::<_, String>(())
-                .await
-                .unwrap(),
-            "5:monday!",
-        );
+        assert_eq!(runs.get(), 2);
     }
 
-    #[tokio::test]
-    async fn host_object_method() {
-        let runtime = Runtime::builder()
-            .bind(ClockHost)
-            .build()
-            .await
-            .unwrap();
+    #[allow(dead_code)]
+    fn capabilities<B>()
+    where
+        B: BackendClasses + BackendPromises + BackendExceptions,
+    {
+        let _ = ModuleDeclaration::<B>::new("geometry")
+            .value("version", "1.0")
+            .value("default", 1.0)
+            .function("add", |_, _| Ok::<_, Error>(1.0))
+            .function_async("fetch", |_, _| Ok::<_, Error>(async { Ok::<_, Error>(1.0) }))
+            .class::<Counter>()
+            .exception::<NetworkError>()
+            .namespace("units", {
+                let mut namespace = NamespaceDeclaration::new();
 
-        assert_eq!(
-            runtime
-                .guest()
-                .build()
-                .await
-                .unwrap()
-                .guest_module(
-                    "clock.js",
-                    "import { clock } from \"@host/clock\";\n\
-                     export function run() { return `${clock.tz}:${clock.now()}`; }",
-                )
-                .await
-                .unwrap()
-                .function("run")
-                .await
-                .unwrap()
-                .call::<_, String>(())
-                .await
-                .unwrap(),
-            "utc:42",
-        );
-    }
+                namespace.constant("METRE", 1.0);
 
-    #[tokio::test]
-    async fn host_object_async_method() {
-        let runtime = Runtime::builder()
-            .bind(ClockHost)
-            .build()
-            .await
-            .unwrap();
-
-        assert_eq!(
-            runtime
-                .guest()
-                .build()
-                .await
-                .unwrap()
-                .guest_module(
-                    "clock.js",
-                    "import { clock } from \"@host/clock\";\n\
-                     export async function run() { return await clock.later(); }",
-                )
-                .await
-                .unwrap()
-                .function("run")
-                .await
-                .unwrap()
-                .call::<_, Promise<i64>>(())
-                .await
-                .unwrap()
-                .await
-                .unwrap(),
-            7,
-        );
+                namespace
+            });
     }
 }

@@ -1,43 +1,34 @@
 #[allow(unused_extern_crates)]
 extern crate self as guestjs_core;
 
+pub mod backend;
+pub mod builder;
+pub mod bundle;
+pub mod catalog;
+pub mod driver;
+pub mod enter;
 pub mod errors;
-pub mod execution;
+pub mod eval;
+pub mod extensions;
+pub mod gc;
+pub mod guest;
 pub mod handle;
 pub mod host;
+pub mod imports;
 pub mod marshal;
-pub mod native;
+pub mod policy;
 pub mod runtime;
-pub mod transpiler;
-
-pub mod value {
-    pub use rquickjs::Value as JsValue;
-}
-
-pub(crate) mod registry;
 
 #[doc(hidden)]
-pub mod __private {
-    pub use rquickjs::Value as JsValue;
-    use serde::{Serialize, de::DeserializeOwned};
+pub mod fixtures;
 
-    use crate::{errors::Error, runtime::Scope};
+#[cfg(feature = "embedded")]
+pub mod embed {
+    pub use include_dir::{Dir, DirEntry, File};
 
-    /// Converts a serializable Rust value into a JavaScript value.
-    pub fn to_value<'js, T>(value: T, scope: &Scope<'js>) -> Result<JsValue<'js>, Error>
-    where
-        T: Serialize,
-    {
-        rquickjs_serde::to_value(scope.ctx().clone(), value)
-            .map_err(|error| Error::sourced_conversion(error.to_string(), Some(error)))
+    pub mod __include_dir {
+        pub use include_dir::{Dir, DirEntry, File};
     }
 
-    /// Converts a JavaScript value into a deserializable Rust value.
-    pub fn from_value<T>(value: JsValue<'_>) -> Result<T, Error>
-    where
-        T: DeserializeOwned,
-    {
-        rquickjs_serde::from_value(value)
-            .map_err(|error| Error::sourced_conversion(error.to_string(), Some(error)))
-    }
+    pub use include_dir::include_dir as __include_dir_macro;
 }

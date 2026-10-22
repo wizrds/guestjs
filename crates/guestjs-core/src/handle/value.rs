@@ -1,187 +1,127 @@
-use rquickjs::{CatchResultExt, Persistent, Value as JsValue};
-
 use crate::{
+    backend::{Backend, Val},
+    enter::Enter,
     errors::Error,
-    marshal::{FromGuest, FromGuestBound, ToGuest, ToGuestBound},
-    runtime::Scope,
+    handle::{HasHandle, base::Handle},
+    marshal::{
+        FromGuest, ToGuest,
+        describe::{Describe, Expected},
+    },
 };
 
-#[derive(Clone)]
-pub struct Value {
-    value: Persistent<JsValue<'static>>,
+pub struct Value<B: Backend> {
+    handle: Handle<B>,
 }
 
-impl Value {
-    pub(crate) fn new(value: Persistent<JsValue<'static>>) -> Self {
-        Self { value }
-    }
-
-    pub fn bind<'js, T>(&self, scope: &Scope<'js>) -> Result<T::Bound<'js>, Error>
+impl<B: Backend> Value<B> {
+    pub fn as_type<T>(&self) -> Result<T::Owned, Error>
     where
-        T: FromGuestBound,
+        T: FromGuest<B>,
     {
-        T::from_guest_bound(
-            scope,
-            self.value
-                .clone()
-                .restore(scope.ctx())
-                .catch(scope.ctx())?,
-        )
+        self.handle
+            .with_enter(|enter, value| T::from_guest(enter, value.clone()))
     }
 }
 
-impl ToGuest for Value {
-    fn to_guest<'js>(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        self.value
-            .restore(scope.ctx())
-            .catch(scope.ctx())
-            .map_err(Into::into)
+impl<B: Backend> Clone for Value<B> {
+    fn clone(&self) -> Self {
+        Self { handle: self.handle.clone() }
     }
 }
 
-impl<'js> ToGuestBound<'js> for Value {
-    fn to_guest_bound(self, scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        self.to_guest(scope)
+impl<B: Backend> HasHandle<B> for Value<B> {
+    fn handle(&self) -> &Handle<B> {
+        &self.handle
     }
 }
 
-impl FromGuest for Value {
+impl<B: Backend> Describe for Value<B> {
+    fn describe(expected: &mut Expected) {
+        expected.push("value");
+    }
+}
+
+impl<B: Backend> FromGuest<B> for Value<B> {
     type Owned = Self;
 
-    fn from_guest<'js>(scope: &Scope<'js>, value: JsValue<'js>) -> Result<Self::Owned, Error> {
-        Ok(Self::new(Persistent::save(scope.ctx(), value)))
+    fn from_guest<'js>(enter: &Enter<'js, B>, value: Val<'js, B>) -> Result<Self::Owned, Error> {
+        Ok(Self { handle: Handle::from_value(enter, value) })
     }
 }
 
-impl FromGuestBound for Value {
-    type Bound<'js> = BoundValue<'js>;
-
-    fn from_guest_bound<'js>(
-        scope: &Scope<'js>,
-        value: JsValue<'js>,
-    ) -> Result<Self::Bound<'js>, Error> {
-        Ok(BoundValue::new(value, scope.clone()))
+impl<B: Backend> ToGuest<B> for Value<B> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        self.handle.attach(enter)
     }
 }
 
-pub struct BoundValue<'js> {
-    value: JsValue<'js>,
-    scope: Scope<'js>,
-}
-
-impl<'js> BoundValue<'js> {
-    pub(crate) fn new(value: JsValue<'js>, scope: Scope<'js>) -> Self {
-        Self { value, scope }
-    }
-
-    pub fn as_value(&self) -> &JsValue<'js> {
-        &self.value
-    }
-
-    pub fn into_owned(self) -> Value {
-        Value::new(Persistent::save(self.scope.ctx(), self.value))
-    }
-}
-
-impl<'js> ToGuestBound<'js> for BoundValue<'js> {
-    fn to_guest_bound(self, _scope: &Scope<'js>) -> Result<JsValue<'js>, Error> {
-        Ok(self.value)
+impl<B: Backend> ToGuest<B> for &Value<B> {
+    fn to_guest<'js>(self, enter: &Enter<'js, B>) -> Result<Val<'js, B>, Error> {
+        self.handle.attach(enter)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        handle::{CallableProtocol, Value},
-        host::{Exports, HostModule},
+        backend::{tests::Stub, values::BackendValues},
+        guest::Guest,
+        handle::{
+            HasHandle, class::Class, iter::Iter, object::Object, protocol::ValueProtocol,
+            value::Value,
+        },
+        marshal::{FromGuest, ToGuest, describe::Expected},
         runtime::Runtime,
     };
 
-    struct ValueHost;
+    #[allow(dead_code)]
+    fn value_capabilities<B: BackendValues>() {
+        fn value<B: BackendValues, T: ValueProtocol<B>>() {}
 
-    impl HostModule for ValueHost {
-        fn name(&self) -> &str {
-            "@host/value"
-        }
-
-        fn build(&self, exports: &mut Exports) {
-            exports.function("identity", |scope, args| args.get_owned::<Value>(scope, 0));
-            exports.function("detached", |scope, args| {
-                args.get_owned::<Value>(scope, 0)?;
-
-                Ok(true)
-            });
-            exports.function("number", |scope, args| {
-                args.get_owned::<Value>(scope, 0)?
-                    .bind::<i32>(scope)
-            });
-        }
+        value::<B, Value<B>>();
+        value::<B, Object<B>>();
+        value::<B, Class<B>>();
+        value::<B, Iter<B, Value<B>>>();
     }
 
-    async fn value_module() -> crate::handle::Module {
-        Runtime::builder()
-            .bind(ValueHost)
-            .build()
-            .await
-            .unwrap()
-            .guest()
-            .build()
-            .await
-            .unwrap()
-            .guest_module(
-                "value.js",
-                "import { detached, identity, number } from \"@host/value\";\n\
-                 export function identityValue() {\n\
-                     const argument = {};\n\
-                     return identity(argument) === argument;\n\
-                 }\n\
-                 export function detachedValue() { return detached(41); }\n\
-                 export function numberValue() { return number(41); }",
-            )
-            .await
-            .unwrap()
-    }
+    #[test]
+    fn conversion_retains_the_guest() {
+        let guest = Guest::new(&Runtime::<Stub>::new(()).unwrap()).unwrap();
+        let value = guest
+            .enter(|enter| Value::from_guest(enter, ()))
+            .unwrap();
 
-    #[tokio::test]
-    async fn restores_a_value_within_one_sync_call() {
-        assert!(
-            value_module()
-                .await
-                .function("identityValue")
-                .await
-                .unwrap()
-                .call::<_, bool>(())
-                .await
-                .unwrap()
-        );
-    }
-
-    #[tokio::test]
-    async fn a_value_can_be_carried_from_a_detached_scope() {
-        assert!(
-            value_module()
-                .await
-                .function("detachedValue")
-                .await
-                .unwrap()
-                .call::<_, bool>((41,))
-                .await
-                .unwrap(),
-        );
-    }
-
-    #[tokio::test]
-    async fn binds_a_value_to_another_type() {
+        assert_eq!(value.handle().guest().id(), guest.id());
         assert_eq!(
-            value_module()
-                .await
-                .function("numberValue")
-                .await
+            value
+                .as_type::<Value<Stub>>()
                 .unwrap()
-                .call::<_, i32>((41,))
-                .await
-                .unwrap(),
-            41,
+                .handle()
+                .guest()
+                .id(),
+            guest.id(),
         );
+    }
+
+    #[test]
+    fn owned_and_borrowed_values_convert_back() {
+        let guest = Guest::new(&Runtime::<Stub>::new(()).unwrap()).unwrap();
+        let value = guest
+            .enter(|enter| Value::from_guest(enter, ()))
+            .unwrap();
+
+        guest
+            .enter(|enter| {
+                assert!((&value).to_guest(enter).is_ok());
+                assert!(value.clone().to_guest(enter).is_ok());
+
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn description_names_an_unrestricted_value() {
+        assert_eq!(Expected::of::<Value<Stub>>().to_string(), "value");
     }
 }
