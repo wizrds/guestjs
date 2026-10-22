@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.6.0](https://github.com/wizrds/guestjs/compare/0.5.1..0.6.0) - 2026-10-22
+
+### Features
+
+-  [**breaking**]Rework machinery for backend generic implementations and owned handles only  - ([a21bec8](https://github.com/wizrds/guestjs/commit/a21bec881dcf6b04e112e18dacbd9c5729bc32a6)) - Timothy Pogue
+---
 ## [0.5.1](https://github.com/wizrds/guestjs/compare/0.5.0..0.5.1) - 2026-09-10
 
 ### Bug Fixes
