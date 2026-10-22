@@ -283,9 +283,9 @@ impl Callable {
             || self.asynchronous
             || !matches!(self.parameters.as_slice(), [parameter] if parameter.is_value())
         {
-            return Err(self.error(
-                "a build hook must be synchronous and take only the module declaration",
-            ));
+            return Err(
+                self.error("a build hook must be synchronous and take only the module declaration")
+            );
         }
 
         Ok(())

@@ -64,11 +64,12 @@ pub struct LlrtBuilder {
 impl LlrtBuilder {
     #[cfg(feature = "llrt-abort")]
     pub fn abort(mut self) -> Self {
-        self.libraries.push(
-            NativeLibrary::new().extend(NativeInitializer::new(|enter: &Enter<'_, QuickJs>| {
-                llrt_modules::abort::init(&enter.token().ctx()).capture(enter.token())
-            })),
-        );
+        self.libraries
+            .push(NativeLibrary::new().extend(NativeInitializer::new(
+                |enter: &Enter<'_, QuickJs>| {
+                    llrt_modules::abort::init(&enter.token().ctx()).capture(enter.token())
+                },
+            )));
         self
     }
 
@@ -110,11 +111,12 @@ impl LlrtBuilder {
 
     #[cfg(feature = "llrt-fetch")]
     pub fn fetch(mut self) -> Self {
-        self.libraries.push(
-            NativeLibrary::new().extend(NativeInitializer::new(|enter: &Enter<'_, QuickJs>| {
-                llrt_modules::fetch::init(&enter.token().ctx()).capture(enter.token())
-            })),
-        );
+        self.libraries
+            .push(NativeLibrary::new().extend(NativeInitializer::new(
+                |enter: &Enter<'_, QuickJs>| {
+                    llrt_modules::fetch::init(&enter.token().ctx()).capture(enter.token())
+                },
+            )));
         self
     }
 

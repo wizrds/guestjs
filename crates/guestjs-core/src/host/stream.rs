@@ -15,10 +15,7 @@ use futures::{
 
 use crate::{
     backend::{
-        Val,
-        callables::BackendCallables,
-        exceptions::BackendExceptions,
-        promises::BackendPromises,
+        Val, callables::BackendCallables, exceptions::BackendExceptions, promises::BackendPromises,
     },
     enter::Enter,
     errors::{BorrowKind, Error},
@@ -109,20 +106,37 @@ where
         let sink = self.clone();
 
         async move {
-            poll_fn(|context| sink.borrow()?.as_mut().poll_ready(context)).await?;
+            poll_fn(|context| {
+                sink.borrow()?
+                    .as_mut()
+                    .poll_ready(context)
+            })
+            .await?;
 
             sink.borrow()?
                 .as_mut()
                 .start_send(item)?;
 
-            poll_fn(|context| sink.borrow()?.as_mut().poll_flush(context)).await
+            poll_fn(|context| {
+                sink.borrow()?
+                    .as_mut()
+                    .poll_flush(context)
+            })
+            .await
         }
     }
 
     pub fn close(&self) -> impl Future<Output = Result<(), Error>> + use<S, T> + 'static {
         let sink = self.clone();
 
-        async move { poll_fn(|context| sink.borrow()?.as_mut().poll_close(context)).await }
+        async move {
+            poll_fn(|context| {
+                sink.borrow()?
+                    .as_mut()
+                    .poll_close(context)
+            })
+            .await
+        }
     }
 
     pub fn abort(&self) -> Result<(), Error> {
@@ -203,10 +217,7 @@ pub struct StreamSink<S, T> {
 
 impl<S, T> StreamSink<S, T> {
     pub fn new(sink: S) -> Self {
-        Self {
-            sink,
-            chunks: PhantomData,
-        }
+        Self { sink, chunks: PhantomData }
     }
 }
 
@@ -250,9 +261,7 @@ mod tests {
 
     use crate::{
         backend::{
-            Backend,
-            callables::BackendCallables,
-            exceptions::BackendExceptions,
+            Backend, callables::BackendCallables, exceptions::BackendExceptions,
             promises::BackendPromises,
         },
         errors::Error,
@@ -276,11 +285,8 @@ mod tests {
 
     #[tokio::test]
     async fn shared_stream_ends_after_error() {
-        let shared = SharedStream::new(stream::iter([
-            Ok(1),
-            Err(Error::unexpected("failed")),
-            Ok(2),
-        ]));
+        let shared =
+            SharedStream::new(stream::iter([Ok(1), Err(Error::unexpected("failed")), Ok(2)]));
 
         assert!(matches!(shared.next().await, Some(Ok(1))));
         assert!(matches!(shared.next().await, Some(Err(Error::Unexpected { .. }))));
@@ -299,7 +305,8 @@ mod tests {
     #[tokio::test]
     async fn shared_sink_sends_and_closes() {
         let (sender, receiver) = mpsc::unbounded::<i64>();
-        let shared = SharedSink::new(sender.sink_map_err(|error| Error::unexpected(error.to_string())));
+        let shared =
+            SharedSink::new(sender.sink_map_err(|error| Error::unexpected(error.to_string())));
 
         shared.send(1).await.unwrap();
         shared.send(2).await.unwrap();
@@ -311,7 +318,8 @@ mod tests {
     #[tokio::test]
     async fn shared_sink_rejects_after_abort() {
         let (sender, _receiver) = mpsc::unbounded::<i64>();
-        let shared = SharedSink::new(sender.sink_map_err(|error| Error::unexpected(error.to_string())));
+        let shared =
+            SharedSink::new(sender.sink_map_err(|error| Error::unexpected(error.to_string())));
 
         shared.abort().unwrap();
 

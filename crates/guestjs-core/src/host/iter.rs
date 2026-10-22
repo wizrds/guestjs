@@ -4,10 +4,7 @@ use futures::{FutureExt, Stream};
 
 use crate::{
     backend::{
-        Val,
-        callables::BackendCallables,
-        exceptions::BackendExceptions,
-        promises::BackendPromises,
+        Val, callables::BackendCallables, exceptions::BackendExceptions, promises::BackendPromises,
         values::WellKnown,
     },
     enter::Enter,
@@ -60,9 +57,7 @@ where
 
                 Ok(IterItem::<T>::new(None))
             })
-            .function(WellKnown::Iterator, |context, args| {
-                args.this::<Object<B>>(context.enter())
-            });
+            .function(WellKnown::Iterator, |context, args| args.this::<Object<B>>(context.enter()));
 
         namespace.to_guest(enter)
     }
@@ -116,9 +111,7 @@ mod tests {
 
     use crate::{
         backend::{
-            Backend,
-            callables::BackendCallables,
-            exceptions::BackendExceptions,
+            Backend, callables::BackendCallables, exceptions::BackendExceptions,
             promises::BackendPromises,
         },
         errors::Error,

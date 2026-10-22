@@ -107,15 +107,9 @@ impl ModuleItemOptions {
             .ok_or_else(|| syn::Error::new(ident.span(), "missing module member role"))?;
 
         if self.default.is_present()
-            && matches!(
-                role,
-                ModuleRole::State | ModuleRole::Init | ModuleRole::Build
-            )
+            && matches!(role, ModuleRole::State | ModuleRole::Init | ModuleRole::Build)
         {
-            return Err(syn::Error::new(
-                ident.span(),
-                "only an export can be the default export",
-            ));
+            return Err(syn::Error::new(ident.span(), "only an export can be the default export"));
         }
 
         if self.default.is_present() && self.name.is_some() {
@@ -753,10 +747,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("{}", error.into_tokens()))
             .expand()
             .to_string()
-            .contains(
-                &quote!(Self::configure::<B>(__guestjs_module .class::<Point>()))
-                    .to_string()
-            )
+            .contains(&quote!(Self::configure::<B>(__guestjs_module.class::<Point>())).to_string())
         );
     }
 
