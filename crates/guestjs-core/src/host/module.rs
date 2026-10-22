@@ -13,6 +13,7 @@ use crate::{
         declaration::Declaration,
         exception::{ExceptionDeclaration, HostException},
         function::FunctionDeclaration,
+        library::HostInitializer,
         namespace::NamespaceDeclaration,
         requirements::Requirements,
         state::HostState,
@@ -26,6 +27,7 @@ pub struct ModuleDeclaration<B: Backend> {
     requirements: Requirements,
     members: Vec<(String, Rc<dyn Declaration<B>>)>,
     state: Box<dyn for<'js> Fn(&Enter<'js, B>) -> Result<HostState, Error>>,
+    initializer: Option<HostInitializer<B>>,
 }
 
 impl<B: Backend> ModuleDeclaration<B> {
@@ -38,6 +40,7 @@ impl<B: Backend> ModuleDeclaration<B> {
             requirements: Requirements::new(),
             members: Vec::new(),
             state: Box::new(|_| Ok(HostState::empty())),
+            initializer: None,
         }
     }
 
@@ -79,8 +82,21 @@ impl<B: Backend> ModuleDeclaration<B> {
         self
     }
 
+    pub fn initialize<F>(mut self, initialize: F) -> Self
+    where
+        F: for<'js> Fn(&Enter<'js, B>) -> Result<(), Error> + 'static,
+    {
+        self.initializer = Some(HostInitializer::new(initialize));
+
+        self
+    }
+
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub fn initializer(&self) -> Option<&HostInitializer<B>> {
+        self.initializer.as_ref()
     }
 
     pub fn exports<'js>(&self, enter: &Enter<'js, B>) -> Result<Vec<(String, Val<'js, B>)>, Error> {
@@ -290,6 +306,50 @@ mod tests {
             .unwrap();
 
         assert_eq!(builds.get(), 2);
+    }
+
+    #[test]
+    fn a_module_without_an_initializer_has_none() {
+        assert!(
+            ModuleDeclaration::<Stub>::new("plain")
+                .initializer()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn initialize_replaces_the_initializer() {
+        let runs = Rc::new(Cell::new(0_u8));
+
+        Guest::new(&Runtime::<Stub>::new(()).unwrap())
+            .unwrap()
+            .enter(|enter| {
+                ModuleDeclaration::<Stub>::new("initialized")
+                    .initialize({
+                        let runs = runs.clone();
+
+                        move |_| {
+                            runs.set(1);
+
+                            Ok(())
+                        }
+                    })
+                    .initialize({
+                        let runs = runs.clone();
+
+                        move |_| {
+                            runs.set(2);
+
+                            Ok(())
+                        }
+                    })
+                    .initializer()
+                    .unwrap()
+                    .run(enter)
+            })
+            .unwrap();
+
+        assert_eq!(runs.get(), 2);
     }
 
     #[allow(dead_code)]

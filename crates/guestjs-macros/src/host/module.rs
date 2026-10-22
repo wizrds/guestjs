@@ -55,6 +55,8 @@ enum ModuleRole {
     Constant,
     Namespace,
     State,
+    Init,
+    Build,
 }
 
 #[derive(Default, FromMeta)]
@@ -65,6 +67,9 @@ struct ModuleItemOptions {
     constant: Flag,
     namespace: Flag,
     state: Flag,
+    init: Flag,
+    build: Flag,
+    default: Flag,
     name: Option<String>,
 }
 
@@ -80,6 +85,8 @@ impl ModuleItemOptions {
             (self.constant.is_present(), ModuleRole::Constant),
             (self.namespace.is_present(), ModuleRole::Namespace),
             (self.state.is_present(), ModuleRole::State),
+            (self.init.is_present(), ModuleRole::Init),
+            (self.build.is_present(), ModuleRole::Build),
         ];
 
         if roles
@@ -94,12 +101,36 @@ impl ModuleItemOptions {
             ));
         }
 
+        let role = roles
+            .into_iter()
+            .find_map(|(present, role)| present.then_some(role))
+            .ok_or_else(|| syn::Error::new(ident.span(), "missing module member role"))?;
+
+        if self.default.is_present()
+            && matches!(
+                role,
+                ModuleRole::State | ModuleRole::Init | ModuleRole::Build
+            )
+        {
+            return Err(syn::Error::new(
+                ident.span(),
+                "only an export can be the default export",
+            ));
+        }
+
+        if self.default.is_present() && self.name.is_some() {
+            return Err(syn::Error::new(
+                ident.span(),
+                "a default export cannot have a guest-visible name",
+            ));
+        }
+
         Ok((
-            roles
-                .into_iter()
-                .find_map(|(present, role)| present.then_some(role))
-                .ok_or_else(|| syn::Error::new(ident.span(), "missing module member role"))?,
-            Naming::member(ident, self.name.clone(), rename),
+            role,
+            match self.default.is_present() {
+                true => String::from("default"),
+                false => Naming::member(ident, self.name.clone(), rename),
+            },
         ))
     }
 }
@@ -214,6 +245,8 @@ struct HostModuleDefinition {
     bounds: BackendBounds,
     members: Vec<ModuleMember>,
     factory: Option<Callable>,
+    initializer: Option<Callable>,
+    build: Option<Callable>,
     shared: bool,
     requirements: StateRequirements,
     classes: TypeList,
@@ -229,6 +262,8 @@ impl HostModuleDefinition {
         let krate = CratePath::new(path).resolve()?;
         let mut members = Vec::new();
         let mut factory = None;
+        let mut initializer = None;
+        let mut build = None;
 
         for member in &mut item.items {
             match member {
@@ -248,7 +283,7 @@ impl HostModuleDefinition {
 
                     match role {
                         ModuleRole::State => {
-                            callable.validate_factory()?;
+                            callable.validate_factory("a state factory")?;
 
                             if factory.is_some() {
                                 return Err(syn::Error::new(
@@ -259,6 +294,32 @@ impl HostModuleDefinition {
                             }
 
                             factory = Some(callable);
+                        }
+                        ModuleRole::Init => {
+                            callable.validate_factory("an init hook")?;
+
+                            if initializer.is_some() {
+                                return Err(syn::Error::new(
+                                    callable.ident().span(),
+                                    "only one init hook is permitted",
+                                )
+                                .into());
+                            }
+
+                            initializer = Some(callable);
+                        }
+                        ModuleRole::Build => {
+                            callable.validate_build_hook()?;
+
+                            if build.is_some() {
+                                return Err(syn::Error::new(
+                                    callable.ident().span(),
+                                    "only one build hook is permitted",
+                                )
+                                .into());
+                            }
+
+                            build = Some(callable);
                         }
                         ModuleRole::Namespace => {
                             callable.validate_namespace_factory()?;
@@ -368,16 +429,24 @@ impl HostModuleDefinition {
             ));
         }
 
-        let mut methods = members
-            .iter()
-            .map(|member| member.ident().clone())
-            .collect::<Vec<_>>();
-
-        if let Some(factory) = &factory {
-            methods.push(factory.ident().clone());
-        }
-
-        HostSyntax::rewrite(item, &methods, &backend, &mut bounds, &krate);
+        HostSyntax::rewrite(
+            item,
+            &members
+                .iter()
+                .map(ModuleMember::ident)
+                .chain(
+                    factory
+                        .iter()
+                        .chain(&initializer)
+                        .chain(&build)
+                        .map(Callable::ident),
+                )
+                .cloned()
+                .collect::<Vec<_>>(),
+            &backend,
+            &mut bounds,
+            &krate,
+        );
 
         let mut requirements = StateRequirements::default();
 
@@ -394,6 +463,8 @@ impl HostModuleDefinition {
             shared: members.iter().any(ModuleMember::shared),
             members,
             factory,
+            initializer,
+            build,
             requirements,
             classes,
             exceptions,
@@ -407,14 +478,13 @@ impl HostModuleDefinition {
             .backend
             .definition_generics(&item.generics, &self.bounds);
 
-        if self.shared || self.factory.is_some() {
+        if self.shared || self.factory.is_some() || self.initializer.is_some() {
             generics
                 .make_where_clause()
                 .predicates
-                .push(if self.factory.is_some() {
-                    parse_quote!(Self: 'static)
-                } else {
-                    parse_quote!(Self: Default + 'static)
+                .push(match self.shared && self.factory.is_none() {
+                    true => parse_quote!(Self: Default + 'static),
+                    false => parse_quote!(Self: 'static),
                 });
         }
 
@@ -439,12 +509,34 @@ impl HostModuleDefinition {
             }
             None => TokenStream::new(),
         };
+        let initializer = self
+            .initializer
+            .as_ref()
+            .map(|initializer| {
+                let initializer = initializer.factory(&self.backend);
+
+                quote!(.initialize(#initializer))
+            });
         let members = self
             .members
             .iter()
             .map(|member| member.render(krate, &self.backend, &declaration));
         let classes = self.classes.types();
         let exceptions = self.exceptions.types();
+        let registered = quote! {
+            #declaration
+                #(.exception::<#exceptions>())*
+                #(.class::<#classes>())*
+        };
+        let finished = match &self.build {
+            Some(build) => {
+                let ident = build.ident();
+                let turbofish = self.backend.turbofish();
+
+                quote!(Self::#ident #turbofish (#registered))
+            }
+            None => registered,
+        };
 
         quote! {
             #(#conditions)*
@@ -456,13 +548,12 @@ impl HostModuleDefinition {
                     let #mutable #declaration =
                         #krate::host::module::ModuleDeclaration::new(#name)
                             #factory
+                            #initializer
                             #(#requirements)*;
 
                     #(#members)*
 
-                    #declaration
-                        #(.exception::<#exceptions>())*
-                        #(.class::<#classes>())*
+                    #finished
                 }
             }
         }
@@ -495,10 +586,27 @@ impl HostModuleMacro {
 
 #[cfg(test)]
 mod tests {
+    use proc_macro2::TokenStream;
     use quote::quote;
-    use syn::{File, parse_quote, parse2};
+    use syn::{File, ItemImpl, parse_quote, parse2};
 
     use crate::host::module::HostModuleMacro;
+
+    struct ModuleFixture;
+
+    impl ModuleFixture {
+        fn emits(item: ItemImpl, expected: TokenStream) -> bool {
+            HostModuleMacro::new(quote!(crate_path = crate), item)
+                .unwrap_or_else(|error| panic!("{}", error.into_tokens()))
+                .expand()
+                .to_string()
+                .contains(&expected.to_string())
+        }
+
+        fn rejects(item: ItemImpl) -> bool {
+            HostModuleMacro::new(quote!(crate_path = crate), item).is_err()
+        }
+    }
 
     #[test]
     fn emits_a_stateful_module_and_preserves_the_original_impl() {
@@ -526,7 +634,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_exclusive_module_receivers_and_deferred_roles() {
+    fn rejects_exclusive_module_receivers() {
         assert!(
             HostModuleMacro::new(
                 quote!(crate_path = crate),
@@ -537,15 +645,176 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn default_exports_under_the_default_name() {
+        assert!(ModuleFixture::emits(
+            parse_quote!(impl Greeting {
+                #[guestjs(constant, default)]
+                const FALLBACK: &'static str = "hello";
+            }),
+            quote!(.value("default", Self::FALLBACK)),
+        ));
+    }
+
+    #[test]
+    fn rejects_misused_defaults() {
+        for item in [
+            parse_quote!(impl Greeting {
+                #[guestjs(constant, default, name = "fallback")]
+                const FALLBACK: &'static str = "hello";
+            }),
+            parse_quote!(impl Greeting {
+                #[guestjs(state, default)]
+                fn state() -> Result<Self, Error> { Ok(Self) }
+            }),
+            parse_quote!(impl Greeting {
+                #[guestjs(init, default)]
+                fn install() -> Result<(), Error> { Ok(()) }
+            }),
+            parse_quote!(impl Greeting {
+                #[guestjs(build, default)]
+                fn configure(module: ModuleDeclaration<B>)
+                    -> ModuleDeclaration<B>
+                {
+                    module
+                }
+            }),
+            parse_quote!(impl Greeting {
+                #[guestjs(constant, default)]
+                const FALLBACK: &'static str = "hello";
+
+                #[guestjs(function, name = "default")]
+                fn greet() -> Result<(), Error> { Ok(()) }
+            }),
+        ] {
+            assert!(ModuleFixture::rejects(item));
+        }
+    }
+
+    #[test]
+    fn init_renders_an_initializer_and_a_static_bound() {
+        for expected in [
+            quote!(.initialize(|__guestjs_enter| Self::install())),
+            quote!(Self: 'static),
+        ] {
+            assert!(ModuleFixture::emits(
+                parse_quote!(impl Geometry {
+                    #[guestjs(init)]
+                    fn install() -> Result<(), Error> { Ok(()) }
+                }),
+                expected,
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_misplaced_init_hooks() {
+        for item in [
+            parse_quote!(impl Geometry {
+                #[guestjs(init)]
+                fn first() -> Result<(), Error> { Ok(()) }
+
+                #[guestjs(init)]
+                fn second() -> Result<(), Error> { Ok(()) }
+            }),
+            parse_quote!(impl Geometry {
+                #[guestjs(init)]
+                fn install(&self) -> Result<(), Error> { Ok(()) }
+            }),
+            parse_quote!(impl Geometry {
+                #[guestjs(init)]
+                fn install(scale: f64) -> Result<(), Error> { Ok(()) }
+            }),
+            parse_quote!(impl Geometry {
+                #[guestjs(init)]
+                async fn install() -> Result<(), Error> { Ok(()) }
+            }),
+        ] {
+            assert!(ModuleFixture::rejects(item));
+        }
+    }
+
+    #[test]
+    fn build_wraps_the_finished_declaration() {
         assert!(
             HostModuleMacro::new(
-                quote!(crate_path = crate),
-                parse_quote!(impl Metrics {
-                    #[guestjs(init)]
-                    fn init() -> Result<(), Error> { Ok(()) }
+                quote!(backend = B, classes(Point), crate_path = crate),
+                parse_quote!(impl Geometry {
+                    #[guestjs(build)]
+                    fn configure(module: ModuleDeclaration<B>)
+                        -> ModuleDeclaration<B>
+                    {
+                        module
+                    }
                 }),
             )
-            .is_err()
+            .unwrap_or_else(|error| panic!("{}", error.into_tokens()))
+            .expand()
+            .to_string()
+            .contains(
+                &quote!(Self::configure::<B>(__guestjs_module .class::<Point>()))
+                    .to_string()
+            )
         );
+    }
+
+    #[test]
+    fn rejects_misplaced_build_hooks() {
+        for item in [
+            parse_quote!(impl Geometry {
+                #[guestjs(build)]
+                fn first(module: ModuleDeclaration<B>) -> ModuleDeclaration<B> { module }
+
+                #[guestjs(build)]
+                fn second(module: ModuleDeclaration<B>) -> ModuleDeclaration<B> { module }
+            }),
+            parse_quote!(impl Geometry {
+                #[guestjs(build)]
+                fn configure(&self, module: ModuleDeclaration<B>)
+                    -> ModuleDeclaration<B>
+                {
+                    module
+                }
+            }),
+            parse_quote!(impl Geometry {
+                #[guestjs(build)]
+                fn configure() -> ModuleDeclaration<B> { ModuleDeclaration::new("geometry") }
+            }),
+        ] {
+            assert!(ModuleFixture::rejects(item));
+        }
+    }
+
+    #[test]
+    fn namespace_renders_its_factory() {
+        assert!(ModuleFixture::emits(
+            parse_quote!(impl Geometry {
+                #[guestjs(namespace)]
+                fn tools() -> NamespaceDeclaration<B> {
+                    NamespaceDeclaration::new()
+                        .constant("version", 2)
+                        .clone()
+                }
+            }),
+            quote!(.namespace("tools", Self::tools())),
+        ));
+    }
+
+    #[test]
+    fn state_renders_its_factory_and_a_static_bound() {
+        for expected in [
+            quote!(.state(|__guestjs_enter| Self::state())),
+            quote!(Self: 'static),
+        ] {
+            assert!(ModuleFixture::emits(
+                parse_quote!(impl Geometry {
+                    #[guestjs(state)]
+                    fn state() -> Result<Self, Error> { Ok(Self) }
+                }),
+                expected,
+            ));
+        }
     }
 }

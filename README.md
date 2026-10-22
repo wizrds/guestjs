@@ -659,6 +659,77 @@ impl Buffers {
 }
 ```
 
+### Host module roles
+
+Each annotated item takes one role:
+
+| Role | Item | Effect |
+| --- | --- | --- |
+| `function` | `fn` | exports a function; an `async fn` returns a promise |
+| `async_function` | `fn` returning a future | exports a function that returns a promise |
+| `constant` | `const` | exports the value |
+| `namespace` | `fn() -> NamespaceDeclaration<B>` | exports an object built once when `module()` is called |
+| `state` | `fn() -> Result<Self, Error>` | builds the module state each time the module is realised in a guest |
+| `init` | `fn() -> Result<(), Error>` | runs once per guest when the guest is built, whether or not the guest imports the module |
+| `build` | `fn(ModuleDeclaration<B>) -> ModuleDeclaration<B>` | receives the finished declaration and returns it |
+
+`default` on an export role exports the item as the module's default export. It cannot be combined with `name`:
+
+```rust
+#[guestjs::host_module(name = "host_greeting")]
+impl Greeting {
+    #[guestjs(constant, default)]
+    const FALLBACK: &'static str = "hello";
+
+    #[guestjs(namespace)]
+    fn tools() -> NamespaceDeclaration<B> {
+        NamespaceDeclaration::new()
+            .constant("version", 2)
+            .clone()
+    }
+}
+```
+
+```javascript
+import fallback, { tools } from "host_greeting";
+```
+
+`state`, `init`, and `namespace` take no receiver, and `state` and `init` accept only `#[guestjs(enter)]` parameters. A module allows one `state` factory, one `init` hook, and one `build` hook. A hook that names the backend in its signature needs `backend = B` on the module, and the bounds it needs beyond `Backend` go on the hook:
+
+```rust
+#[guestjs::host_module(name = "host_geometry", backend = B)]
+impl Geometry {
+    #[guestjs(init)]
+    fn install(#[guestjs(enter)] enter: &Enter<'_, B>) -> Result<(), Error>
+    where
+        B: BackendValues,
+    {
+        enter.guest().globals()?.set("__geometryReady", true)
+    }
+
+    #[guestjs(build)]
+    fn configure(module: ModuleDeclaration<B>) -> ModuleDeclaration<B>
+    where
+        B: BackendValues,
+    {
+        module.value("units", vec!["mm", "cm", "m"])
+    }
+}
+```
+
+Configuration that is only known at runtime is applied where the module is bound, on the declaration `module()` returns:
+
+```rust
+let runtime = Runtime::<QuickJs>::builder()
+    .bind(match settings.expose_origin {
+        true => Geometry::module::<QuickJs>().value("origin", [0.0, 0.0]),
+        false => Geometry::module::<QuickJs>(),
+    })
+    .build()?;
+```
+
+`state(..)` on the returned declaration replaces the module's state factory. An initializer that reads configuration is added with `HostLibrary::from(module).extend(HostInitializer::new(..))`, which keeps the module's own `init` hook.
+
 ### Host iterators and streams
 
 A host function can give the guest a Rust iterator, `Stream` or `Sink` without collecting it first:

@@ -262,7 +262,7 @@ impl Callable {
         Ok(())
     }
 
-    pub fn validate_factory(&self) -> syn::Result<()> {
+    pub fn validate_factory(&self, role: &str) -> syn::Result<()> {
         if self.has_receiver()
             || self.asynchronous
             || self
@@ -270,8 +270,21 @@ impl Callable {
                 .iter()
                 .any(|parameter| !parameter.is_enter())
         {
+            return Err(self.error(&format!(
+                "{role} must be synchronous and accept only injected entry parameters"
+            )));
+        }
+
+        Ok(())
+    }
+
+    pub fn validate_build_hook(&self) -> syn::Result<()> {
+        if self.has_receiver()
+            || self.asynchronous
+            || !matches!(self.parameters.as_slice(), [parameter] if parameter.is_value())
+        {
             return Err(self.error(
-                "a state factory must be synchronous and accept only injected entry parameters",
+                "a build hook must be synchronous and take only the module declaration",
             ));
         }
 
@@ -606,5 +619,56 @@ mod tests {
                 parse_quote!(ModuleState<Second>),
             ],
         );
+    }
+
+    #[test]
+    fn factories_name_their_role_in_errors() {
+        assert_eq!(
+            CallableFixture::parse(parse_quote!(
+                fn install(&self) -> Result<(), Error>
+            ))
+            .validate_factory("an init hook")
+            .unwrap_err()
+            .to_string(),
+            "an init hook must be synchronous and accept only injected entry parameters",
+        );
+    }
+
+    #[test]
+    fn build_hooks_take_only_the_module_declaration() {
+        assert!(
+            CallableFixture::parse(parse_quote!(
+                fn configure(module: ModuleDeclaration<B>)
+                    -> ModuleDeclaration<B>
+            ))
+            .validate_build_hook()
+            .is_ok()
+        );
+
+        for signature in [
+            parse_quote!(
+                fn configure(&self, module: ModuleDeclaration<B>)
+                    -> ModuleDeclaration<B>
+            ),
+            parse_quote!(
+                async fn configure(module: ModuleDeclaration<B>)
+                    -> ModuleDeclaration<B>
+            ),
+            parse_quote!(fn configure() -> ModuleDeclaration<B>),
+            parse_quote!(
+                fn configure(first: ModuleDeclaration<B>, second: ModuleDeclaration<B>)
+                    -> ModuleDeclaration<B>
+            ),
+            parse_quote!(
+                fn configure(#[guestjs(enter)] enter: &Enter<'_, B>)
+                    -> ModuleDeclaration<B>
+            ),
+        ] {
+            assert!(
+                CallableFixture::parse(signature)
+                    .validate_build_hook()
+                    .is_err()
+            );
+        }
     }
 }

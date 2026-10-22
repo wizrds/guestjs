@@ -226,8 +226,14 @@ impl<B: BackendModules> Catalog<B> {
             .iter()
             .try_for_each(|module| self.sources.insert_host(module.clone()))?;
 
-        self.host_initializers
-            .extend_from_slice(library.initializers());
+        self.host_initializers.extend(
+            library
+                .modules()
+                .iter()
+                .filter_map(|module| module.initializer())
+                .chain(library.initializers())
+                .cloned(),
+        );
 
         Ok(self)
     }
@@ -292,7 +298,19 @@ impl<B: BackendModules> Default for Catalog<B> {
 
 #[cfg(test)]
 mod tests {
-    use crate::catalog::DeniedNames;
+    use std::{cell::RefCell, rc::Rc};
+
+    use crate::{
+        backend::tests::Stub,
+        catalog::{Catalog, DeniedNames},
+        enter::Enter,
+        guest::Guest,
+        host::{
+            library::{HostInitializer, HostLibrary},
+            module::ModuleDeclaration,
+        },
+        runtime::Runtime,
+    };
 
     #[test]
     fn nothing_is_denied_by_default() {
@@ -309,5 +327,37 @@ mod tests {
         assert!(denied.denies("fs/promises"));
         assert!(!denied.denies("fsx"));
         assert!(!denied.denies("path"));
+    }
+
+    #[test]
+    fn host_collects_module_initializers_before_library_initializers() {
+        let order = Rc::new(RefCell::new(Vec::new()));
+        let record = |label: &'static str| {
+            let order = order.clone();
+
+            move |_: &Enter<'_, Stub>| {
+                order.borrow_mut().push(label);
+
+                Ok(())
+            }
+        };
+
+        Guest::new(&Runtime::<Stub>::new(()).unwrap())
+            .unwrap()
+            .enter(|enter| {
+                Catalog::<Stub>::new()
+                    .host(
+                        HostLibrary::from(HostInitializer::new(record("library")))
+                            .extend(ModuleDeclaration::new("first").initialize(record("first")))
+                            .extend(ModuleDeclaration::new("plain"))
+                            .extend(ModuleDeclaration::new("second").initialize(record("second"))),
+                    )?
+                    .host_initializers()
+                    .iter()
+                    .try_for_each(|initializer| initializer.run(enter))
+            })
+            .unwrap();
+
+        assert_eq!(*order.borrow(), ["first", "second", "library"]);
     }
 }
