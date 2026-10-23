@@ -51,15 +51,17 @@ pub enum Error {
     #[error("{message}")]
     Engine { message: String },
 
+    /// A failure to import a module or symbol.
     #[error("cannot import {name}: {message}")]
     Import { name: String, message: String },
 
+    /// A failure to load a bundle.
     #[error("invalid bundle: {message}")]
     Bundle { message: String },
 
     /// An error returned by host code.
     #[error(transparent)]
-    Host(Box<dyn std::error::Error>),
+    Host(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl Error {
@@ -149,7 +151,7 @@ impl Error {
     }
 
     /// Creates an [`Error::Host`](crate::errors::Error::Host) wrapping the given error.
-    pub fn host(error: impl Into<Box<dyn std::error::Error>>) -> Self {
+    pub fn host(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
         Self::Host(error.into())
     }
 
