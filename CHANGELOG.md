@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.6.1](https://github.com/wizrds/guestjs/compare/0.6.0..0.6.1) - 2026-10-23
+
+### Bug Fixes
+
+- Require host originated errors to be thread safe - ([7b25e8e](https://github.com/wizrds/guestjs/commit/7b25e8ee1f4071a67c2c262bf90558e94dff748a)) - Timothy Pogue
+---
 ## [0.6.0](https://github.com/wizrds/guestjs/compare/0.5.1..0.6.0) - 2026-10-22
 
 ### Features
