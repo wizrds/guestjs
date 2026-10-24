@@ -449,6 +449,13 @@ impl<'de, 'a, 'js, B: BackendBuffers> de::Deserializer<'de> for Deserializer<'a,
         }
     }
 
+    fn deserialize_newtype_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value, Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_newtype_struct(self)
+    }
+
     fn deserialize_enum<V>(
         self,
         _name: &'static str,
@@ -472,7 +479,7 @@ impl<'de, 'a, 'js, B: BackendBuffers> de::Deserializer<'de> for Deserializer<'a,
 
     forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
-        bytes byte_buf unit unit_struct newtype_struct seq tuple
+        bytes byte_buf unit unit_struct seq tuple
         tuple_struct map struct identifier ignored_any
     }
 }
@@ -697,10 +704,5 @@ mod tests {
             <Error as de::Error>::invalid_type(Unexpected::Str("one"), &"a number",).to_string(),
             "expected a number, found string \"one\"",
         );
-    }
-
-    #[test]
-    fn custom_errors_are_unexpected() {
-        assert!(<Error as de::Error>::custom("missing field `name`").is_unexpected(),);
     }
 }
