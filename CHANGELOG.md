@@ -1,6 +1,12 @@
 # Changelog
 
 ---
+## [0.6.2](https://github.com/wizrds/guestjs/compare/0.6.1..0.6.2) - 2026-10-24
+
+### Bug Fixes
+
+- Fix newtype struct deserialization in serde wrapper - ([b58daae](https://github.com/wizrds/guestjs/commit/b58daaecda588127d241cbdff91a095c35ed804a)) - Timothy Pogue
+---
 ## [0.6.1](https://github.com/wizrds/guestjs/compare/0.6.0..0.6.1) - 2026-10-23
 
 ### Bug Fixes
